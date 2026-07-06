@@ -1,0 +1,11 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# esbuild (pulled in by vitest) ships its platform binary in a sub-package; its
+# install script only verifies that binary, so it is safe to allow.
+# better-sqlite3 compiles a native addon (node-gyp) on install — the drizzle
+# driver for the SQLite progress store (§3, §11); its build is required.
+allowBuilds:
+  esbuild: true
+  better-sqlite3: true

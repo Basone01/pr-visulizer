@@ -1,0 +1,160 @@
+<!-- @dsCard group="Components" name="Graph nodes" subtitle="added / modified / suggested / reviewed / ghost" viewport="860x400" -->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Graph nodes</title>
+<style>
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --text: #1c2430;
+  --muted: #66707d;
+  --border: #dde2e8;
+  --code-bg: #eef1f5;
+  --accent: #2563eb;
+  --accent-soft: #dbeafe;
+  --added: #16a34a;
+  --added-soft: #dcfce7;
+  --modified: #d97706;
+  --modified-soft: #fef3c7;
+  --deleted: #dc2626;
+  --deleted-soft: #fee2e2;
+  --reviewed: #9aa4b0;
+  --syn-keyword: #cf222e;
+  --syn-string: #0a3069;
+  --syn-func: #8250df;
+  --syn-type: #953800;
+  --syn-const: #0550ae;
+  --syn-comment: #6e7781;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #12161c;
+  --panel: #1a2029;
+  --text: #e5eaf0;
+  --muted: #8b96a5;
+  --border: #2a323d;
+  --code-bg: #232b36;
+  --accent: #60a5fa;
+  --accent-soft: #1e3a5f;
+  --added: #4ade80;
+  --added-soft: #14351f;
+  --modified: #fbbf24;
+  --modified-soft: #3a2e0e;
+  --deleted: #f87171;
+  --deleted-soft: #3b1a1a;
+  --reviewed: #566172;
+  --syn-keyword: #ff7b72;
+  --syn-string: #a5d6ff;
+  --syn-func: #d2a8ff;
+  --syn-type: #ffa657;
+  --syn-const: #79c0ff;
+  --syn-comment: #8b949e;
+} }
+:root[data-theme="light"] {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --text: #1c2430;
+  --muted: #66707d;
+  --border: #dde2e8;
+  --code-bg: #eef1f5;
+  --accent: #2563eb;
+  --accent-soft: #dbeafe;
+  --added: #16a34a;
+  --added-soft: #dcfce7;
+  --modified: #d97706;
+  --modified-soft: #fef3c7;
+  --deleted: #dc2626;
+  --deleted-soft: #fee2e2;
+  --reviewed: #9aa4b0;
+  --syn-keyword: #cf222e;
+  --syn-string: #0a3069;
+  --syn-func: #8250df;
+  --syn-type: #953800;
+  --syn-const: #0550ae;
+  --syn-comment: #6e7781;
+}
+:root[data-theme="dark"] {
+  --bg: #12161c;
+  --panel: #1a2029;
+  --text: #e5eaf0;
+  --muted: #8b96a5;
+  --border: #2a323d;
+  --code-bg: #232b36;
+  --accent: #60a5fa;
+  --accent-soft: #1e3a5f;
+  --added: #4ade80;
+  --added-soft: #14351f;
+  --modified: #fbbf24;
+  --modified-soft: #3a2e0e;
+  --deleted: #f87171;
+  --deleted-soft: #3b1a1a;
+  --reviewed: #566172;
+  --syn-keyword: #ff7b72;
+  --syn-string: #a5d6ff;
+  --syn-func: #d2a8ff;
+  --syn-type: #ffa657;
+  --syn-const: #79c0ff;
+  --syn-comment: #8b949e;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 20px; background: var(--bg); color: var(--text);
+  font: 14px/1.5 -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+h4 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.symlink { text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+
+.rowc { display: flex; gap: 14px; flex-wrap: wrap; }
+.node { width: 200px; background: var(--panel); border: 1.5px solid var(--border); border-radius: 9px; padding: 10px 12px; position: relative; }
+.node.added { border-color: var(--added); }
+.node.modified { border-color: var(--modified); }
+.node.suggest { border-color: var(--accent); border-width: 3px; box-shadow: 0 0 0 4px var(--accent-soft); }
+.node.done { opacity: .55; }
+.node.ghost { border-style: dashed; border-color: var(--muted); background: transparent; }
+.top { display: flex; justify-content: space-between; align-items: baseline; }
+.nm { font-weight: 600; font-size: 12px; }
+.order { color: var(--accent); font-size: 11px; font-weight: 700; }
+.chips { color: var(--muted); font-size: 10px; margin-top: 3px; }
+.meta { color: var(--muted); font-size: 10px; margin-top: 3px; }
+.tick { position: absolute; right: 10px; bottom: 8px; color: var(--added); font-weight: 700; }
+.blast { display: inline-block; margin-top: 5px; font-size: 10px; background: var(--modified-soft); color: var(--modified); border-radius: 4px; padding: 0 6px; font-weight: 600; }
+.cap { color: var(--muted); font-size: 12px; margin-top: 14px; }</style></head>
+<body>
+
+<div class="rowc">
+
+<div class="node added">
+  <div class="top"><span class="mono nm">rateLimiter.ts</span><span class="order">#3</span></div>
+  <div class="chips mono">createRateLimiter</div>
+  <div class="meta mono">+48 −0</div>
+</div>
+
+<div class="node modified">
+  <div class="top"><span class="mono nm">http.ts</span><span class="order">#2</span></div>
+  <div class="chips mono">ApiError</div>
+  <div class="meta mono">+2 −1</div>
+</div>
+
+<div class="node suggest">
+  <div class="top"><span class="mono nm">limits.ts</span><span class="order">#1</span></div>
+  <div class="chips mono">RateLimitConfig · LOGIN_RATE_LIMIT</div>
+  <div class="meta mono">+4 −0</div>
+</div>
+
+<div class="node added done">
+  <div class="top"><span class="mono nm">withRateLimit.ts</span><span class="order">#4</span></div>
+  <div class="chips mono">withRateLimit</div>
+  <div class="meta mono">+26 −0</div><span class="tick">✓</span>
+</div>
+
+<div class="node ghost">
+  <div class="top"><span class="mono nm">admin.ts 👻</span></div>
+  <div class="chips mono">calls withRateLimit</div>
+  <div class="meta mono">unchanged · deep only</div>
+</div>
+
+<div class="node added">
+  <div class="top"><span class="mono nm">withRateLimit.ts</span><span class="order">#4</span></div>
+  <div class="chips mono">withRateLimit</div>
+  <div class="meta mono">+26 −0</div><div class="blast">blast radius 1 ⚠️</div>
+</div>
+</div>
+<p class="cap">Border color = diff status. Blue ring = suggested next. Dimmed + ✓ = reviewed. Dashed = ghost (deep engine only, never in the queue). Blast-radius badge appears only with deep data.</p>
+</body></html>

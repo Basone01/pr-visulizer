@@ -1,0 +1,99 @@
+.node {
+  width: 168px;
+  background: var(--panel);
+  border: 1.5px solid var(--border);
+  border-radius: 9px;
+  padding: 8px 10px;
+  position: relative;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.added {
+  border-color: var(--added);
+}
+
+.modified {
+  border-color: var(--modified);
+}
+
+.deleted {
+  border-color: var(--deleted);
+}
+
+.next {
+  border-color: var(--accent);
+  border-width: 2.5px;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.current {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.done {
+  opacity: 0.5;
+}
+
+.ghost {
+  border-style: dashed;
+  border-color: var(--muted);
+  background: transparent;
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.name {
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.order {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chips {
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 3px;
+}
+
+.tick {
+  position: absolute;
+  right: 9px;
+  bottom: 6px;
+  color: var(--added);
+  font-weight: 700;
+}
+
+.blast {
+  display: inline-block;
+  margin-top: 5px;
+  font-size: 10px;
+  background: var(--modified-soft);
+  color: var(--modified);
+  border-radius: 4px;
+  padding: 0 6px;
+  font-weight: 600;
+}
+
+.handle {
+  opacity: 0;
+}

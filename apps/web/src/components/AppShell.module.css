@@ -1,0 +1,50 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 400px 1fr 300px;
+  flex: 1;
+  min-height: 0;
+}
+
+.pane {
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.pane:last-child {
+  border-right: 0;
+}
+
+.paneHeader {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--panel);
+  gap: 8px;
+}
+
+.paneHeaderHint {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+}

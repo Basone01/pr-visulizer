@@ -1,0 +1,22 @@
+{
+  "name": "pr-visulizer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.6.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@trivago/prettier-plugin-sort-imports": "^5.2.0",
+    "prettier": "^3.6.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

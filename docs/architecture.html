@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR Review Visualizer — Architecture</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1c2430; --muted: #66707d;
+    --border: #dde2e8; --accent: #2563eb; --accent-soft: #dbeafe;
+    --green: #16a34a; --green-soft: #dcfce7; --amber: #d97706; --amber-soft: #fef3c7;
+    --done: #9aa4b0; --code-bg: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161c; --panel: #1a2029; --text: #e5eaf0; --muted: #8b96a5;
+      --border: #2a323d; --accent: #60a5fa; --accent-soft: #1e3a5f;
+      --green: #4ade80; --green-soft: #14351f; --amber: #fbbf24; --amber-soft: #3a2e0e;
+      --done: #566172; --code-bg: #232b36;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1c2430; --muted: #66707d;
+    --border: #dde2e8; --accent: #2563eb; --accent-soft: #dbeafe;
+    --green: #16a34a; --green-soft: #dcfce7; --amber: #d97706; --amber-soft: #fef3c7;
+    --done: #9aa4b0; --code-bg: #eef1f5;
+  }
+  :root[data-theme="dark"] {
+    --bg: #12161c; --panel: #1a2029; --text: #e5eaf0; --muted: #8b96a5;
+    --border: #2a323d; --accent: #60a5fa; --accent-soft: #1e3a5f;
+    --green: #4ade80; --green-soft: #14351f; --amber: #fbbf24; --amber-soft: #3a2e0e;
+    --done: #566172; --code-bg: #232b36;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 42px 0 12px; }
+  .sub { color: var(--muted); margin: 0 0 8px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  .topbar { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+  .theme-btn {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+  }
+
+  /* ── overview diagram ─────────────────────────── */
+  .arch { display: flex; flex-direction: column; gap: 0; align-items: center; margin-top: 10px; }
+  .arch-box { width: 100%; max-width: 640px; border: 1.5px solid var(--border); border-radius: 10px; padding: 12px 16px; background: var(--panel); }
+  .arch-box h3 { margin: 0 0 6px; font-size: 14px; }
+  .arch-box ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+  .arch-arrow { color: var(--muted); font-size: 13px; padding: 6px 0; text-align: center; }
+
+  /* ── walkthrough layout ───────────────────────── */
+  .walk { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; margin-top: 14px; }
+  @media (max-width: 900px) { .walk { grid-template-columns: 1fr; } }
+  .stage { overflow-x: auto; }
+  svg { width: 100%; height: auto; display: block; }
+
+  .controls { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .controls button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    padding: 8px 18px; font-size: 14px; cursor: pointer;
+  }
+  .controls button:disabled { opacity: .35; cursor: default; }
+  .controls button.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+  .step-label { font-size: 13px; color: var(--muted); }
+  .pips { display: flex; gap: 5px; flex-wrap: wrap; }
+  .pip { width: 10px; height: 10px; border-radius: 50%; background: var(--border); cursor: pointer; border: 0; padding: 0; }
+  .pip.on { background: var(--accent); }
+
+  .narration { margin-top: 12px; border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--accent-soft); border-radius: 0 8px 8px 0; font-size: 14px; }
+  .narration b { color: var(--accent); }
+
+  /* ── file table (always full list — signature rule) ── */
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.suggest { background: var(--accent-soft); }
+  tr.suggest td:first-child { font-weight: 700; }
+  tr.done td { color: var(--done); }
+  tr.active-file { background: var(--amber-soft); }
+  .check { color: var(--green); font-weight: 700; }
+  .tag { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 600; }
+  .tag.added { background: var(--green-soft); color: var(--green); }
+  .tag.modified { background: var(--amber-soft); color: var(--amber); }
+  .legend { display: flex; gap: 14px; margin-top: 10px; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
+  .legend span::before { content: "●"; margin-right: 4px; }
+  .lg-add::before { color: var(--green); } .lg-mod::before { color: var(--amber); }
+  .lg-sug::before { color: var(--accent); } .lg-done::before { color: var(--done); }
+
+  /* ── SVG nodes ────────────────────────────────── */
+  .node { transition: transform .6s ease; }
+  .node rect.body { fill: var(--panel); stroke: var(--border); stroke-width: 1.5; rx: 9; }
+  .node.added rect.body { stroke: var(--green); }
+  .node.modified rect.body { stroke: var(--amber); }
+  .node.suggest rect.body { stroke: var(--accent); stroke-width: 3; }
+  .node.activeFile rect.body { stroke: var(--amber); stroke-width: 3; }
+  .node.done { opacity: .55; }
+  .node text { fill: var(--text); font: 600 12px ui-monospace, Menlo, monospace; }
+  .node text.chips { fill: var(--muted); font: 10px ui-monospace, Menlo, monospace; }
+  .node text.order { fill: var(--accent); font: 700 11px -apple-system, sans-serif; }
+  .node text.tick { fill: var(--green); font: 700 14px sans-serif; }
+  .edge { stroke: var(--muted); stroke-width: 1.6; opacity: 0; transition: opacity .5s; marker-end: url(#arrow); fill: none; }
+  .edge.show { opacity: .85; }
+  .lvl-label { fill: var(--muted); font: 600 11px sans-serif; opacity: 0; transition: opacity .5s; }
+  .lvl-label.show { opacity: 1; }
+
+  /* ── flow + presets ───────────────────────────── */
+  ol.flow { margin: 8px 0 0; padding-left: 22px; }
+  ol.flow li { margin-bottom: 8px; }
+  .preset-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 10px; }
+  .preset { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--panel); }
+  .preset h4 { margin: 0 0 6px; font-size: 14px; }
+  .preset p { margin: 0; color: var(--muted); font-size: 13px; }
+  .preset.default { border-color: var(--accent); }
+  .note { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="topbar">
+    <div>
+      <h1>PR Review Visualizer — Architecture</h1>
+      <p class="sub">A web app that turns a GitHub PR into a dependency graph, tells the reviewer where to start and what to review next, and submits the review back to GitHub. Companion to <code>docs/architecture.md</code>.</p>
+    </div>
+    <button class="theme-btn" id="themeBtn">◐ theme</button>
+  </div>
+
+  <h2>1 · System shape — SPA + thin backend (BFF)</h2>
+  <div class="arch">
+    <div class="arch-box">
+      <h3>Browser — React SPA</h3>
+      <ul>
+        <li><b>Graph view</b> — node graph of changed files, review order</li>
+        <li><b>Diff panel</b> — rich per-file diff (shiki), symbol annotations</li>
+        <li><b>Review tray</b> — checkmarks, draft comments, submit</li>
+      </ul>
+    </div>
+    <div class="arch-arrow">▲ ▼ &nbsp; HTTPS JSON · httpOnly session cookie (token never reaches the browser)</div>
+    <div class="arch-box">
+      <h3>BFF — Node + TypeScript (Fastify)</h3>
+      <ul>
+        <li><b>Auth service</b> — GitHub OAuth, encrypted token vault</li>
+        <li><b>GitHub gateway</b> — Octokit wrapper, ETag cache</li>
+        <li><b>Analysis service</b> — two engines, one contract: <b>FastAstEngine</b> (tree-sitter, in-process, default) · <b>DeepLspEngine</b> (enqueue → worker, opt-in); results cached by <code>(headSha, engine)</code> — immutable, no invalidation logic</li>
+        <li><b>Review service</b> — progress store (SQLite), review submit</li>
+      </ul>
+    </div>
+    <div class="arch-arrow">▲ ▼ &nbsp; job queue — deep mode only</div>
+    <div class="arch-box" style="border-style:dashed">
+      <h3>Analysis worker(s) — deep mode only</h3>
+      <ul>
+        <li>shallow clone @ headSha → <b>SCIP indexer</b> per language → repo-wide reference graph</li>
+        <li>sandboxed: never executes repo code, <code>--ignore-scripts</code>, CPU/disk quotas, per-job timeout</li>
+        <li>on failure/timeout the fast result simply stands</li>
+      </ul>
+    </div>
+    <div class="arch-arrow">▲ ▼ &nbsp; REST + GraphQL (Octokit) · git clone (worker)</div>
+    <div class="arch-box">
+      <h3>GitHub API</h3>
+      <ul>
+        <li>PR meta + diffs + file contents @ headSha</li>
+        <li><code>markFileAsViewed</code> (GraphQL) — syncs our checkmarks to GitHub's native "Viewed"</li>
+        <li><code>POST /pulls/:n/reviews</code> — the real review submit</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>2 · Interactive walkthrough — pipeline, graph, ranking</h2>
+  <p class="note">One example PR traced end to end: <b>PR #42 — "Add login rate limiting"</b>, 6 TypeScript files, analyzed by the <b>fast engine</b> (the default — see §3 for the deep engine). Every number below is computed live from the edge list — the page runs the real algorithm. Edge direction: <b>A → B means "A depends on B"</b>.</p>
+
+  <div class="walk">
+    <div class="panel">
+      <div class="stage">
+        <svg id="graph" viewBox="0 0 940 430" aria-label="dependency graph"></svg>
+      </div>
+      <div class="narration" id="narration"></div>
+      <div class="controls">
+        <button class="secondary" id="prevBtn">‹ Prev</button>
+        <button id="nextBtn">Next ›</button>
+        <span class="step-label" id="stepLabel"></span>
+        <div class="pips" id="pips"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 8px;font-size:14px;" id="tableTitle">Changed files</h3>
+      <div class="stage"><table id="fileTable"></table></div>
+      <div class="legend">
+        <span class="lg-add">added</span><span class="lg-mod">modified</span>
+        <span class="lg-sug">suggested next</span><span class="lg-done">reviewed ✓</span>
+      </div>
+    </div>
+  </div>
+
+  <h2>3 · Two analysis engines, one contract — the user chooses</h2>
+  <p class="note">Both engines implement <code>AnalysisEngine</code> and emit the same <code>AnalysisResult</code> — the graph UI, ranking, and review flow never know which one ran. Fast runs automatically on PR open; the reviewer can click <b>"Deepen analysis"</b> to upgrade the same graph in place. Checkmarks and drafts survive the swap (progress is keyed by <code>headSha</code>, not by engine).</p>
+  <div class="preset-grid">
+    <div class="preset default">
+      <h4>Fast — AST (default)</h4>
+      <p>Reads <b>changed files only</b> (+1-hop imports) via the GitHub API. tree-sitter parse + name resolution. Seconds, no extra infra. Misses dynamic dispatch and anything outside the diff.</p>
+    </div>
+    <div class="preset">
+      <h4>Deep — LSP-grade (opt-in)</h4>
+      <p>Worker <b>shallow-clones the whole repo</b> at headSha and runs SCIP indexers (batch "find-references everywhere" — same precision as LSP, right shape for a job). 1–10 min, needs queue + workers + sandbox. Compiler-grade edges, repo-wide.</p>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:12px;">
+    <h3 style="margin:0 0 4px;font-size:14px;">What deep mode adds: blast radius</h3>
+    <p class="note" style="margin:0 0 6px;">On PR #42, suppose an <b>unchanged</b> file <code>admin.ts</code> also calls <code>withRateLimit</code>. The fast engine can't see it — it never reads unchanged files. The deep engine shows it as a dashed <b>ghost node</b>: context, never part of the review queue.</p>
+    <div class="stage">
+    <svg viewBox="0 0 700 150" style="max-width:700px" aria-label="ghost node example">
+      <defs><marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+      <line x1="203" y1="55" x2="277" y2="55" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#arrow2)"/>
+      <line x1="203" y1="115" x2="268" y2="70" stroke="var(--muted)" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow2)"/>
+      <g>
+        <rect x="55" y="30" width="148" height="50" rx="9" fill="var(--panel)" stroke="var(--amber)" stroke-width="1.5"/>
+        <text x="67" y="51" fill="var(--text)" style="font:600 12px ui-monospace,Menlo,monospace">login.ts</text>
+        <text x="67" y="68" fill="var(--muted)" style="font:10px ui-monospace,Menlo,monospace">changed · in queue</text>
+      </g>
+      <g>
+        <rect x="55" y="92" width="148" height="46" rx="9" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4"/>
+        <text x="67" y="112" fill="var(--muted)" style="font:600 12px ui-monospace,Menlo,monospace">admin.ts 👻</text>
+        <text x="67" y="128" fill="var(--muted)" style="font:10px ui-monospace,Menlo,monospace">unchanged · deep only</text>
+      </g>
+      <g>
+        <rect x="280" y="30" width="180" height="50" rx="9" fill="var(--panel)" stroke="var(--green)" stroke-width="1.5"/>
+        <text x="292" y="51" fill="var(--text)" style="font:600 12px ui-monospace,Menlo,monospace">withRateLimit.ts</text>
+        <text x="292" y="68" fill="var(--muted)" style="font:10px ui-monospace,Menlo,monospace">blastRadius: 1 ⚠️</text>
+      </g>
+      <text x="480" y="50" fill="var(--muted)" style="font:12px -apple-system,sans-serif">a "small PR" that quietly</text>
+      <text x="480" y="68" fill="var(--muted)" style="font:12px -apple-system,sans-serif">affects a route not in the diff —</text>
+      <text x="480" y="86" fill="var(--muted)" style="font:12px -apple-system,sans-serif">exactly what deep mode surfaces</text>
+    </svg>
+    </div>
+  </div>
+
+  <h2>4 · Ranking is a controllable core with presets</h2>
+  <p class="note">The sort priorities live in one <code>RankingPolicy</code> object — swapping a preset changes the order, not the algorithm.</p>
+  <div class="preset-grid">
+    <div class="preset default"><h4>foundations-first (default)</h4><p>topoLevel ↑ → fanIn ↓ → churn ↓. Dependencies before dependents — what the walkthrough above uses.</p></div>
+    <div class="preset"><h4>blast-radius-first</h4><p>fanIn ↓ first (+ blastRadius when deep data is present). Start at the file most is built on, regardless of level.</p></div>
+    <div class="preset"><h4>quick-wins</h4><p>churn ↑ first. Small files first to warm up, then the big ones.</p></div>
+  </div>
+
+  <h2>5 · Review-submit flow (checkmarks → real GitHub)</h2>
+  <div class="panel">
+    <ol class="flow">
+      <li>Reviewer clicks <span class="check">✓</span> on a file → SPA optimistic update → <code>PUT /progress</code> → BFF saves to SQLite <b>and</b> fires GraphQL <code>markFileAsViewed</code> — the checkmark appears in GitHub's native UI too.</li>
+      <li>Inline comments are drafted app-side in <code>ReviewProgress.drafts</code> — invisible to GitHub until submit.</li>
+      <li>Submit → <code>POST /repos/:o/:r/pulls/:n/reviews</code> with <code>{ commit_id: headSha, event: APPROVE | REQUEST_CHANGES | COMMENT, comments: [{path, line, side, body}] }</code> → one real GitHub review, comments anchored to lines.</li>
+      <li><b>Force-push guard:</b> a new headSha re-triggers analysis; drafts are remapped by hunk proximity, and any comment that cannot be remapped is flagged — never silently dropped.</li>
+    </ol>
+  </div>
+
+  <p class="note" style="margin-top:30px;">Full detail — data model, API contracts, fallback behavior, security, upgrade path — in <code>docs/architecture.md</code>.</p>
+</main>
+
+<script>
+// ───────────────────────────────────────────────────────────
+// Single source of truth. Everything else is computed from it.
+// ───────────────────────────────────────────────────────────
+const FILES = [
+  { id: 'limits',        path: 'src/config/limits.ts',            status: 'added',    add: 4,  del: 0, symbols: 'RateLimitConfig · LOGIN_RATE_LIMIT' },
+  { id: 'http',          path: 'src/types/http.ts',               status: 'modified', add: 2,  del: 1, symbols: 'ApiError' },
+  { id: 'rateLimiter',   path: 'src/lib/rateLimiter.ts',          status: 'added',    add: 48, del: 0, symbols: 'createRateLimiter' },
+  { id: 'withRateLimit', path: 'src/middleware/withRateLimit.ts', status: 'added',    add: 26, del: 0, symbols: 'withRateLimit' },
+  { id: 'login',         path: 'src/api/routes/login.ts',         status: 'modified', add: 6,  del: 2, symbols: 'loginHandler' },
+  { id: 'test',          path: 'src/lib/rateLimiter.test.ts',     status: 'added',    add: 52, del: 0, symbols: '4 test cases' },
+];
+// [from, to] = "from depends on to"
+const EDGES = [
+  ['rateLimiter', 'limits'],
+  ['withRateLimit', 'rateLimiter'], ['withRateLimit', 'http'], ['withRateLimit', 'limits'],
+  ['login', 'withRateLimit'],
+  ['test', 'rateLimiter'], ['test', 'limits'],
+];
+
+// ── the production ranking algorithm, verbatim ────────────
+const deps = id => EDGES.filter(([f]) => f === id).map(([, t]) => t);
+const churn = f => f.add + f.del;
+
+const levelCache = {};
+function topoLevel(id) {
+  if (id in levelCache) return levelCache[id];
+  const d = deps(id);
+  return levelCache[id] = d.length ? 1 + Math.max(...d.map(topoLevel)) : 0;
+}
+const fanIn = id => EDGES.filter(([, t]) => t === id).length;
+
+const byId = Object.fromEntries(FILES.map(f => [f.id, f]));
+const staticOrder = FILES.map(f => f.id).sort((a, b) =>
+  topoLevel(a) - topoLevel(b) || fanIn(b) - fanIn(a) ||
+  churn(byId[b]) - churn(byId[a]) || byId[a].path.localeCompare(byId[b].path));
+const orderOf = Object.fromEntries(staticOrder.map((id, i) => [id, i + 1]));
+
+const readiness = (id, reviewed) => {
+  const d = deps(id);
+  return d.length ? d.filter(x => reviewed.has(x)).length / d.length : 1;
+};
+
+// simulate the review to derive the suggestion sequence + tie-break reasons
+function simulateReview() {
+  const reviewed = new Set(), steps = [];
+  while (reviewed.size < FILES.length) {
+    const cands = FILES.map(f => f.id).filter(id => !reviewed.has(id));
+    const max = Math.max(...cands.map(id => readiness(id, reviewed)));
+    let tied = cands.filter(id => readiness(id, reviewed) === max);
+    const tiedAtStart = [...tied];
+    let reason = '';
+    if (tied.length > 1) {
+      const minLvl = Math.min(...tied.map(topoLevel));
+      if (tied.filter(id => topoLevel(id) === minLvl).length < tied.length) reason = 'lower topo level';
+      tied = tied.filter(id => topoLevel(id) === minLvl);
+      if (tied.length > 1) {
+        const maxFi = Math.max(...tied.map(fanIn));
+        if (tied.filter(id => fanIn(id) === maxFi).length < tied.length) reason = reason || 'higher fan-in';
+        tied = tied.filter(id => fanIn(id) === maxFi);
+      }
+      tied.sort((a, b) => byId[a].path.localeCompare(byId[b].path));
+    }
+    const pick = tied[0];
+    steps.push({ pick, reviewed: new Set(reviewed), tied: tiedAtStart, reason });
+    reviewed.add(pick);
+  }
+  return steps;
+}
+const REVIEW = simulateReview();
+
+// ── layout ────────────────────────────────────────────────
+const GRID = { limits: [155, 105], http: [470, 105], rateLimiter: [785, 105], withRateLimit: [155, 305], login: [470, 305], test: [785, 305] };
+const COLX = [130, 360, 600, 830];
+const LAYER = {};
+{ // layered positions: column = topoLevel, spread rows within a column
+  const cols = {};
+  for (const f of FILES) (cols[topoLevel(f.id)] ??= []).push(f.id);
+  for (const [lvl, ids] of Object.entries(cols)) {
+    ids.forEach((id, i) => {
+      const ys = ids.length === 1 ? [215] : [125, 305];
+      LAYER[id] = [COLX[lvl], ys[i]];
+    });
+  }
+}
+const NW = 176, NH = 58; // node size
+
+// ── steps ─────────────────────────────────────────────────
+const IMPORT_ORDER = ['rateLimiter', 'withRateLimit', 'login', 'test'];
+const STEPS = [];
+STEPS.push({ title: 'Fetch PR #42', n: 'The BFF fetches the changed-file list and unified diffs from GitHub, then the <b>full content of each file at headSha</b>. Six files, no structure yet — this is all GitHub gives you: an alphabetical list.' });
+STEPS.push({ title: 'Parse symbols (tree-sitter)', n: 'Each file is parsed with its tree-sitter grammar. Declarations become <b>symbols with line spans</b> — shown inside each node. No relationships yet, just an inventory of what exists.' });
+STEPS.push({ title: 'Map hunks → changed symbols', n: 'Pure interval math: hunk header <code>@@ -3,2 +3,3 @@</code> means head lines [3,6) changed — any symbol whose span intersects is <b>modified</b> (amber). Symbols in added files are all <b>added</b> (green). Note <code>http.ts#ApiError</code>: one optional field added, whole type marked modified.' });
+IMPORT_ORDER.forEach(id => STEPS.push({ title: `Resolve imports — ${byId[id].path.split('/').pop()}`, importFor: id }));
+STEPS.push({ title: 'Compute topo levels', n: 'Level 0 = depends on no other <b>changed</b> file. Otherwise 1 + max(level of changed deps). Nodes arrange into columns — the graph now reads left to right as "foundations → consumers". Circular imports would be collapsed into one node (Tarjan SCC, "review together").' });
+STEPS.push({ title: 'Static ranking — where to start', n: '' }); // filled dynamically
+REVIEW.forEach((r, i) => STEPS.push({ title: `Review step ${i + 1} of 6`, review: i }));
+STEPS.push({ title: 'Submit to GitHub', n: 'All six reviewed. Draft comments + verdict go up as <b>one real GitHub review</b>: <code>POST /pulls/42/reviews { commit_id: headSha, event, comments }</code>. The per-file checkmarks were already synced live via GraphQL <code>markFileAsViewed</code>.' });
+
+const RANK_STEP = 3 + IMPORT_ORDER.length + 1;      // index of "Static ranking"
+const REVIEW_START = RANK_STEP + 1;                  // first review step
+
+// narration for import steps + ranking + review (computed values injected)
+function narrationFor(i) {
+  const s = STEPS[i];
+  if (s.importFor) {
+    const d = deps(s.importFor);
+    const list = d.map(x => `<code>${byId[x].path.split('/').pop()}</code>`).join(', ');
+    return `Import specifiers in <code>${byId[s.importFor].path}</code> resolve to ${d.length} changed file${d.length > 1 ? 's' : ''}: ${list}. Each becomes an edge — <b>arrow points at the dependency</b>. Imports of unchanged files are recorded but don't affect ranking.`;
+  }
+  if (i === RANK_STEP) {
+    const first = staticOrder[0];
+    return `Sort: <b>topoLevel ↑ → fanIn ↓ → churn ↓</b>. Start = <code>${byId[first].path}</code>: level 0 <b>and</b> fanIn ${fanIn(first)} — three files are built on these ${churn(byId[first])} lines. Notice the test file ranked after its subject with <b>no special-casing</b>: a test imports its subject, so it always sits a level above it.`;
+  }
+  if (s.review !== undefined) {
+    const r = REVIEW[s.review];
+    let tie = '';
+    if (r.tied.length > 1) {
+      tie = ` Tie between ${r.tied.map(x => `<code>${x}</code>`).join(' and ')} → <b>${r.reason}</b> picks <code>${r.pick}</code>.`;
+    }
+    return `readiness(f) = reviewed changed-deps ÷ total changed-deps (no deps → 1.00). Highest readiness wins.${tie} Suggested next: <b>${byId[r.pick].path}</b>. The reviewer can ignore this — the algorithm guides, it never blocks.`;
+  }
+  return s.n;
+}
+
+// ── SVG construction (built once, updated per step) ───────
+const svg = document.getElementById('graph');
+const NS = 'http://www.w3.org/2000/svg';
+svg.innerHTML = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>`;
+
+const lvlLabels = [0, 1, 2, 3].map(l => {
+  const t = document.createElementNS(NS, 'text');
+  t.setAttribute('x', COLX[l]); t.setAttribute('y', 24);
+  t.setAttribute('text-anchor', 'middle'); t.setAttribute('class', 'lvl-label');
+  t.textContent = `level ${l}`; svg.appendChild(t); return t;
+});
+
+function trimToRect(from, to) { // move endpoint from `to`-center back to its rect border
+  const dx = from[0] - to[0], dy = from[1] - to[1];
+  const s = Math.min(dx ? (NW / 2 + 6) / Math.abs(dx) : Infinity, dy ? (NH / 2 + 6) / Math.abs(dy) : Infinity);
+  return [to[0] + dx * s, to[1] + dy * s];
+}
+const edgeEls = EDGES.map(([f, t]) => {
+  const line = document.createElementNS(NS, 'line');
+  line.setAttribute('class', 'edge'); line.dataset.from = f; line.dataset.to = t;
+  svg.appendChild(line); return line;
+});
+
+const nodeEls = {};
+for (const f of FILES) {
+  const g = document.createElementNS(NS, 'g');
+  g.setAttribute('class', 'node');
+  g.innerHTML = `
+    <rect class="body" x="${-NW / 2}" y="${-NH / 2}" width="${NW}" height="${NH}" rx="9"/>
+    <text x="${-NW / 2 + 10}" y="-9">${f.path.split('/').pop()}</text>
+    <text class="chips" x="${-NW / 2 + 10}" y="10" style="opacity:0">${f.symbols}</text>
+    <text class="chips" x="${-NW / 2 + 10}" y="24">+${f.add} −${f.del}</text>
+    <text class="order" x="${NW / 2 - 14}" y="-9" text-anchor="end" style="opacity:0"></text>
+    <text class="tick" x="${NW / 2 - 14}" y="24" text-anchor="end" style="opacity:0">✓</text>`;
+  svg.appendChild(g); nodeEls[f.id] = g;
+}
+
+// ── render one step ───────────────────────────────────────
+let cur = 0;
+const posAt = i => (i >= 3 + IMPORT_ORDER.length ? LAYER : GRID);
+
+function render() {
+  const s = STEPS[cur], layered = posAt(cur) === LAYER;
+  const pos = posAt(cur);
+  const edgesShown = new Set(IMPORT_ORDER.slice(0, Math.max(0, Math.min(cur - 2, IMPORT_ORDER.length))));
+  const inReview = cur >= REVIEW_START;
+  const reviewIdx = Math.min(cur - REVIEW_START, REVIEW.length - 1);
+  const r = inReview ? REVIEW[Math.min(reviewIdx, REVIEW.length - 1)] : null;
+  const allDone = cur >= REVIEW_START + REVIEW.length;
+  const reviewedSet = allDone ? new Set(FILES.map(f => f.id)) : (r ? r.reviewed : new Set());
+  const suggestion = !allDone && r ? r.pick : null;
+
+  // nodes
+  for (const f of FILES) {
+    const g = nodeEls[f.id], [x, y] = pos[f.id];
+    g.style.transform = `translate(${x}px, ${y}px)`;
+    const cls = ['node'];
+    if (cur >= 2) cls.push(f.status);                       // colored after hunk-mapping
+    if (s.importFor === f.id) cls.push('activeFile');
+    if (suggestion === f.id) cls.push('suggest');
+    if (reviewedSet.has(f.id)) cls.push('done');
+    g.setAttribute('class', cls.join(' '));
+    g.querySelector('.chips').style.opacity = cur >= 1 ? 1 : 0;
+    const ord = g.querySelector('.order');
+    ord.style.opacity = cur >= RANK_STEP ? 1 : 0;
+    ord.textContent = '#' + orderOf[f.id];
+    g.querySelector('.tick').style.opacity = reviewedSet.has(f.id) ? 1 : 0;
+  }
+  // edges
+  for (const line of edgeEls) {
+    const show = edgesShown.has(line.dataset.from);
+    line.setAttribute('class', 'edge' + (show ? ' show' : ''));
+    const p1 = trimToRect(pos[line.dataset.to], pos[line.dataset.from]);
+    const p2 = trimToRect(pos[line.dataset.from], pos[line.dataset.to]);
+    line.setAttribute('x1', p1[0]); line.setAttribute('y1', p1[1]);
+    line.setAttribute('x2', p2[0]); line.setAttribute('y2', p2[1]);
+  }
+  lvlLabels.forEach(t => t.setAttribute('class', 'lvl-label' + (layered ? ' show' : '')));
+
+  // table — ALWAYS every file, highlight current (signature rule)
+  const showRank = cur >= RANK_STEP;
+  const head = ['File', 'Status', '+/−']
+    .concat(cur >= 3 + IMPORT_ORDER.length ? ['Lvl'] : [])
+    .concat(showRank ? ['Fan-in', 'Order'] : [])
+    .concat(inReview ? ['Readiness', ''] : []);
+  const rowsSource = showRank ? staticOrder.map(id => byId[id]) : FILES;
+  const rows = rowsSource.map(f => {
+    const cells = [
+      `<td class="mono">${f.path}</td>`,
+      `<td><span class="tag ${f.status}">${f.status}</span></td>`,
+      `<td class="num">+${f.add} −${f.del}</td>`,
+    ];
+    if (cur >= 3 + IMPORT_ORDER.length) cells.push(`<td class="num">${topoLevel(f.id)}</td>`);
+    if (showRank) cells.push(`<td class="num">${fanIn(f.id)}</td>`, `<td class="num">#${orderOf[f.id]}</td>`);
+    if (inReview) {
+      const done = reviewedSet.has(f.id);
+      cells.push(`<td class="num">${done ? '—' : readiness(f.id, reviewedSet).toFixed(2)}</td>`,
+                 `<td>${done ? '<span class="check">✓</span>' : (suggestion === f.id ? '👉 next' : '')}</td>`);
+    }
+    const cls = [
+      suggestion === f.id ? 'suggest' : '',
+      reviewedSet.has(f.id) ? 'done' : '',
+      s.importFor === f.id ? 'active-file' : '',
+    ].join(' ');
+    return `<tr class="${cls}">${cells.join('')}</tr>`;
+  });
+  document.getElementById('fileTable').innerHTML =
+    `<tr>${head.map((h, j) => `<th class="${j > 1 ? 'num' : ''}">${h}</th>`).join('')}</tr>` + rows.join('');
+  document.getElementById('tableTitle').textContent =
+    inReview ? `Review queue — ${reviewedSet.size}/6 reviewed` : (showRank ? 'Static ranking' : 'Changed files');
+
+  // narration + controls
+  document.getElementById('narration').innerHTML = `<b>${s.title}.</b> ${narrationFor(cur)}`;
+  document.getElementById('stepLabel').textContent = `step ${cur + 1} / ${STEPS.length}`;
+  document.getElementById('prevBtn').disabled = cur === 0;
+  document.getElementById('nextBtn').disabled = cur === STEPS.length - 1;
+  [...document.getElementById('pips').children].forEach((p, j) => p.className = 'pip' + (j === cur ? ' on' : ''));
+}
+
+// controls
+const pips = document.getElementById('pips');
+STEPS.forEach((_, j) => {
+  const b = document.createElement('button');
+  b.className = 'pip'; b.title = STEPS[j].title;
+  b.onclick = () => { cur = j; render(); };
+  pips.appendChild(b);
+});
+document.getElementById('prevBtn').onclick = () => { cur = Math.max(0, cur - 1); render(); };
+document.getElementById('nextBtn').onclick = () => { cur = Math.min(STEPS.length - 1, cur + 1); render(); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') document.getElementById('nextBtn').click();
+  if (e.key === 'ArrowLeft') document.getElementById('prevBtn').click();
+});
+document.getElementById('themeBtn').onclick = () => {
+  const root = document.documentElement;
+  const dark = getComputedStyle(document.body).backgroundColor === 'rgb(18, 22, 28)';
+  root.dataset.theme = dark ? 'light' : 'dark';
+};
+render();
+</script>
+</body>
+</html>

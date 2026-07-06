@@ -1,0 +1,38 @@
+/* Base layer for the whole SPA. Semantic colors + type come from tokens.css; this
+   file only sets the reset and the app-shell fonts, mirroring the design HTML. */
+@import "./tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px/1.5 -apple-system,
+    "SF Pro Text",
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+a {
+  color: var(--accent);
+}

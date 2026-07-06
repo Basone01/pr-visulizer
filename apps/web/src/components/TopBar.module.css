@@ -1,0 +1,42 @@
+.top {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 5px;
+  padding: 1px 7px;
+  background: var(--added-soft);
+  color: var(--added);
+  letter-spacing: 0.03em;
+}
+
+.deepen {
+  font-size: 12px;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+.deepen:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.meta {
+  font-size: 11px;
+  color: var(--muted);
+}
