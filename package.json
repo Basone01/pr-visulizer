@@ -8,6 +8,8 @@
     "node": ">=24"
   },
   "scripts": {
+    "dev": "GITHUB_FAKE=1 pnpm --parallel --filter @pr-visulizer/server --filter @pr-visulizer/web dev",
+    "dev:real": "pnpm --parallel --filter @pr-visulizer/server --filter @pr-visulizer/web dev",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "format": "prettier --write .",

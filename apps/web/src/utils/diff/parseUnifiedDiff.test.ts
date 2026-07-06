@@ -37,4 +37,35 @@ describe("parseUnifiedDiff", () => {
     expect(deleted[0]!.newLine).toBeNull()
     expect(added.map((line) => line.newLine)).toEqual([3, 4])
   })
+
+  it("treats an empty in-hunk line as blank context, keeping head numbering in sync", () => {
+    // Arrange — GitHub-served patches can strip the trailing space from blank context
+    // lines; skipping such a line desyncs every following head line number (and with
+    // it the §10 symbol anchors). Line 3 here is fully empty, not " ".
+    const patchWithBareBlankLine = [
+      "@@ -1,5 +1,7 @@",
+      "-// old comment",
+      "+// new comment",
+      "+import { withRateLimit } from './withRateLimit'",
+      "",
+      " export function loginHandler() {",
+      "-  return null",
+      "+  const guarded = withRateLimit(() => null)",
+      "+  return guarded()",
+      " }",
+      "",
+    ].join("\n")
+
+    // Act
+    const parsed = parseUnifiedDiff(patchWithBareBlankLine)
+    const blankContext = parsed.lines.filter((line) => line.kind === "context" && line.content === "")
+    const guardedLine = parsed.lines.find((line) => line.content.includes("withRateLimit(() => null)"))
+
+    // Assert — the empty line is context at head line 3, so the usage lands on head
+    // line 5 (where the analysis occurrence points); the trailing artifact adds nothing.
+    expect(blankContext).toHaveLength(1)
+    expect(blankContext[0]!.newLine).toBe(3)
+    expect(guardedLine!.newLine).toBe(5)
+    expect(parsed.lines.at(-1)!.content).toBe("}")
+  })
 })

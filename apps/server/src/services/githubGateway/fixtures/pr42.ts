@@ -112,11 +112,13 @@ export function loginHandler() {
   return guarded()
 }
 `
-const loginPatch = `@@ -1,4 +1,6 @@
+// NOTE: blank context lines must be a single space (" "), not empty — an empty
+// line desyncs diff-line numbering and kills symbol anchors downstream.
+const loginPatch = `@@ -1,5 +1,7 @@
 -// src/api/routes/login.ts — login route.
 +// src/api/routes/login.ts — login route (modified in PR #42).
 +import { withRateLimit } from "../../middleware/withRateLimit.js"
-
+ 
  export function loginHandler() {
 -  return null
 +  const guarded = withRateLimit(() => null)

@@ -14,7 +14,12 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
   let oldLine = 0
   let newLine = 0
 
-  for (const raw of patch.split("\n")) {
+  // Drop the final-split artifact of a trailing newline so it can't render as a
+  // phantom blank context line.
+  const rawLines = patch.split("\n")
+  if (rawLines.at(-1) === "") rawLines.pop()
+
+  for (const raw of rawLines) {
     const header = HUNK_HEADER.exec(raw)
 
     if (header) {
@@ -42,8 +47,12 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       continue
     }
 
-    // A leading space is a context line; a bare empty string (final split) is skipped.
-    if (marker === " ") {
+    // A leading space is a context line. A fully empty line inside a hunk is a blank
+    // context line whose trailing space got stripped (GitHub-served patches do this) —
+    // skipping it would desync every following line number, so treat it as context too.
+    // Empty strings before any hunk header (or the final-split artifact) carry no line.
+    const inHunk = oldLine > 0 || newLine > 0
+    if (marker === " " || (raw === "" && inHunk)) {
       lines.push({ kind: "context", content, oldLine, newLine })
       oldLine += 1
       newLine += 1
