@@ -9,10 +9,14 @@ export type TrayRow = {
   path: string
   order: number // 1-based static order (from AnalysisResult.ranking)
   status: FileStatus
+  churn: number // additions + deletions — shown before analysis lands (task 4)
   reviewed: boolean
-  readiness: number // live, recomputed after every checkmark (§8.2)
+  // Live readiness, recomputed after every checkmark (§8.2). null = analysis not ready yet
+  // (the overview has no ranking), rendered as "…" in the chip (task 4 progressive shell).
+  readiness: number | null
   isNext: boolean // the single suggested-next file
   blastRadius: number | null // deep engine only — a risk badge
+  draftCount: number // inline draft comments saved on this file (task 5 badge)
 }
 
 export type FileNodeVM = {

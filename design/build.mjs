@@ -1,109 +1,155 @@
 // Generates the Claude Design handoff bundle: token files + self-contained
 // preview cards. Single source of truth for tokens so cards can't drift.
 // Run: node design/build.mjs   (emits *.html + tokens.css/ts next to itself)
-import { writeFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { mkdirSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 
-const OUT = dirname(fileURLToPath(import.meta.url));
+const OUT = dirname(fileURLToPath(import.meta.url))
 
 // ── tokens: single source of truth ─────────────────────────
 const TOKENS = {
   light: {
-    bg: '#f6f7f9', panel: '#ffffff', text: '#1c2430', muted: '#66707d',
-    border: '#dde2e8', codeBg: '#eef1f5',
-    accent: '#2563eb', accentSoft: '#dbeafe',
-    added: '#16a34a', addedSoft: '#dcfce7',
-    modified: '#d97706', modifiedSoft: '#fef3c7',
-    deleted: '#dc2626', deletedSoft: '#fee2e2',
-    reviewed: '#9aa4b0',
-    synKeyword: '#cf222e', synString: '#0a3069', synFunc: '#8250df',
-    synType: '#953800', synConst: '#0550ae', synComment: '#6e7781',
+    bg: "#f6f7f9",
+    panel: "#ffffff",
+    text: "#1c2430",
+    muted: "#66707d",
+    border: "#dde2e8",
+    codeBg: "#eef1f5",
+    accent: "#2563eb",
+    accentSoft: "#dbeafe",
+    added: "#16a34a",
+    addedSoft: "#dcfce7",
+    modified: "#d97706",
+    modifiedSoft: "#fef3c7",
+    deleted: "#dc2626",
+    deletedSoft: "#fee2e2",
+    reviewed: "#9aa4b0",
+    synKeyword: "#cf222e",
+    synString: "#0a3069",
+    synFunc: "#8250df",
+    synType: "#953800",
+    synConst: "#0550ae",
+    synComment: "#6e7781",
   },
   dark: {
-    bg: '#12161c', panel: '#1a2029', text: '#e5eaf0', muted: '#8b96a5',
-    border: '#2a323d', codeBg: '#232b36',
-    accent: '#60a5fa', accentSoft: '#1e3a5f',
-    added: '#4ade80', addedSoft: '#14351f',
-    modified: '#fbbf24', modifiedSoft: '#3a2e0e',
-    deleted: '#f87171', deletedSoft: '#3b1a1a',
-    reviewed: '#566172',
-    synKeyword: '#ff7b72', synString: '#a5d6ff', synFunc: '#d2a8ff',
-    synType: '#ffa657', synConst: '#79c0ff', synComment: '#8b949e',
+    bg: "#12161c",
+    panel: "#1a2029",
+    text: "#e5eaf0",
+    muted: "#8b96a5",
+    border: "#2a323d",
+    codeBg: "#232b36",
+    accent: "#60a5fa",
+    accentSoft: "#1e3a5f",
+    added: "#4ade80",
+    addedSoft: "#14351f",
+    modified: "#fbbf24",
+    modifiedSoft: "#3a2e0e",
+    deleted: "#f87171",
+    deletedSoft: "#3b1a1a",
+    reviewed: "#566172",
+    synKeyword: "#ff7b72",
+    synString: "#a5d6ff",
+    synFunc: "#d2a8ff",
+    synType: "#ffa657",
+    synConst: "#79c0ff",
+    synComment: "#8b949e",
   },
-};
+}
 
 const USAGE = {
-  bg: 'app background', panel: 'cards, panes, nodes', text: 'primary text',
-  muted: 'secondary text, ghost nodes, edges', border: 'hairlines, node strokes',
-  codeBg: 'inline code, diff gutter',
-  accent: 'suggested-next, links, primary buttons', accentSoft: 'suggested-row background',
-  added: 'added files/symbols/diff lines', addedSoft: 'added backgrounds',
-  modified: 'modified files/symbols', modifiedSoft: 'modified backgrounds',
-  deleted: 'deleted diff lines, request-changes', deletedSoft: 'deleted backgrounds',
-  reviewed: 'checked-off files (dimmed)',
-  synKeyword: 'import / export / function / if', synString: 'string literals',
-  synFunc: 'function names, call sites', synType: 'type names',
-  synConst: 'constants, numbers', synComment: 'comments',
-};
+  bg: "app background",
+  panel: "cards, panes, nodes",
+  text: "primary text",
+  muted: "secondary text, ghost nodes, edges",
+  border: "hairlines, node strokes",
+  codeBg: "inline code, diff gutter",
+  accent: "suggested-next, links, primary buttons",
+  accentSoft: "suggested-row background",
+  added: "added files/symbols/diff lines",
+  addedSoft: "added backgrounds",
+  modified: "modified files/symbols",
+  modifiedSoft: "modified backgrounds",
+  deleted: "deleted diff lines, request-changes",
+  deletedSoft: "deleted backgrounds",
+  reviewed: "checked-off files (dimmed)",
+  synKeyword: "import / export / function / if",
+  synString: "string literals",
+  synFunc: "function names, call sites",
+  synType: "type names",
+  synConst: "constants, numbers",
+  synComment: "comments",
+}
 
 // hand-tagged syntax spans for mockup code (no parser — these are static previews)
-const kw = s => `<span style="color:var(--syn-keyword)">${s}</span>`;
-const st = s => `<span style="color:var(--syn-string)">${s}</span>`;
-const fn = s => `<span style="color:var(--syn-func)">${s}</span>`;
-const ty = s => `<span style="color:var(--syn-type)">${s}</span>`;
-const ct = s => `<span style="color:var(--syn-const)">${s}</span>`;
+const kw = (s) => `<span style="color:var(--syn-keyword)">${s}</span>`
+const st = (s) => `<span style="color:var(--syn-string)">${s}</span>`
+const fn = (s) => `<span style="color:var(--syn-func)">${s}</span>`
+const ty = (s) => `<span style="color:var(--syn-type)">${s}</span>`
+const ct = (s) => `<span style="color:var(--syn-const)">${s}</span>`
 // symbol with a counterpart in the PR — underlined, clickable in the real app
-const sym = s => `<span class="symlink">${s}</span>`;
+const sym = (s) => `<span class="symlink">${s}</span>`
 
-const kebab = k => k.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
-const varsBlock = mode =>
-  Object.entries(TOKENS[mode]).map(([k, v]) => `  --${kebab(k)}: ${v};`).join('\n');
+const kebab = (k) => k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase())
+const varsBlock = (mode) =>
+  Object.entries(TOKENS[mode])
+    .map(([k, v]) => `  --${kebab(k)}: ${v};`)
+    .join("\n")
 
 // ── shared card scaffold ────────────────────────────────────
 const BASE_CSS = `
-:root {\n${varsBlock('light')}\n}
-@media (prefers-color-scheme: dark) { :root {\n${varsBlock('dark')}\n} }
-:root[data-theme="light"] {\n${varsBlock('light')}\n}
-:root[data-theme="dark"] {\n${varsBlock('dark')}\n}
+:root {\n${varsBlock("light")}\n}
+@media (prefers-color-scheme: dark) { :root {\n${varsBlock("dark")}\n} }
+:root[data-theme="light"] {\n${varsBlock("light")}\n}
+:root[data-theme="dark"] {\n${varsBlock("dark")}\n}
 * { box-sizing: border-box; }
 body { margin: 0; padding: 20px; background: var(--bg); color: var(--text);
   font: 14px/1.5 -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
 .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 h4 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .symlink { text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
-`;
+`
 
 function card({ path, group, name, subtitle, width, height, css, body }) {
   const html = `<!-- @dsCard group="${group}" name="${name}" subtitle="${subtitle}" viewport="${width}x${height}" -->
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>${name}</title>
-<style>${BASE_CSS}${css || ''}</style></head>
+<style>${BASE_CSS}${css || ""}</style></head>
 <body>
 ${body}
-</body></html>`;
-  const file = join(OUT, path);
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, html);
-  return { path, group, name, subtitle, width, height };
+</body></html>`
+  const file = join(OUT, path)
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, html)
+  return { path, group, name, subtitle, width, height }
 }
 
-const cards = [];
+const cards = []
 
 // ── tokens/colors ───────────────────────────────────────────
-const swatchRow = keys => keys.map(k => `
+const swatchRow = (keys) =>
+  keys
+    .map(
+      (k) => `
   <div class="sw">
     <div class="chip" style="background:${TOKENS.light[k]}"></div>
     <div class="chip dark" style="background:${TOKENS.dark[k]}"></div>
     <div class="lbl mono">--${kebab(k)}</div>
     <div class="hex mono">${TOKENS.light[k]} · ${TOKENS.dark[k]}</div>
     <div class="use">${USAGE[k]}</div>
-  </div>`).join('');
+  </div>`
+    )
+    .join("")
 
-cards.push(card({
-  path: 'tokens/colors.html', group: 'Colors', name: 'Semantic colors',
-  subtitle: 'diff status · review state · syntax · surfaces — light+dark', width: 860, height: 880,
-  css: `
+cards.push(
+  card({
+    path: "tokens/colors.html",
+    group: "Colors",
+    name: "Semantic colors",
+    subtitle: "diff status · review state · syntax · surfaces — light+dark",
+    width: 860,
+    height: 880,
+    css: `
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
 .sw { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
 .chip { height: 26px; border-radius: 6px; }
@@ -112,24 +158,30 @@ cards.push(card({
 .hex { font-size: 11px; color: var(--muted); }
 .use { font-size: 12px; color: var(--muted); margin-top: 2px; }
 section { margin-bottom: 20px; }`,
-  body: `
-<section><h4>Diff status</h4><div class="grid">${swatchRow(['added', 'addedSoft', 'modified', 'modifiedSoft', 'deleted', 'deletedSoft'])}</div></section>
-<section><h4>Review state</h4><div class="grid">${swatchRow(['accent', 'accentSoft', 'reviewed'])}</div></section>
-<section><h4>Syntax (diff code)</h4><div class="grid">${swatchRow(['synKeyword', 'synString', 'synFunc', 'synType', 'synConst', 'synComment'])}</div></section>
-<section><h4>Surfaces</h4><div class="grid">${swatchRow(['bg', 'panel', 'border', 'text', 'muted', 'codeBg'])}</div></section>
+    body: `
+<section><h4>Diff status</h4><div class="grid">${swatchRow(["added", "addedSoft", "modified", "modifiedSoft", "deleted", "deletedSoft"])}</div></section>
+<section><h4>Review state</h4><div class="grid">${swatchRow(["accent", "accentSoft", "reviewed"])}</div></section>
+<section><h4>Syntax (diff code)</h4><div class="grid">${swatchRow(["synKeyword", "synString", "synFunc", "synType", "synConst", "synComment"])}</div></section>
+<section><h4>Surfaces</h4><div class="grid">${swatchRow(["bg", "panel", "border", "text", "muted", "codeBg"])}</div></section>
 <p style="color:var(--muted);font-size:12px">Top chip = light, bottom = dark. Ghost nodes reuse <span class="mono">--muted</span> with a dashed stroke — no extra hue. In diffs: <b>background = diff status, foreground = syntax</b> — the two layers never fight.</p>`,
-}));
+  })
+)
 
 // ── tokens/type ─────────────────────────────────────────────
-cards.push(card({
-  path: 'tokens/type.html', group: 'Type', name: 'Typography',
-  subtitle: 'UI sans · code mono · tabular numerals', width: 700, height: 420,
-  css: `
+cards.push(
+  card({
+    path: "tokens/type.html",
+    group: "Type",
+    name: "Typography",
+    subtitle: "UI sans · code mono · tabular numerals",
+    width: 700,
+    height: 420,
+    css: `
 .spec { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
 .spec .demo { margin: 6px 0; }
 .tab { font-variant-numeric: tabular-nums; }
 .small { font-size: 12px; color: var(--muted); }`,
-  body: `
+    body: `
 <div class="spec"><h4>UI — system sans</h4>
   <div class="demo" style="font-size:17px;font-weight:700">Review PR #42 — Add login rate limiting</div>
   <div class="demo">Start with the file the rest of the PR is built on.</div>
@@ -141,20 +193,26 @@ cards.push(card({
 <div class="spec"><h4>Numbers — tabular</h4>
   <div class="demo mono tab">readiness&nbsp;&nbsp;1.00&nbsp;·&nbsp;0.67&nbsp;·&nbsp;0.33&nbsp;·&nbsp;0.00</div>
   <div class="small">font-variant-numeric: tabular-nums — scores align in columns while counting up.</div></div>`,
-}));
+  })
+)
 
 // ── components/graph-node ───────────────────────────────────
-const node = (cls, name, chips, meta, order, extra = '') => `
+const node = (cls, name, chips, meta, order, extra = "") => `
 <div class="node ${cls}">
-  <div class="top"><span class="mono nm">${name}</span>${order ? `<span class="order">#${order}</span>` : ''}</div>
+  <div class="top"><span class="mono nm">${name}</span>${order ? `<span class="order">#${order}</span>` : ""}</div>
   <div class="chips mono">${chips}</div>
   <div class="meta mono">${meta}</div>${extra}
-</div>`;
+</div>`
 
-cards.push(card({
-  path: 'components/graph-node.html', group: 'Components', name: 'Graph nodes',
-  subtitle: 'added / modified / suggested / reviewed / ghost', width: 860, height: 400,
-  css: `
+cards.push(
+  card({
+    path: "components/graph-node.html",
+    group: "Components",
+    name: "Graph nodes",
+    subtitle: "added / modified / suggested / reviewed / ghost",
+    width: 860,
+    height: 400,
+    css: `
 .rowc { display: flex; gap: 14px; flex-wrap: wrap; }
 .node { width: 200px; background: var(--panel); border: 1.5px solid var(--border); border-radius: 9px; padding: 10px 12px; position: relative; }
 .node.added { border-color: var(--added); }
@@ -170,28 +228,34 @@ cards.push(card({
 .tick { position: absolute; right: 10px; bottom: 8px; color: var(--added); font-weight: 700; }
 .blast { display: inline-block; margin-top: 5px; font-size: 10px; background: var(--modified-soft); color: var(--modified); border-radius: 4px; padding: 0 6px; font-weight: 600; }
 .cap { color: var(--muted); font-size: 12px; margin-top: 14px; }`,
-  body: `
+    body: `
 <div class="rowc">
-${node('added', 'rateLimiter.ts', 'createRateLimiter', '+48 −0', 3)}
-${node('modified', 'http.ts', 'ApiError', '+2 −1', 2)}
-${node('suggest', 'limits.ts', 'RateLimitConfig · LOGIN_RATE_LIMIT', '+4 −0', 1)}
-${node('added done', 'withRateLimit.ts', 'withRateLimit', '+26 −0', 4, '<span class="tick">✓</span>')}
-${node('ghost', 'admin.ts 👻', 'calls withRateLimit', 'unchanged · deep only', 0)}
-${node('added', 'withRateLimit.ts', 'withRateLimit', '+26 −0', 4, '<div class="blast">blast radius 1 ⚠️</div>')}
+${node("added", "rateLimiter.ts", "createRateLimiter", "+48 −0", 3)}
+${node("modified", "http.ts", "ApiError", "+2 −1", 2)}
+${node("suggest", "limits.ts", "RateLimitConfig · LOGIN_RATE_LIMIT", "+4 −0", 1)}
+${node("added done", "withRateLimit.ts", "withRateLimit", "+26 −0", 4, '<span class="tick">✓</span>')}
+${node("ghost", "admin.ts 👻", "calls withRateLimit", "unchanged · deep only", 0)}
+${node("added", "withRateLimit.ts", "withRateLimit", "+26 −0", 4, '<div class="blast">blast radius 1 ⚠️</div>')}
 </div>
 <p class="cap">Border color = diff status. Blue ring = suggested next. Dimmed + ✓ = reviewed. Dashed = ghost (deep engine only, never in the queue). Blast-radius badge appears only with deep data.</p>`,
-}));
+  })
+)
 
 // ── components/edge-legend ──────────────────────────────────
-cards.push(card({
-  path: 'components/edge-legend.html', group: 'Components', name: 'Edges',
-  subtitle: 'kinds · engine source · direction convention', width: 640, height: 380,
-  css: `
+cards.push(
+  card({
+    path: "components/edge-legend.html",
+    group: "Components",
+    name: "Edges",
+    subtitle: "kinds · engine source · direction convention",
+    width: 640,
+    height: 380,
+    css: `
 .lg { display: grid; grid-template-columns: 120px 1fr; gap: 10px 14px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
 svg { display: block; }
 .d { font-size: 13px; }
 .dir { margin-top: 14px; padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0; font-size: 13px; }`,
-  body: `
+    body: `
 <div class="lg">
   <svg width="110" height="14"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs><line x1="2" y1="7" x2="102" y2="7" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#a)"/></svg>
   <div class="d"><b>imports / calls / uses-type</b> — solid, source <span class="mono">ast</span> (fast engine)</div>
@@ -203,15 +267,21 @@ svg { display: block; }
   <div class="d"><b>edge weight</b> — thickness = number of symbol-level references</div>
 </div>
 <div class="dir"><b>Direction convention:</b> A → B means <b>"A depends on B"</b>. Arrows point at foundations; review flows against the arrows, left to right.</div>`,
-}));
+  })
+)
 
 // ── components/readiness ────────────────────────────────────
 const chip = (v, cls, label) => `
-<div class="rc ${cls}"><span class="bar"><span style="width:${v * 100}%"></span></span><span class="mono val">${label ?? v.toFixed(2)}</span></div>`;
-cards.push(card({
-  path: 'components/readiness.html', group: 'Components', name: 'Readiness chips',
-  subtitle: 'reviewed-deps ÷ total-deps — drives "best next"', width: 640, height: 360,
-  css: `
+<div class="rc ${cls}"><span class="bar"><span style="width:${v * 100}%"></span></span><span class="mono val">${label ?? v.toFixed(2)}</span></div>`
+cards.push(
+  card({
+    path: "components/readiness.html",
+    group: "Components",
+    name: "Readiness chips",
+    subtitle: 'reviewed-deps ÷ total-deps — drives "best next"',
+    width: 640,
+    height: 360,
+    css: `
 .list { display: flex; flex-direction: column; gap: 10px; max-width: 420px; }
 .rc { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
 .rc.next { border-color: var(--accent); background: var(--accent-soft); }
@@ -220,28 +290,39 @@ cards.push(card({
 .val { font-variant-numeric: tabular-nums; font-size: 12px; width: 68px; text-align: right; }
 .rc.done .bar span { background: var(--reviewed); }
 .cap { color: var(--muted); font-size: 12px; margin-top: 12px; max-width: 460px; }`,
-  body: `
+    body: `
 <div class="list">
-  ${chip(1, 'next', '1.00 👉 next')}
-  ${chip(1, '', '1.00')}
-  ${chip(0.67, '', '0.67')}
-  ${chip(0.33, '', '0.33')}
-  ${chip(0, '', '0.00')}
-  ${chip(1, 'done', '✓ reviewed')}
+  ${chip(1, "next", "1.00 👉 next")}
+  ${chip(1, "", "1.00")}
+  ${chip(0.67, "", "0.67")}
+  ${chip(0.33, "", "0.33")}
+  ${chip(0, "", "0.00")}
+  ${chip(1, "done", "✓ reviewed")}
 </div>
 <p class="cap">1.00 = every changed file this one depends on is already reviewed — full context right now. Ties break by lower topo level, then higher fan-in. The suggestion guides, never blocks.</p>`,
-}));
+  })
+)
 
 // ── components/review-tray ──────────────────────────────────
-const tray = (nm, state, ready, extra = '') => {
-  const cls = state === 'done' ? 'done' : state === 'next' ? 'next' : '';
-  const right = state === 'done' ? '<span class="ok">✓</span>' : state === 'next' ? '<span class="nx">👉 next</span>' : `<span class="mono rd">${ready}</span>`;
-  return `<div class="tr ${cls}"><span class="mono p">${nm}</span>${extra}${right}</div>`;
-};
-cards.push(card({
-  path: 'components/review-tray.html', group: 'Components', name: 'Review tray',
-  subtitle: 'queue rows · progress · submit', width: 640, height: 480,
-  css: `
+const tray = (nm, state, ready, extra = "") => {
+  const cls = state === "done" ? "done" : state === "next" ? "next" : ""
+  const right =
+    state === "done"
+      ? '<span class="ok">✓</span>'
+      : state === "next"
+        ? '<span class="nx">👉 next</span>'
+        : `<span class="mono rd">${ready}</span>`
+  return `<div class="tr ${cls}"><span class="mono p">${nm}</span>${extra}${right}</div>`
+}
+cards.push(
+  card({
+    path: "components/review-tray.html",
+    group: "Components",
+    name: "Review tray",
+    subtitle: "queue rows · progress · submit",
+    width: 640,
+    height: 480,
+    css: `
 .tray { max-width: 400px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .hd { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; font-size: 13px; }
 .hd b { font-variant-numeric: tabular-nums; }
@@ -258,25 +339,31 @@ cards.push(card({
 .btn { flex: 1; text-align: center; padding: 8px 0; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn[disabled] { opacity: .4; }`,
-  body: `
+    body: `
 <div class="tray">
   <div class="hd"><span>Review queue</span><b>3 / 6 reviewed</b></div>
-  ${tray('src/config/limits.ts', 'done', '')}
-  ${tray('src/types/http.ts', 'done', '')}
-  ${tray('src/lib/rateLimiter.ts', 'done', '')}
-  ${tray('src/middleware/withRateLimit.ts', 'next', '', '<span class="blast">⚠️ 1</span>')}
-  ${tray('src/lib/rateLimiter.test.ts', '', '1.00')}
-  ${tray('src/api/routes/login.ts', '', '0.00')}
+  ${tray("src/config/limits.ts", "done", "")}
+  ${tray("src/types/http.ts", "done", "")}
+  ${tray("src/lib/rateLimiter.ts", "done", "")}
+  ${tray("src/middleware/withRateLimit.ts", "next", "", '<span class="blast">⚠️ 1</span>')}
+  ${tray("src/lib/rateLimiter.test.ts", "", "1.00")}
+  ${tray("src/api/routes/login.ts", "", "0.00")}
   <div class="ft"><button class="btn" disabled>Submit review</button><button class="btn primary">Open next</button></div>
 </div>
 <p style="color:var(--muted);font-size:12px;max-width:420px">Rows ordered by the live ranking, not alphabetically. Submit enables at 6/6 (or on explicit override). ⚠️ = blast radius from deep mode.</p>`,
-}));
+  })
+)
 
 // ── components/preset-selector ──────────────────────────────
-cards.push(card({
-  path: 'components/preset-selector.html', group: 'Components', name: 'Ranking presets + engine toggle',
-  subtitle: 'foundations-first · blast-radius-first · quick-wins · fast/deep', width: 700, height: 380,
-  css: `
+cards.push(
+  card({
+    path: "components/preset-selector.html",
+    group: "Components",
+    name: "Ranking presets + engine toggle",
+    subtitle: "foundations-first · blast-radius-first · quick-wins · fast/deep",
+    width: 700,
+    height: 380,
+    css: `
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel); }
 .seg button { border: 0; background: transparent; color: var(--text); padding: 8px 16px; font-size: 13px; cursor: pointer; border-right: 1px solid var(--border); }
 .seg button:last-child { border-right: 0; }
@@ -286,21 +373,27 @@ cards.push(card({
 .badge { font-size: 11px; font-weight: 700; border-radius: 5px; padding: 1px 8px; }
 .badge.fast { background: var(--added-soft); color: var(--added); }
 .badge.deep { background: var(--accent-soft); color: var(--accent); }`,
-  body: `
+    body: `
 <h4>Ranking preset (RankingPolicy)</h4>
 <div class="seg"><button class="on">foundations-first</button><button>blast-radius-first</button><button>quick-wins</button></div>
 <p class="cap">One config object, three named presets — switching reorders the queue without touching the algorithm.</p>
 <h4>Analysis engine</h4>
 <div class="eng"><span class="badge fast">FAST · AST</span> analyzed in 3.2s · <a href="#" style="color:var(--accent)">Deepen analysis 🔬</a></div>
 <p class="cap" style="margin-top:8px">…and after the deep job lands:</p>
-<div class="eng"><span class="badge deep">DEEP · LSP</span> repo-wide · 2 ghost files · edges upgraded</div>`,
-}));
+<div class="eng"><span class="badge deep">DEEP · REPO</span> repo-wide · 2 ghost files · edges upgraded</div>`,
+  })
+)
 
 // ── components/diff-header ──────────────────────────────────
-cards.push(card({
-  path: 'components/diff-header.html', group: 'Components', name: 'Diff panel header',
-  subtitle: 'path · status · churn · symbols · viewed', width: 860, height: 300,
-  css: `
+cards.push(
+  card({
+    path: "components/diff-header.html",
+    group: "Components",
+    name: "Diff panel header",
+    subtitle: "path · status · churn · view toggles · symbols · viewed",
+    width: 860,
+    height: 300,
+    css: `
 .dh { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; max-width: 780px; }
 .r1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .p { font-weight: 600; font-size: 13px; }
@@ -312,26 +405,36 @@ cards.push(card({
 .r2 { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
 .sym { font-size: 11px; border: 1px solid var(--border); border-radius: 5px; padding: 1px 8px; color: var(--muted); }
 .sym.changed { border-color: var(--added); color: var(--added); }
+.toggle { font-size: 11px; border: 1px solid var(--border); border-radius: 14px; padding: 2px 10px; background: var(--panel); color: var(--muted); cursor: pointer; }
+.toggle.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .nextHint { margin-top: 10px; font-size: 12px; color: var(--accent); }`,
-  body: `
+    body: `
 <div class="dh">
   <div class="r1">
     <span class="mono p">src/lib/rateLimiter.ts</span>
     <span class="tag added">added</span>
     <span class="mono churn">+48 −0 · level 1 · fan-in 2</span>
     <span class="spacer"></span>
+    <button class="toggle" aria-pressed="false" title="Wrap long lines instead of scrolling horizontally">wrap</button>
+    <button class="toggle on" aria-pressed="true" title="Hide whitespace-only changes">hide WS</button>
     <label class="viewed"><input type="checkbox"> Mark viewed <span style="color:var(--muted);font-size:11px">(syncs to GitHub)</span></label>
   </div>
   <div class="r2"><span class="sym changed mono symlink">createRateLimiter ●</span><span class="sym mono">imports: limits.ts</span><span class="sym mono symlink">2 usages in PR →</span></div>
   <div class="nextHint">After this → <span class="mono">withRateLimit.ts</span> (readiness 1.00)</div>
 </div>`,
-}));
+  })
+)
 
 // ── components/symbol-nav ───────────────────────────────────
-cards.push(card({
-  path: 'components/symbol-nav.html', group: 'Components', name: 'Symbol navigation',
-  subtitle: 'ladder: peek → show-more expand → jump', width: 860, height: 900,
-  css: `
+cards.push(
+  card({
+    path: "components/symbol-nav.html",
+    group: "Components",
+    name: "Symbol navigation",
+    subtitle: "ladder: peek → show-more expand → jump",
+    width: 860,
+    height: 900,
+    css: `
 .snip { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; max-width: 660px; margin-bottom: 16px; }
 .sh { padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 12px; display: flex; gap: 8px; align-items: center; }
 .code { font: 12px/1.8 ui-monospace, Menlo, monospace; padding: 6px 0; }
@@ -355,20 +458,20 @@ cards.push(card({
 .uses { margin: 6px 0 0; padding-left: 16px; font-size: 12px; }
 .uses li { margin: 2px 0; }
 .cap { color: var(--muted); font-size: 12px; max-width: 660px; }`,
-  body: `
+    body: `
 <h4>Click a usage → peek (default) — short definitions never need a jump</h4>
 <div class="snip">
   <div class="sh"><span class="mono">withRateLimit.ts</span></div>
   <div class="code">
-<div class="cl add"><span class="ln">9</span>+     ${kw('if')} (!limiter.${sym(fn('checkLimit'))}(req.ip)) {</div>
+<div class="cl add"><span class="ln">9</span>+     ${kw("if")} (!limiter.${sym(fn("checkLimit"))}(req.ip)) {</div>
   </div>
   <div class="peek">
     <div class="ph"><span class="mono">rateLimiter.ts:12</span><span class="tag">added in this PR</span><span style="flex:1"></span><span style="color:var(--muted)">esc</span></div>
     <div class="code">
-<div class="cl add"><span class="ln">12</span>+   ${fn('checkLimit')}(key: ${ty('string')}): ${ty('boolean')} {</div>
-<div class="cl add"><span class="ln">13</span>+     ${kw('const')} now = Date.${fn('now')}();</div>
-<div class="cl add"><span class="ln">14</span>+     ${fn('pruneOldHits')}(key, now);</div>
-<div class="cl add"><span class="ln">15</span>+     ${kw('return')} hits.${fn('get')}(key)!.length &lt; config.max;</div>
+<div class="cl add"><span class="ln">12</span>+   ${fn("checkLimit")}(key: ${ty("string")}): ${ty("boolean")} {</div>
+<div class="cl add"><span class="ln">13</span>+     ${kw("const")} now = Date.${fn("now")}();</div>
+<div class="cl add"><span class="ln">14</span>+     ${fn("pruneOldHits")}(key, now);</div>
+<div class="cl add"><span class="ln">15</span>+     ${kw("return")} hits.${fn("get")}(key)!.length &lt; config.max;</div>
 <div class="cl add"><span class="ln">16</span>+   }</div>
     </div>
     <div class="pf">whole definition (5 lines) · <b>Jump ⏎</b> · <span>⌘-click jumps directly</span></div>
@@ -378,30 +481,30 @@ cards.push(card({
 <div class="snip">
   <div class="sh"><span class="mono">login.ts</span></div>
   <div class="code">
-<div class="cl add"><span class="ln">7</span>+ ${kw('export const')} loginHandler = ${sym(fn('withRateLimit'))}(${kw('async')} (req, res) => {</div>
+<div class="cl add"><span class="ln">7</span>+ ${kw("export const")} loginHandler = ${sym(fn("withRateLimit"))}(${kw("async")} (req, res) => {</div>
   </div>
   <div class="duo">
   <div class="peek">
     <div class="ph"><span class="mono">withRateLimit.ts:7</span><span class="tag">added in this PR</span></div>
     <div class="code trunc">
-<div class="cl add"><span class="ln">7</span>+ ${kw('export function')} ${fn('withRateLimit')}(handler: ${ty('Handler')}) {</div>
-<div class="cl add"><span class="ln">8</span>+   ${kw('return')} ${kw('async')} (req, res) => {</div>
-<div class="cl add"><span class="ln">9</span>+     ${kw('if')} (!limiter.${fn('checkLimit')}(req.ip)) {</div>
+<div class="cl add"><span class="ln">7</span>+ ${kw("export function")} ${fn("withRateLimit")}(handler: ${ty("Handler")}) {</div>
+<div class="cl add"><span class="ln">8</span>+   ${kw("return")} ${kw("async")} (req, res) => {</div>
+<div class="cl add"><span class="ln">9</span>+     ${kw("if")} (!limiter.${fn("checkLimit")}(req.ip)) {</div>
     </div>
     <div class="pf"><b>Show 16 more ↓</b> · <b>Jump ⏎</b></div>
   </div>
   <div class="peek">
     <div class="ph"><span class="mono">withRateLimit.ts:7</span><span class="tag">added in this PR</span><span style="flex:1"></span><span style="color:var(--muted)">expanded</span></div>
     <div class="code scrolly">
-<div class="cl add"><span class="ln">7</span>+ ${kw('export function')} ${fn('withRateLimit')}(handler: ${ty('Handler')}) {</div>
-<div class="cl add"><span class="ln">8</span>+   ${kw('return')} ${kw('async')} (req, res) => {</div>
-<div class="cl add"><span class="ln">9</span>+     ${kw('if')} (!limiter.${fn('checkLimit')}(req.ip)) {</div>
-<div class="cl add"><span class="ln">10</span>+       ${kw('const')} err: ${ty('ApiError')} = {</div>
+<div class="cl add"><span class="ln">7</span>+ ${kw("export function")} ${fn("withRateLimit")}(handler: ${ty("Handler")}) {</div>
+<div class="cl add"><span class="ln">8</span>+   ${kw("return")} ${kw("async")} (req, res) => {</div>
+<div class="cl add"><span class="ln">9</span>+     ${kw("if")} (!limiter.${fn("checkLimit")}(req.ip)) {</div>
+<div class="cl add"><span class="ln">10</span>+       ${kw("const")} err: ${ty("ApiError")} = {</div>
 <div class="cl add"><span class="ln">11</span>+         code: ${st("'RATE_LIMITED'")},</div>
 <div class="cl add"><span class="ln">12</span>+         message: ${st("'Too many attempts'")},</div>
-<div class="cl add"><span class="ln">13</span>+         retryAfterSeconds: ${ct('60')},</div>
+<div class="cl add"><span class="ln">13</span>+         retryAfterSeconds: ${ct("60")},</div>
 <div class="cl add"><span class="ln">14</span>+       };</div>
-<div class="cl add"><span class="ln">15</span>+       ${kw('return')} res.status(${ct('429')}).json(err);</div>
+<div class="cl add"><span class="ln">15</span>+       ${kw("return")} res.status(${ct("429")}).json(err);</div>
     </div>
     <div class="pf">23 lines · scrolls in place — main diff never moves · <b>Jump ⏎</b></div>
   </div>
@@ -419,34 +522,46 @@ cards.push(card({
 </div>
 <div class="back">↩ back to <span class="mono">withRateLimit.ts:9</span></div>
 <p class="cap" style="margin-top:12px">The ladder is <b>peek → expand → jump</b>, each step heavier than the last. Definitions longer than <span class="mono">peekMaxLines</span> (default 15, a controllable-core setting) truncate with a fade; <b>Show more</b> grows the popup in place, and past ~60% viewport height the code scrolls <i>inside</i> it — the main diff never moves. Only real jumps enter the jump stack behind the ↩ chip. Underlines appear only when the counterpart is inside the PR (<span class="mono">SymbolOccurrence[]</span>); deep mode extends peeks to ghost files, read-only.</p>`,
-}));
+  })
+)
 
 // ── components/buttons ──────────────────────────────────────
-cards.push(card({
-  path: 'components/buttons.html', group: 'Components', name: 'Buttons & verdicts',
-  subtitle: 'primary / secondary / verdict trio / disabled', width: 700, height: 340,
-  css: `
+cards.push(
+  card({
+    path: "components/buttons.html",
+    group: "Components",
+    name: "Buttons & verdicts",
+    subtitle: "primary / secondary / verdict trio / disabled",
+    width: 700,
+    height: 340,
+    css: `
 .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
 .btn { border-radius: 8px; padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.approve { background: var(--added); border-color: var(--added); color: #fff; }
 .btn.reject { background: var(--deleted); border-color: var(--deleted); color: #fff; }
 .btn[disabled] { opacity: .4; cursor: default; }`,
-  body: `
+    body: `
 <h4>Actions</h4>
 <div class="row"><button class="btn primary">Open next file</button><button class="btn">Deepen analysis 🔬</button><button class="btn" disabled>Submit review</button></div>
 <h4>Verdict (one required at submit)</h4>
 <div class="row"><button class="btn approve">✓ Approve</button><button class="btn">💬 Comment</button><button class="btn reject">✗ Request changes</button></div>
 <p style="color:var(--muted);font-size:12px">Verdict colors reuse diff-status tokens: approve = added-green, request-changes = deleted-red. No new hues.</p>`,
-}));
+  })
+)
 
 // ── screens/app-shell (hero) ────────────────────────────────
 const miniNode = (x, y, cls, nm, ord, tick = false) => `
-<div class="mn ${cls}" style="left:${x}px;top:${y}px"><span class="mono">${nm}</span><span class="o">#${ord}</span>${tick ? '<span class="t">✓</span>' : ''}</div>`;
-cards.push(card({
-  path: 'screens/app-shell.html', group: 'Screens', name: 'App shell — reviewing PR #42',
-  subtitle: 'graph pane · rich diff · review tray (3/6, next suggested)', width: 1440, height: 780,
-  css: `
+<div class="mn ${cls}" style="left:${x}px;top:${y}px"><span class="mono">${nm}</span><span class="o">#${ord}</span>${tick ? '<span class="t">✓</span>' : ""}</div>`
+cards.push(
+  card({
+    path: "screens/app-shell.html",
+    group: "Screens",
+    name: "App shell — reviewing PR #42",
+    subtitle: "graph pane · rich diff · review tray (3/6, next suggested)",
+    width: 1440,
+    height: 780,
+    css: `
 body { padding: 0; }
 .shell { display: grid; grid-template-columns: 400px 1fr 300px; height: 740px; }
 .pane { border-right: 1px solid var(--border); overflow: hidden; display: flex; flex-direction: column; }
@@ -475,8 +590,8 @@ body { padding: 0; }
 .btn { flex: 1; text-align: center; padding: 8px 0; border-radius: 8px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .top { height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 13px; }`,
-  body: `
-<div class="top"><b>PR #42 — Add login rate limiting</b><span class="badge">FAST · AST · 3.2s</span><a href="#" style="color:var(--accent);font-size:12px">Deepen analysis 🔬</a><span style="flex:1"></span><span class="mono" style="font-size:11px;color:var(--muted)">acme/webapp · headSha 3f9c2e1</span></div>
+    body: `
+<div class="top"><b>PR #42 — Add login rate limiting</b><span class="badge">DEEP · REPO</span><span title="Clone folder settings" style="font-size:13px;cursor:pointer">⚙️</span><span style="flex:1"></span><span class="mono" style="font-size:11px;color:var(--muted)">acme/webapp · headSha 3f9c2e1</span></div>
 <div class="shell">
   <div class="pane">
     <div class="ph">Dependency graph <span class="mono" style="font-size:10px;color:var(--muted)">A → B = depends on</span></div>
@@ -491,31 +606,31 @@ body { padding: 0; }
         <line x1="140" y1="595" x2="120" y2="245" stroke="var(--muted)" stroke-width="1.4" marker-end="url(#m)"/>
         <line x1="170" y1="600" x2="145" y2="140" stroke="var(--muted)" stroke-width="1.4" marker-end="url(#m)"/>
       </svg>
-      ${miniNode(40, 80, 'added done', 'limits.ts', 1, true)}
-      ${miniNode(40, 460, 'modified done', 'http.ts', 2, true)}
-      ${miniNode(100, 205, 'added done', 'rateLimiter.ts', 3, true)}
-      ${miniNode(180, 350, 'added next', 'withRateLimit.ts', 4)}
-      ${miniNode(180, 510, 'added', 'rateLimiter.test.ts', 5)}
-      ${miniNode(100, 590, 'modified', 'login.ts', 6)}
+      ${miniNode(40, 80, "added done", "limits.ts", 1, true)}
+      ${miniNode(40, 460, "modified done", "http.ts", 2, true)}
+      ${miniNode(100, 205, "added done", "rateLimiter.ts", 3, true)}
+      ${miniNode(180, 350, "added next", "withRateLimit.ts", 4)}
+      ${miniNode(180, 510, "added", "rateLimiter.test.ts", 5)}
+      ${miniNode(100, 590, "modified", "login.ts", 6)}
     </div>
   </div>
   <div class="pane">
     <div class="ph"><span class="mono">src/middleware/withRateLimit.ts</span><label style="font-weight:400;font-size:12px"><input type="checkbox"> Mark viewed</label></div>
     <div class="diff">
-<div class="dl add"><span class="ln">1</span>+ ${kw('import')} { ${sym(fn('createRateLimiter'))} } ${kw('from')} ${st("'../lib/rateLimiter'")};</div>
-<div class="dl add"><span class="ln">2</span>+ ${kw('import')} { ${sym(ct('LOGIN_RATE_LIMIT'))} } ${kw('from')} ${st("'../config/limits'")};</div>
-<div class="dl add"><span class="ln">3</span>+ ${kw('import type')} { ${sym(ty('ApiError'))} } ${kw('from')} ${st("'../types/http'")};</div>
+<div class="dl add"><span class="ln">1</span>+ ${kw("import")} { ${sym(fn("createRateLimiter"))} } ${kw("from")} ${st("'../lib/rateLimiter'")};</div>
+<div class="dl add"><span class="ln">2</span>+ ${kw("import")} { ${sym(ct("LOGIN_RATE_LIMIT"))} } ${kw("from")} ${st("'../config/limits'")};</div>
+<div class="dl add"><span class="ln">3</span>+ ${kw("import type")} { ${sym(ty("ApiError"))} } ${kw("from")} ${st("'../types/http'")};</div>
 <div class="dl add"><span class="ln">4</span>+</div>
-<div class="dl add"><span class="ln">5</span>+ ${kw('const')} limiter = ${sym(fn('createRateLimiter'))}(${sym(ct('LOGIN_RATE_LIMIT'))});</div>
+<div class="dl add"><span class="ln">5</span>+ ${kw("const")} limiter = ${sym(fn("createRateLimiter"))}(${sym(ct("LOGIN_RATE_LIMIT"))});</div>
 <div class="dl add"><span class="ln">6</span>+</div>
-<div class="dl add"><span class="ln">7</span>+ ${kw('export function')} ${fn('withRateLimit')}(handler: ${ty('Handler')}): ${ty('Handler')} {</div>
-<div class="dl add"><span class="ln">8</span>+   ${kw('return')} ${kw('async')} (req, res) => {</div>
-<div class="dl add"><span class="ln">9</span>+     ${kw('if')} (!limiter.${sym(fn('checkLimit'))}(req.ip)) {</div>
-<div class="dl add"><span class="ln">10</span>+       ${kw('const')} err: ${sym(ty('ApiError'))} = { code: ${st("'RATE_LIMITED'")},</div>
-<div class="dl add"><span class="ln">11</span>+         message: ${st("'Too many attempts'")}, retryAfterSeconds: ${ct('60')} };</div>
-<div class="dl add"><span class="ln">12</span>+       ${kw('return')} res.status(${ct('429')}).json(err);</div>
+<div class="dl add"><span class="ln">7</span>+ ${kw("export function")} ${fn("withRateLimit")}(handler: ${ty("Handler")}): ${ty("Handler")} {</div>
+<div class="dl add"><span class="ln">8</span>+   ${kw("return")} ${kw("async")} (req, res) => {</div>
+<div class="dl add"><span class="ln">9</span>+     ${kw("if")} (!limiter.${sym(fn("checkLimit"))}(req.ip)) {</div>
+<div class="dl add"><span class="ln">10</span>+       ${kw("const")} err: ${sym(ty("ApiError"))} = { code: ${st("'RATE_LIMITED'")},</div>
+<div class="dl add"><span class="ln">11</span>+         message: ${st("'Too many attempts'")}, retryAfterSeconds: ${ct("60")} };</div>
+<div class="dl add"><span class="ln">12</span>+       ${kw("return")} res.status(${ct("429")}).json(err);</div>
 <div class="dl add"><span class="ln">13</span>+     }</div>
-<div class="dl add"><span class="ln">14</span>+     ${kw('return')} handler(req, res);</div>
+<div class="dl add"><span class="ln">14</span>+     ${kw("return")} handler(req, res);</div>
 <div class="dl add"><span class="ln">15</span>+   };</div>
 <div class="dl add"><span class="ln">16</span>+ }</div>
     </div>
@@ -533,21 +648,98 @@ body { padding: 0; }
     <div class="ft"><button class="btn" disabled>Submit</button><button class="btn primary">Open next</button></div>
   </div>
 </div>`,
-}));
+  })
+)
+
+// ── screens/home (My repos) ─────────────────────────────────
+const prRow = (num, title, meta) => `
+<div class="pr"><span class="mono n">#${num}</span><span class="t">${title}</span><span class="m">${meta}</span></div>`
+const repoCard = (name, slug, path, count, rows) => `
+<div class="repo">
+  <div class="rh"><span class="rn">${name}</span><span class="rs mono">${slug}</span><span class="rc">${count}</span><span class="ic">↻</span><span class="ic">✕</span></div>
+  <div class="rp mono">${path}</div>
+  ${rows}
+</div>`
+cards.push(
+  card({
+    path: "screens/home.html",
+    group: "Screens",
+    name: "Home — My repos",
+    subtitle: "linked local repos · open-PR picker · URL paste on top",
+    width: 720,
+    height: 780,
+    css: `
+.wrap { max-width: 640px; margin: 0 auto; padding: 28px 4px 40px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.sub { color: var(--muted); font-size: 13px; margin: 0 0 28px; }
+.sh { display: flex; align-items: center; justify-content: space-between; margin: 0 0 10px; }
+.st { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.row { display: flex; gap: 8px; margin-bottom: 32px; }
+.in { flex: 1; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--muted); font-size: 13px; }
+.btn { padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.sm { padding: 6px 12px; font-size: 12px; }
+.repo { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); margin-bottom: 12px; overflow: hidden; }
+.rh { display: flex; align-items: baseline; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.rn { font-weight: 600; }
+.rs { font-size: 11px; color: var(--muted); flex: 1; }
+.rc { font-size: 12px; color: var(--muted); }
+.ic { color: var(--muted); font-size: 13px; padding: 0 4px; cursor: pointer; }
+.rp { padding: 6px 14px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border); }
+.pr { display: flex; align-items: baseline; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--border); font-size: 13px; }
+.pr:first-of-type { border-top: 0; }
+.pr:hover { background: var(--accent-soft); }
+.pr .n { color: var(--muted); font-size: 12px; }
+.pr .t { flex: 1; }
+.pr .m { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.empty-pr { padding: 12px 14px; font-size: 12px; color: var(--muted); }`,
+    body: `
+<div class="wrap">
+  <h1>PR Review Visualizer</h1>
+  <p class="sub">Open a pull request by URL, or pick one from your linked repos.</p>
+
+  <div class="sh"><span class="st">Open a PR</span></div>
+  <div class="row"><span class="in">Paste a GitHub PR URL…</span><span class="btn primary">Go</span></div>
+
+  <div class="sh"><span class="st">My repos</span><span class="btn sm">+ Add local repo</span></div>
+  ${repoCard(
+    "webapp",
+    "acme/webapp",
+    "/Users/dev/src/webapp",
+    "3 open PRs",
+    prRow(42, "Add login rate limiting", "octocat · 2h ago") +
+      prRow(40, "Fix session refresh", "hubber · 1d ago") +
+      prRow(38, "Retry queue for webhooks", "octocat · 3d ago")
+  )}
+  ${repoCard(
+    "mobile",
+    "acme/mobile",
+    "/Users/dev/src/mobile",
+    "1 open PR",
+    prRow(7, "Bump RN to 0.81", "appdev · 5h ago")
+  )}
+  ${repoCard("infra", "acme/infra", "/Users/dev/src/infra", "0 open PRs", '<div class="empty-pr">No open PRs.</div>')}
+</div>`,
+  })
+)
 
 // ── token source files (not cards) ──────────────────────────
-writeFileSync(join(OUT, 'tokens.css'),
-`/* PR Review Visualizer — design tokens (source of truth: build.mjs) */
-:root {\n${varsBlock('light')}\n}
-@media (prefers-color-scheme: dark) { :root {\n${varsBlock('dark')}\n} }
-:root[data-theme="light"] {\n${varsBlock('light')}\n}
-:root[data-theme="dark"] {\n${varsBlock('dark')}\n}
-`);
-writeFileSync(join(OUT, 'tokens.ts'),
-`// PR Review Visualizer — design tokens (source of truth: build.mjs)
+writeFileSync(
+  join(OUT, "tokens.css"),
+  `/* PR Review Visualizer — design tokens (source of truth: build.mjs) */
+:root {\n${varsBlock("light")}\n}
+@media (prefers-color-scheme: dark) { :root {\n${varsBlock("dark")}\n} }
+:root[data-theme="light"] {\n${varsBlock("light")}\n}
+:root[data-theme="dark"] {\n${varsBlock("dark")}\n}
+`
+)
+writeFileSync(
+  join(OUT, "tokens.ts"),
+  `// PR Review Visualizer — design tokens (source of truth: build.mjs)
 export const tokens = ${JSON.stringify(TOKENS, null, 2)} as const;
 export type TokenName = keyof typeof tokens.light;
-`);
+`
+)
 
-console.log('emitted:', cards.length, 'cards + tokens.css + tokens.ts');
-console.log(JSON.stringify(cards, null, 1));
+console.log("emitted:", cards.length, "cards + tokens.css + tokens.ts")
+console.log(JSON.stringify(cards, null, 1))

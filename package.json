@@ -10,6 +10,8 @@
   "scripts": {
     "dev": "GITHUB_FAKE=1 pnpm --parallel --filter @pr-visulizer/server --filter @pr-visulizer/web dev",
     "dev:real": "pnpm --parallel --filter @pr-visulizer/server --filter @pr-visulizer/web dev",
+    "desktop:dev": "pnpm --filter @pr-visulizer/desktop tauri dev",
+    "desktop:build": "pnpm --filter @pr-visulizer/desktop tauri build",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "format": "prettier --write .",

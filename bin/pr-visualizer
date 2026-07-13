@@ -1,0 +1,31 @@
+#!/usr/bin/env sh
+# CLI shim for PR Visualizer (docs/tauri-architecture.md §5, §6): exec the app binary and
+# forward the args. Prefers the installed .app; falls back to a local build for dev. The
+# Single Instance plugin makes a second invocation focus the already-open window.
+set -eu
+
+INSTALLED="/Applications/PR Visualizer.app/Contents/MacOS/pr-visualizer"
+
+# Resolve this script's real path (it is usually symlinked onto PATH) to find a dev build.
+script="$0"
+while [ -L "$script" ]; do
+  link="$(readlink "$script")"
+  case "$link" in
+    /*) script="$link" ;;
+    *) script="$(dirname "$script")/$link" ;;
+  esac
+done
+repo_root="$(cd "$(dirname "$script")/.." && pwd)"
+target="$repo_root/apps/desktop/src-tauri/target"
+
+if [ -x "$INSTALLED" ]; then
+  exec "$INSTALLED" "$@"
+elif [ -x "$target/release/pr-visualizer" ]; then
+  exec "$target/release/pr-visualizer" "$@"
+elif [ -x "$target/debug/pr-visualizer" ]; then
+  exec "$target/debug/pr-visualizer" "$@"
+fi
+
+echo "pr-visualizer: no app binary found." >&2
+echo "  Install the app, or build it with:  pnpm desktop:build" >&2
+exit 1

@@ -33,9 +33,13 @@ export function readiness(
   return scores
 }
 
+// The "best next" for FOUNDATIONS mode (§8.2):
 // next = unreviewed file with max readiness,
 //        tie → lower topoLevel → higher fanIn → path ascending.
 // Returns null when nothing is left to review (the algorithm never blocks — it guides).
+//
+// Deliberately order-agnostic: it answers "what is ready", not "what order". In branch mode
+// that is the wrong question — see `suggestNextInOrder` below.
 export function suggestNext(
   graph: DependencyGraph,
   reviewedFiles: Iterable<string>
@@ -63,4 +67,25 @@ export function suggestNext(
   })
 
   return ranked[0]!
+}
+
+// The "best next" for BRANCH mode (§8.4): the first unreviewed file in the branch order.
+//
+// Why not readiness here. Readiness maximises "what has full context right now" across the
+// WHOLE graph, so on a PR whose changed files form two disjoint dependency chains it happily
+// alternates between them — every chain's foundation has readiness 1.0. The tray, meanwhile,
+// walks one chain start→end. The user follows the highlight and is thrown into an unrelated
+// part of the PR on every checkmark (the PR #1087 report).
+//
+// Following the branch order instead keeps the suggestion inside the current chain until it is
+// exhausted. Nothing is lost: the branch order is a post-order DFS, so a file's changed
+// dependencies are always emitted before it — the first unreviewed file always has every
+// changed dependency already behind it in the queue, which is what readiness measured.
+export function suggestNextInOrder(
+  orderedPaths: readonly string[],
+  reviewedFiles: Iterable<string>
+): string | null {
+  const reviewed = new Set(reviewedFiles)
+
+  return orderedPaths.find((path) => !reviewed.has(path)) ?? null
 }

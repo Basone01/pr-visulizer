@@ -1,3 +1,4 @@
+import type { QueueMode } from "@pr-visulizer/shared"
 import { useState } from "react"
 
 import type { PrView } from "@/entity/viewModels"
@@ -7,19 +8,38 @@ import type { Verdict } from "@/hooks/useSubmitReview"
 import styles from "./ReviewTray.module.css"
 import { TrayRow } from "./TrayRow"
 
+// The two queue orderings, with a short "why" for the title (§8.4).
+// The `value` is the PERSISTED QueueMode (storage key "queueMode") — renaming it would
+// silently reset every saved preference, so only the label is display copy. "Branch" read as
+// a *git* branch, which on a stacked PR (base = another feature branch) is a near-certain
+// misreading; "Chain" names the dependency chain the mode actually walks.
+const QUEUE_MODES: Array<{ value: QueueMode; label: string; hint: string }> = [
+  { value: "foundations", label: "Foundations", hint: "Most-depended-upon files first" },
+  { value: "branch", label: "Chain", hint: "Walk each dependency chain start→end" },
+]
+
 const VERDICTS: Array<{ value: Verdict; label: string }> = [
   { value: "approve", label: "Approve" },
   { value: "comment", label: "Comment" },
   { value: "request_changes", label: "Request changes" },
 ]
 
+// GitHub rejects approving your own PR (§11) — the Approve verdict is disabled with this
+// reason when the viewer authored the PR (task 4). Comment / Request-changes stay enabled.
+const OWN_PR_APPROVE_HINT = "GitHub doesn't allow approving your own PR"
+
 type ReviewTrayProps = {
   view: PrView
   chosenVerdict: Verdict | null
+  approveDisabled: boolean
   onToggleReviewed: (path: string) => void
   onOpenFile: (path: string) => void
+  activePath: string
+  queueMode: QueueMode
+  onChooseQueueMode: (mode: QueueMode) => void
   onChooseVerdict: (verdict: Verdict) => void
   onSubmit: () => void
+  onHide: () => void
 }
 
 // The review tray (docs/architecture.md §8, §11): queue ordered by ranking, live
@@ -28,14 +48,23 @@ type ReviewTrayProps = {
 export function ReviewTray({
   view,
   chosenVerdict,
+  approveDisabled,
   onToggleReviewed,
   onOpenFile,
+  activePath,
+  queueMode,
+  onChooseQueueMode,
   onChooseVerdict,
   onSubmit,
+  onHide,
 }: ReviewTrayProps) {
   const [overridden, setOverridden] = useState(false)
 
   const canSubmit = (view.allReviewed || overridden) && chosenVerdict !== null
+
+  // The mode toggle only makes sense once a real ranking exists (the provisional overview view
+  // has no graph, so fileNodes is empty).
+  const hasRanking = view.fileNodes.length > 0
 
   return (
     <div className={styles.tray}>
@@ -44,24 +73,62 @@ export function ReviewTray({
         <span className={`${styles.count} mono`}>
           {view.reviewedCount}/{view.totalCount}
         </span>
+        <button
+          type="button"
+          className={styles.hideButton}
+          aria-label="Hide review queue"
+          title="Hide panel"
+          onClick={onHide}
+        >
+          －
+        </button>
       </div>
+
+      {hasRanking && (
+        <div className={styles.modeToggle} role="group" aria-label="Queue order">
+          {QUEUE_MODES.map((mode) => (
+            <button
+              key={mode.value}
+              type="button"
+              className={`${styles.modeButton} ${queueMode === mode.value ? styles.modeOn : ""}`}
+              aria-pressed={queueMode === mode.value}
+              title={mode.hint}
+              onClick={() => onChooseQueueMode(mode.value)}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className={styles.rows}>
         {view.trayRows.map((row) => (
-          <TrayRow key={row.path} row={row} onToggle={onToggleReviewed} onOpen={onOpenFile} />
+          <TrayRow
+            key={row.path}
+            row={row}
+            active={row.path === activePath}
+            onToggle={onToggleReviewed}
+            onOpen={onOpenFile}
+          />
         ))}
       </div>
 
       <div className={styles.verdicts}>
-        {VERDICTS.map((verdict) => (
-          <button
-            key={verdict.value}
-            className={`${styles.verdict} ${chosenVerdict === verdict.value ? styles.chosen : ""}`}
-            onClick={() => onChooseVerdict(verdict.value)}
-          >
-            {verdict.label}
-          </button>
-        ))}
+        {VERDICTS.map((verdict) => {
+          const isApproveBlocked = verdict.value === "approve" && approveDisabled
+
+          return (
+            <button
+              key={verdict.value}
+              className={`${styles.verdict} ${chosenVerdict === verdict.value ? styles.chosen : ""}`}
+              disabled={isApproveBlocked}
+              title={isApproveBlocked ? OWN_PR_APPROVE_HINT : undefined}
+              onClick={() => onChooseVerdict(verdict.value)}
+            >
+              {verdict.label}
+            </button>
+          )
+        })}
       </div>
 
       {!view.allReviewed && !overridden && (
@@ -74,15 +141,12 @@ export function ReviewTray({
       )}
 
       <div className={styles.footer}>
-        <button className={styles.btn} disabled={!canSubmit} onClick={onSubmit}>
-          Submit review
-        </button>
         <button
           className={`${styles.btn} ${styles.primary}`}
-          disabled={!view.suggestedPath}
-          onClick={() => view.suggestedPath && onOpenFile(view.suggestedPath)}
+          disabled={!canSubmit}
+          onClick={onSubmit}
         >
-          Open next
+          Submit review
         </button>
       </div>
     </div>

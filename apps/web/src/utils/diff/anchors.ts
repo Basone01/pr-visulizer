@@ -89,7 +89,11 @@ function insert(index: AnchorIndex, path: string, line: number, anchor: SymbolAn
   index.set(path, byLine)
 }
 
+// One shared empty result, so a line with no anchors returns the SAME array every render and
+// the memoized diff row sees unchanged props (a fresh `[]` per line re-rendered every row).
+const NO_ANCHORS: SymbolAnchor[] = []
+
 // Convenience for the renderer: anchors on a given file line, or an empty array.
 export function anchorsForLine(index: AnchorIndex, path: string, headLine: number): SymbolAnchor[] {
-  return index.get(path)?.get(headLine) ?? []
+  return index.get(path)?.get(headLine) ?? NO_ANCHORS
 }

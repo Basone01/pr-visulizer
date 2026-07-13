@@ -44,4 +44,30 @@ describe("POST /review (PR #42)", () => {
       commitId: submitted[0]?.commitId,
     }).toEqual(expected)
   })
+
+  it("forwards a multi-line range comment's startLine (→ GitHub start_line) to the gateway", async () => {
+    // Arrange
+    const { app, gateway } = buildTestApp()
+    const rangeComment: DraftComment = {
+      path: "src/lib/rateLimiter.ts",
+      startLine: 3, // GitHub start_line — the first line of the range
+      line: 6, // GitHub line — the last line of the range
+      side: "RIGHT",
+      body: "extract this block",
+    }
+    const reviewPayload = { verdict: "comment" as const, body: "", comments: [rangeComment] }
+
+    // Act
+    const response = await app.inject({ method: "POST", url: REVIEW_URL, payload: reviewPayload })
+    const forwarded = gateway.submittedReviews[0]?.comments[0]
+
+    // Assert
+    const expected = { statusCode: 201, startLine: 3, line: 6, side: "RIGHT" as const }
+    expect({
+      statusCode: response.statusCode,
+      startLine: forwarded?.startLine,
+      line: forwarded?.line,
+      side: forwarded?.side,
+    }).toEqual(expected)
+  })
 })

@@ -1,10 +1,10 @@
+import type { GithubGateway, PrTarget } from "@pr-visulizer/engine"
 import type { FastifyReply, FastifyRequest } from "fastify"
 import { z } from "zod"
 
 import type { Env } from "../config/env.js"
 import type { SessionUser } from "../entities/index.js"
 import type { AnalysisService } from "../services/analysis/index.js"
-import type { GithubGateway, PrTarget } from "../services/githubGateway/index.js"
 import type { ProgressStore } from "../services/progressStore/index.js"
 import type { ReviewSubmitService } from "../services/reviewSubmit/index.js"
 

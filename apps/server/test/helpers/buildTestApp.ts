@@ -1,13 +1,13 @@
+import {
+  type FakeGithubGateway,
+  type GatewayFixture,
+  createFakeGithubGateway,
+} from "@pr-visulizer/engine"
 import type { FastifyInstance } from "fastify"
 import { onTestFinished } from "vitest"
 
 import { buildApp } from "../../src/app.js"
 import { loadEnv } from "../../src/config/env.js"
-import {
-  type FakeGithubGateway,
-  type GatewayFixture,
-  createFakeGithubGateway,
-} from "../../src/services/githubGateway/index.js"
 
 // Boot the real app over the fixture-backed fake gateway (no GitHub, no network),
 // with an in-memory SQLite store. Auto-closes when the test finishes. Returns the

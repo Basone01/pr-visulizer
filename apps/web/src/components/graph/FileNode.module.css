@@ -34,6 +34,8 @@
 
 .done {
   opacity: 0.5;
+  /* Soft green fill so a checked node reads as "done" at a glance, not just dimmer. */
+  background: var(--added-soft);
 }
 
 .ghost {
@@ -52,12 +54,20 @@
 .name {
   font-weight: 600;
   font-size: 11px;
+  /* Truncate a long filename with an ellipsis instead of spilling past the fixed node width
+     (min-width:0 lets the flex item shrink; the order badge keeps its space). */
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .order {
   color: var(--accent);
   font-size: 11px;
   font-weight: 700;
+  flex: none;
 }
 
 .chips {
@@ -96,4 +106,10 @@
 
 .handle {
   opacity: 0;
+}
+
+/* Out of focus: not the open file, and not one of its direct neighbours. Declared last so it
+   wins over `.done`'s own opacity when a reviewed node also falls out of focus. */
+.dimmed {
+  opacity: 0.3;
 }

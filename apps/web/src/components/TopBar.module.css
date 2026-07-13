@@ -19,6 +19,20 @@
   letter-spacing: 0.03em;
 }
 
+.back {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 4px 10px;
+}
+
+.back:hover {
+  background: var(--code-bg);
+}
+
 .deepen {
   font-size: 12px;
   color: var(--accent);
@@ -30,6 +44,15 @@
 .deepen:disabled {
   color: var(--muted);
   cursor: not-allowed;
+}
+
+.gear {
+  font-size: 13px;
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  cursor: pointer;
+  line-height: 1;
 }
 
 .spacer {

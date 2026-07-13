@@ -1,13 +1,19 @@
 import {
+  type PrOverview,
+  type PrSummary,
   type ReviewProgress,
+  type Viewer,
   analysisResultSchema,
+  prOverviewSchema,
+  prSummarySchema,
   reviewProgressSchema,
+  viewerSchema,
 } from "@pr-visulizer/shared"
 import { z } from "zod"
 
 import { parseJson, requestJson } from "@/utils/api/http"
 
-import type { Engine, PrTarget } from "@/entity/pr"
+import type { Engine, PrTarget, RepoRef } from "@/entity/pr"
 
 import type { AnalysisResponse, PrClient, ReviewSubmission } from "../prClient"
 
@@ -22,8 +28,18 @@ function base(target: PrTarget): string {
 // diff for the renderer, null when GitHub omits it (binary, too large, pure rename).
 const patchResponseSchema = z.object({ patch: z.string().nullable() })
 
+const prSummaryListSchema = z.array(prSummarySchema)
+
 export function createHttpPrClient(): PrClient {
   return {
+    async listOpenPullRequests(repo: RepoRef): Promise<PrSummary[]> {
+      return parseJson(`/api/repos/${repo.owner}/${repo.repo}/pulls`, prSummaryListSchema)
+    },
+
+    async getOverview(target: PrTarget): Promise<PrOverview> {
+      return parseJson(base(target), prOverviewSchema)
+    },
+
     async getAnalysis(target: PrTarget, engine: Engine): Promise<AnalysisResponse> {
       const { status, body } = await requestJson(`${base(target)}/analysis?engine=${engine}`)
 
@@ -31,6 +47,12 @@ export function createHttpPrClient(): PrClient {
       if (status === 202) return { status: "analyzing" }
 
       return { status: "ready", result: analysisResultSchema.parse(body) }
+    },
+
+    // The BFF is 202-then-poll (§9): there are no per-step events over HTTP, so the panel
+    // renders its indeterminate state instead. A no-op unsubscribe keeps the seam uniform.
+    subscribeAnalysisProgress(): () => void {
+      return () => {}
     },
 
     async getPatch(target: PrTarget, path: string): Promise<string> {
@@ -60,8 +82,8 @@ export function createHttpPrClient(): PrClient {
       })
     },
 
-    async deepen(target: PrTarget): Promise<void> {
-      await requestJson(`${base(target)}/analysis/deepen`, { method: "POST" })
+    getViewer(): Promise<Viewer> {
+      return parseJson(`/api/me`, viewerSchema)
     },
   }
 }

@@ -1,0 +1,14 @@
+.divider {
+  width: 6px;
+  cursor: col-resize;
+  flex: 0 0 auto;
+  background: transparent;
+  border-left: 1px solid var(--border);
+  transition: background 0.15s;
+  touch-action: none;
+}
+
+.divider:hover,
+.divider:active {
+  background: var(--accent-soft);
+}

@@ -1,266 +1,344 @@
 <!-- @dsCard group="Colors" name="Semantic colors" subtitle="diff status · review state · syntax · surfaces — light+dark" viewport="860x880" -->
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Semantic colors</title>
-<style>
-:root {
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --text: #1c2430;
-  --muted: #66707d;
-  --border: #dde2e8;
-  --code-bg: #eef1f5;
-  --accent: #2563eb;
-  --accent-soft: #dbeafe;
-  --added: #16a34a;
-  --added-soft: #dcfce7;
-  --modified: #d97706;
-  --modified-soft: #fef3c7;
-  --deleted: #dc2626;
-  --deleted-soft: #fee2e2;
-  --reviewed: #9aa4b0;
-  --syn-keyword: #cf222e;
-  --syn-string: #0a3069;
-  --syn-func: #8250df;
-  --syn-type: #953800;
-  --syn-const: #0550ae;
-  --syn-comment: #6e7781;
-}
-@media (prefers-color-scheme: dark) { :root {
-  --bg: #12161c;
-  --panel: #1a2029;
-  --text: #e5eaf0;
-  --muted: #8b96a5;
-  --border: #2a323d;
-  --code-bg: #232b36;
-  --accent: #60a5fa;
-  --accent-soft: #1e3a5f;
-  --added: #4ade80;
-  --added-soft: #14351f;
-  --modified: #fbbf24;
-  --modified-soft: #3a2e0e;
-  --deleted: #f87171;
-  --deleted-soft: #3b1a1a;
-  --reviewed: #566172;
-  --syn-keyword: #ff7b72;
-  --syn-string: #a5d6ff;
-  --syn-func: #d2a8ff;
-  --syn-type: #ffa657;
-  --syn-const: #79c0ff;
-  --syn-comment: #8b949e;
-} }
-:root[data-theme="light"] {
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --text: #1c2430;
-  --muted: #66707d;
-  --border: #dde2e8;
-  --code-bg: #eef1f5;
-  --accent: #2563eb;
-  --accent-soft: #dbeafe;
-  --added: #16a34a;
-  --added-soft: #dcfce7;
-  --modified: #d97706;
-  --modified-soft: #fef3c7;
-  --deleted: #dc2626;
-  --deleted-soft: #fee2e2;
-  --reviewed: #9aa4b0;
-  --syn-keyword: #cf222e;
-  --syn-string: #0a3069;
-  --syn-func: #8250df;
-  --syn-type: #953800;
-  --syn-const: #0550ae;
-  --syn-comment: #6e7781;
-}
-:root[data-theme="dark"] {
-  --bg: #12161c;
-  --panel: #1a2029;
-  --text: #e5eaf0;
-  --muted: #8b96a5;
-  --border: #2a323d;
-  --code-bg: #232b36;
-  --accent: #60a5fa;
-  --accent-soft: #1e3a5f;
-  --added: #4ade80;
-  --added-soft: #14351f;
-  --modified: #fbbf24;
-  --modified-soft: #3a2e0e;
-  --deleted: #f87171;
-  --deleted-soft: #3b1a1a;
-  --reviewed: #566172;
-  --syn-keyword: #ff7b72;
-  --syn-string: #a5d6ff;
-  --syn-func: #d2a8ff;
-  --syn-type: #ffa657;
-  --syn-const: #79c0ff;
-  --syn-comment: #8b949e;
-}
-* { box-sizing: border-box; }
-body { margin: 0; padding: 20px; background: var(--bg); color: var(--text);
-  font: 14px/1.5 -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
-.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-h4 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.symlink { text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Semantic colors</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #1c2430;
+        --muted: #66707d;
+        --border: #dde2e8;
+        --code-bg: #eef1f5;
+        --accent: #2563eb;
+        --accent-soft: #dbeafe;
+        --added: #16a34a;
+        --added-soft: #dcfce7;
+        --modified: #d97706;
+        --modified-soft: #fef3c7;
+        --deleted: #dc2626;
+        --deleted-soft: #fee2e2;
+        --reviewed: #9aa4b0;
+        --syn-keyword: #cf222e;
+        --syn-string: #0a3069;
+        --syn-func: #8250df;
+        --syn-type: #953800;
+        --syn-const: #0550ae;
+        --syn-comment: #6e7781;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #12161c;
+          --panel: #1a2029;
+          --text: #e5eaf0;
+          --muted: #8b96a5;
+          --border: #2a323d;
+          --code-bg: #232b36;
+          --accent: #60a5fa;
+          --accent-soft: #1e3a5f;
+          --added: #4ade80;
+          --added-soft: #14351f;
+          --modified: #fbbf24;
+          --modified-soft: #3a2e0e;
+          --deleted: #f87171;
+          --deleted-soft: #3b1a1a;
+          --reviewed: #566172;
+          --syn-keyword: #ff7b72;
+          --syn-string: #a5d6ff;
+          --syn-func: #d2a8ff;
+          --syn-type: #ffa657;
+          --syn-const: #79c0ff;
+          --syn-comment: #8b949e;
+        }
+      }
+      :root[data-theme="light"] {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #1c2430;
+        --muted: #66707d;
+        --border: #dde2e8;
+        --code-bg: #eef1f5;
+        --accent: #2563eb;
+        --accent-soft: #dbeafe;
+        --added: #16a34a;
+        --added-soft: #dcfce7;
+        --modified: #d97706;
+        --modified-soft: #fef3c7;
+        --deleted: #dc2626;
+        --deleted-soft: #fee2e2;
+        --reviewed: #9aa4b0;
+        --syn-keyword: #cf222e;
+        --syn-string: #0a3069;
+        --syn-func: #8250df;
+        --syn-type: #953800;
+        --syn-const: #0550ae;
+        --syn-comment: #6e7781;
+      }
+      :root[data-theme="dark"] {
+        --bg: #12161c;
+        --panel: #1a2029;
+        --text: #e5eaf0;
+        --muted: #8b96a5;
+        --border: #2a323d;
+        --code-bg: #232b36;
+        --accent: #60a5fa;
+        --accent-soft: #1e3a5f;
+        --added: #4ade80;
+        --added-soft: #14351f;
+        --modified: #fbbf24;
+        --modified-soft: #3a2e0e;
+        --deleted: #f87171;
+        --deleted-soft: #3b1a1a;
+        --reviewed: #566172;
+        --syn-keyword: #ff7b72;
+        --syn-string: #a5d6ff;
+        --syn-func: #d2a8ff;
+        --syn-type: #ffa657;
+        --syn-const: #79c0ff;
+        --syn-comment: #8b949e;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 20px;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.5 -apple-system,
+          "SF Pro Text",
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+      }
+      .mono {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      }
+      h4 {
+        margin: 0 0 10px;
+        font-size: 13px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .symlink {
+        text-decoration: underline dotted;
+        text-underline-offset: 3px;
+        cursor: pointer;
+      }
 
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
-.sw { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
-.chip { height: 26px; border-radius: 6px; }
-.chip.dark { margin-top: 4px; }
-.lbl { margin-top: 8px; font-size: 12px; font-weight: 600; }
-.hex { font-size: 11px; color: var(--muted); }
-.use { font-size: 12px; color: var(--muted); margin-top: 2px; }
-section { margin-bottom: 20px; }</style></head>
-<body>
-
-<section><h4>Diff status</h4><div class="grid">
-  <div class="sw">
-    <div class="chip" style="background:#16a34a"></div>
-    <div class="chip dark" style="background:#4ade80"></div>
-    <div class="lbl mono">--added</div>
-    <div class="hex mono">#16a34a · #4ade80</div>
-    <div class="use">added files/symbols/diff lines</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#dcfce7"></div>
-    <div class="chip dark" style="background:#14351f"></div>
-    <div class="lbl mono">--added-soft</div>
-    <div class="hex mono">#dcfce7 · #14351f</div>
-    <div class="use">added backgrounds</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#d97706"></div>
-    <div class="chip dark" style="background:#fbbf24"></div>
-    <div class="lbl mono">--modified</div>
-    <div class="hex mono">#d97706 · #fbbf24</div>
-    <div class="use">modified files/symbols</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#fef3c7"></div>
-    <div class="chip dark" style="background:#3a2e0e"></div>
-    <div class="lbl mono">--modified-soft</div>
-    <div class="hex mono">#fef3c7 · #3a2e0e</div>
-    <div class="use">modified backgrounds</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#dc2626"></div>
-    <div class="chip dark" style="background:#f87171"></div>
-    <div class="lbl mono">--deleted</div>
-    <div class="hex mono">#dc2626 · #f87171</div>
-    <div class="use">deleted diff lines, request-changes</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#fee2e2"></div>
-    <div class="chip dark" style="background:#3b1a1a"></div>
-    <div class="lbl mono">--deleted-soft</div>
-    <div class="hex mono">#fee2e2 · #3b1a1a</div>
-    <div class="use">deleted backgrounds</div>
-  </div></div></section>
-<section><h4>Review state</h4><div class="grid">
-  <div class="sw">
-    <div class="chip" style="background:#2563eb"></div>
-    <div class="chip dark" style="background:#60a5fa"></div>
-    <div class="lbl mono">--accent</div>
-    <div class="hex mono">#2563eb · #60a5fa</div>
-    <div class="use">suggested-next, links, primary buttons</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#dbeafe"></div>
-    <div class="chip dark" style="background:#1e3a5f"></div>
-    <div class="lbl mono">--accent-soft</div>
-    <div class="hex mono">#dbeafe · #1e3a5f</div>
-    <div class="use">suggested-row background</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#9aa4b0"></div>
-    <div class="chip dark" style="background:#566172"></div>
-    <div class="lbl mono">--reviewed</div>
-    <div class="hex mono">#9aa4b0 · #566172</div>
-    <div class="use">checked-off files (dimmed)</div>
-  </div></div></section>
-<section><h4>Syntax (diff code)</h4><div class="grid">
-  <div class="sw">
-    <div class="chip" style="background:#cf222e"></div>
-    <div class="chip dark" style="background:#ff7b72"></div>
-    <div class="lbl mono">--syn-keyword</div>
-    <div class="hex mono">#cf222e · #ff7b72</div>
-    <div class="use">import / export / function / if</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#0a3069"></div>
-    <div class="chip dark" style="background:#a5d6ff"></div>
-    <div class="lbl mono">--syn-string</div>
-    <div class="hex mono">#0a3069 · #a5d6ff</div>
-    <div class="use">string literals</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#8250df"></div>
-    <div class="chip dark" style="background:#d2a8ff"></div>
-    <div class="lbl mono">--syn-func</div>
-    <div class="hex mono">#8250df · #d2a8ff</div>
-    <div class="use">function names, call sites</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#953800"></div>
-    <div class="chip dark" style="background:#ffa657"></div>
-    <div class="lbl mono">--syn-type</div>
-    <div class="hex mono">#953800 · #ffa657</div>
-    <div class="use">type names</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#0550ae"></div>
-    <div class="chip dark" style="background:#79c0ff"></div>
-    <div class="lbl mono">--syn-const</div>
-    <div class="hex mono">#0550ae · #79c0ff</div>
-    <div class="use">constants, numbers</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#6e7781"></div>
-    <div class="chip dark" style="background:#8b949e"></div>
-    <div class="lbl mono">--syn-comment</div>
-    <div class="hex mono">#6e7781 · #8b949e</div>
-    <div class="use">comments</div>
-  </div></div></section>
-<section><h4>Surfaces</h4><div class="grid">
-  <div class="sw">
-    <div class="chip" style="background:#f6f7f9"></div>
-    <div class="chip dark" style="background:#12161c"></div>
-    <div class="lbl mono">--bg</div>
-    <div class="hex mono">#f6f7f9 · #12161c</div>
-    <div class="use">app background</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#ffffff"></div>
-    <div class="chip dark" style="background:#1a2029"></div>
-    <div class="lbl mono">--panel</div>
-    <div class="hex mono">#ffffff · #1a2029</div>
-    <div class="use">cards, panes, nodes</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#dde2e8"></div>
-    <div class="chip dark" style="background:#2a323d"></div>
-    <div class="lbl mono">--border</div>
-    <div class="hex mono">#dde2e8 · #2a323d</div>
-    <div class="use">hairlines, node strokes</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#1c2430"></div>
-    <div class="chip dark" style="background:#e5eaf0"></div>
-    <div class="lbl mono">--text</div>
-    <div class="hex mono">#1c2430 · #e5eaf0</div>
-    <div class="use">primary text</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#66707d"></div>
-    <div class="chip dark" style="background:#8b96a5"></div>
-    <div class="lbl mono">--muted</div>
-    <div class="hex mono">#66707d · #8b96a5</div>
-    <div class="use">secondary text, ghost nodes, edges</div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#eef1f5"></div>
-    <div class="chip dark" style="background:#232b36"></div>
-    <div class="lbl mono">--code-bg</div>
-    <div class="hex mono">#eef1f5 · #232b36</div>
-    <div class="use">inline code, diff gutter</div>
-  </div></div></section>
-<p style="color:var(--muted);font-size:12px">Top chip = light, bottom = dark. Ghost nodes reuse <span class="mono">--muted</span> with a dashed stroke — no extra hue. In diffs: <b>background = diff status, foreground = syntax</b> — the two layers never fight.</p>
-</body></html>
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 14px;
+      }
+      .sw {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .chip {
+        height: 26px;
+        border-radius: 6px;
+      }
+      .chip.dark {
+        margin-top: 4px;
+      }
+      .lbl {
+        margin-top: 8px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .hex {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .use {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      section {
+        margin-bottom: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <section>
+      <h4>Diff status</h4>
+      <div class="grid">
+        <div class="sw">
+          <div class="chip" style="background: #16a34a"></div>
+          <div class="chip dark" style="background: #4ade80"></div>
+          <div class="lbl mono">--added</div>
+          <div class="hex mono">#16a34a · #4ade80</div>
+          <div class="use">added files/symbols/diff lines</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #dcfce7"></div>
+          <div class="chip dark" style="background: #14351f"></div>
+          <div class="lbl mono">--added-soft</div>
+          <div class="hex mono">#dcfce7 · #14351f</div>
+          <div class="use">added backgrounds</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #d97706"></div>
+          <div class="chip dark" style="background: #fbbf24"></div>
+          <div class="lbl mono">--modified</div>
+          <div class="hex mono">#d97706 · #fbbf24</div>
+          <div class="use">modified files/symbols</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #fef3c7"></div>
+          <div class="chip dark" style="background: #3a2e0e"></div>
+          <div class="lbl mono">--modified-soft</div>
+          <div class="hex mono">#fef3c7 · #3a2e0e</div>
+          <div class="use">modified backgrounds</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #dc2626"></div>
+          <div class="chip dark" style="background: #f87171"></div>
+          <div class="lbl mono">--deleted</div>
+          <div class="hex mono">#dc2626 · #f87171</div>
+          <div class="use">deleted diff lines, request-changes</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #fee2e2"></div>
+          <div class="chip dark" style="background: #3b1a1a"></div>
+          <div class="lbl mono">--deleted-soft</div>
+          <div class="hex mono">#fee2e2 · #3b1a1a</div>
+          <div class="use">deleted backgrounds</div>
+        </div>
+      </div>
+    </section>
+    <section>
+      <h4>Review state</h4>
+      <div class="grid">
+        <div class="sw">
+          <div class="chip" style="background: #2563eb"></div>
+          <div class="chip dark" style="background: #60a5fa"></div>
+          <div class="lbl mono">--accent</div>
+          <div class="hex mono">#2563eb · #60a5fa</div>
+          <div class="use">suggested-next, links, primary buttons</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #dbeafe"></div>
+          <div class="chip dark" style="background: #1e3a5f"></div>
+          <div class="lbl mono">--accent-soft</div>
+          <div class="hex mono">#dbeafe · #1e3a5f</div>
+          <div class="use">suggested-row background</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #9aa4b0"></div>
+          <div class="chip dark" style="background: #566172"></div>
+          <div class="lbl mono">--reviewed</div>
+          <div class="hex mono">#9aa4b0 · #566172</div>
+          <div class="use">checked-off files (dimmed)</div>
+        </div>
+      </div>
+    </section>
+    <section>
+      <h4>Syntax (diff code)</h4>
+      <div class="grid">
+        <div class="sw">
+          <div class="chip" style="background: #cf222e"></div>
+          <div class="chip dark" style="background: #ff7b72"></div>
+          <div class="lbl mono">--syn-keyword</div>
+          <div class="hex mono">#cf222e · #ff7b72</div>
+          <div class="use">import / export / function / if</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #0a3069"></div>
+          <div class="chip dark" style="background: #a5d6ff"></div>
+          <div class="lbl mono">--syn-string</div>
+          <div class="hex mono">#0a3069 · #a5d6ff</div>
+          <div class="use">string literals</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #8250df"></div>
+          <div class="chip dark" style="background: #d2a8ff"></div>
+          <div class="lbl mono">--syn-func</div>
+          <div class="hex mono">#8250df · #d2a8ff</div>
+          <div class="use">function names, call sites</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #953800"></div>
+          <div class="chip dark" style="background: #ffa657"></div>
+          <div class="lbl mono">--syn-type</div>
+          <div class="hex mono">#953800 · #ffa657</div>
+          <div class="use">type names</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #0550ae"></div>
+          <div class="chip dark" style="background: #79c0ff"></div>
+          <div class="lbl mono">--syn-const</div>
+          <div class="hex mono">#0550ae · #79c0ff</div>
+          <div class="use">constants, numbers</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #6e7781"></div>
+          <div class="chip dark" style="background: #8b949e"></div>
+          <div class="lbl mono">--syn-comment</div>
+          <div class="hex mono">#6e7781 · #8b949e</div>
+          <div class="use">comments</div>
+        </div>
+      </div>
+    </section>
+    <section>
+      <h4>Surfaces</h4>
+      <div class="grid">
+        <div class="sw">
+          <div class="chip" style="background: #f6f7f9"></div>
+          <div class="chip dark" style="background: #12161c"></div>
+          <div class="lbl mono">--bg</div>
+          <div class="hex mono">#f6f7f9 · #12161c</div>
+          <div class="use">app background</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #ffffff"></div>
+          <div class="chip dark" style="background: #1a2029"></div>
+          <div class="lbl mono">--panel</div>
+          <div class="hex mono">#ffffff · #1a2029</div>
+          <div class="use">cards, panes, nodes</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #dde2e8"></div>
+          <div class="chip dark" style="background: #2a323d"></div>
+          <div class="lbl mono">--border</div>
+          <div class="hex mono">#dde2e8 · #2a323d</div>
+          <div class="use">hairlines, node strokes</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #1c2430"></div>
+          <div class="chip dark" style="background: #e5eaf0"></div>
+          <div class="lbl mono">--text</div>
+          <div class="hex mono">#1c2430 · #e5eaf0</div>
+          <div class="use">primary text</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #66707d"></div>
+          <div class="chip dark" style="background: #8b96a5"></div>
+          <div class="lbl mono">--muted</div>
+          <div class="hex mono">#66707d · #8b96a5</div>
+          <div class="use">secondary text, ghost nodes, edges</div>
+        </div>
+        <div class="sw">
+          <div class="chip" style="background: #eef1f5"></div>
+          <div class="chip dark" style="background: #232b36"></div>
+          <div class="lbl mono">--code-bg</div>
+          <div class="hex mono">#eef1f5 · #232b36</div>
+          <div class="use">inline code, diff gutter</div>
+        </div>
+      </div>
+    </section>
+    <p style="color: var(--muted); font-size: 12px">
+      Top chip = light, bottom = dark. Ghost nodes reuse <span class="mono">--muted</span> with a
+      dashed stroke — no extra hue. In diffs: <b>background = diff status, foreground = syntax</b> —
+      the two layers never fight.
+    </p>
+  </body>
+</html>

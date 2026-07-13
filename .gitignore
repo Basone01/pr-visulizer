@@ -1,5 +1,10 @@
 node_modules/
 dist/
+
+# Rust build output + Tauri-generated schemas (also in src-tauri/.gitignore; listed here
+# because prettier only honors the ROOT .gitignore when scanning).
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
 *.log
 *.db
 .env

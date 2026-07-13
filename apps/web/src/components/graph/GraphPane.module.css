@@ -12,3 +12,9 @@
   color: var(--muted);
   font-size: 12px;
 }
+
+/* An edge that touches the open file at neither end connects two files unrelated to the
+   current focus, so it recedes with them. */
+.dimmed {
+  opacity: 0.3;
+}

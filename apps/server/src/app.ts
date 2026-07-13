@@ -1,15 +1,17 @@
 import cookie from "@fastify/cookie"
-import Fastify, { type FastifyInstance } from "fastify"
-
-import type { Env } from "./config/env.js"
-import { type AppContext, registerRoutes } from "./routes/index.js"
-import { createAnalysisService, createFastAstEngine } from "./services/analysis/index.js"
 import {
   type GatewayFixture,
   type GithubGateway,
   createFakeGithubGateway,
+  createFastAstEngine,
   createOctokitGateway,
-} from "./services/githubGateway/index.js"
+} from "@pr-visulizer/engine"
+import { createNodeGrammarSource } from "@pr-visulizer/engine/node"
+import Fastify, { type FastifyInstance } from "fastify"
+
+import type { Env } from "./config/env.js"
+import { type AppContext, registerRoutes } from "./routes/index.js"
+import { createAnalysisService } from "./services/analysis/index.js"
 import { type ProgressStore, createProgressStore } from "./services/progressStore/index.js"
 import { createReviewSubmitService } from "./services/reviewSubmit/index.js"
 
@@ -34,7 +36,9 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   const { env } = options
 
   const gateway = resolveGateway(env, options)
-  const engine = createFastAstEngine({ gateway })
+  // The node platform supplies the tree-sitter wasm (§3 seam); the webview will inject
+  // its own loader instead — the engine itself is platform-neutral.
+  const engine = createFastAstEngine({ gateway, grammarSource: createNodeGrammarSource() })
   const analysis = createAnalysisService(engine)
   const progress = options.progress ?? createProgressStore(env.DATABASE_URL)
   const review = createReviewSubmitService(gateway)

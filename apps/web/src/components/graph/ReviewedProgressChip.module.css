@@ -1,0 +1,42 @@
+/* Reviewed-progress chip overlaid on the graph canvas, top-left. Absolute so it floats above
+   React Flow; only the chip itself catches clicks — the rest of the canvas stays interactive. */
+.chip {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.check {
+  color: var(--added);
+  font-weight: 700;
+}
+
+/* Every file reviewed: success-toned and inert (no dead click). */
+.done {
+  border-color: var(--added);
+  background: var(--added-soft);
+  color: var(--added);
+  cursor: default;
+}
+
+.done .check {
+  color: var(--added);
+}

@@ -1,121 +1,235 @@
 <!-- @dsCard group="Components" name="Edges" subtitle="kinds · engine source · direction convention" viewport="640x380" -->
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Edges</title>
-<style>
-:root {
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --text: #1c2430;
-  --muted: #66707d;
-  --border: #dde2e8;
-  --code-bg: #eef1f5;
-  --accent: #2563eb;
-  --accent-soft: #dbeafe;
-  --added: #16a34a;
-  --added-soft: #dcfce7;
-  --modified: #d97706;
-  --modified-soft: #fef3c7;
-  --deleted: #dc2626;
-  --deleted-soft: #fee2e2;
-  --reviewed: #9aa4b0;
-  --syn-keyword: #cf222e;
-  --syn-string: #0a3069;
-  --syn-func: #8250df;
-  --syn-type: #953800;
-  --syn-const: #0550ae;
-  --syn-comment: #6e7781;
-}
-@media (prefers-color-scheme: dark) { :root {
-  --bg: #12161c;
-  --panel: #1a2029;
-  --text: #e5eaf0;
-  --muted: #8b96a5;
-  --border: #2a323d;
-  --code-bg: #232b36;
-  --accent: #60a5fa;
-  --accent-soft: #1e3a5f;
-  --added: #4ade80;
-  --added-soft: #14351f;
-  --modified: #fbbf24;
-  --modified-soft: #3a2e0e;
-  --deleted: #f87171;
-  --deleted-soft: #3b1a1a;
-  --reviewed: #566172;
-  --syn-keyword: #ff7b72;
-  --syn-string: #a5d6ff;
-  --syn-func: #d2a8ff;
-  --syn-type: #ffa657;
-  --syn-const: #79c0ff;
-  --syn-comment: #8b949e;
-} }
-:root[data-theme="light"] {
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --text: #1c2430;
-  --muted: #66707d;
-  --border: #dde2e8;
-  --code-bg: #eef1f5;
-  --accent: #2563eb;
-  --accent-soft: #dbeafe;
-  --added: #16a34a;
-  --added-soft: #dcfce7;
-  --modified: #d97706;
-  --modified-soft: #fef3c7;
-  --deleted: #dc2626;
-  --deleted-soft: #fee2e2;
-  --reviewed: #9aa4b0;
-  --syn-keyword: #cf222e;
-  --syn-string: #0a3069;
-  --syn-func: #8250df;
-  --syn-type: #953800;
-  --syn-const: #0550ae;
-  --syn-comment: #6e7781;
-}
-:root[data-theme="dark"] {
-  --bg: #12161c;
-  --panel: #1a2029;
-  --text: #e5eaf0;
-  --muted: #8b96a5;
-  --border: #2a323d;
-  --code-bg: #232b36;
-  --accent: #60a5fa;
-  --accent-soft: #1e3a5f;
-  --added: #4ade80;
-  --added-soft: #14351f;
-  --modified: #fbbf24;
-  --modified-soft: #3a2e0e;
-  --deleted: #f87171;
-  --deleted-soft: #3b1a1a;
-  --reviewed: #566172;
-  --syn-keyword: #ff7b72;
-  --syn-string: #a5d6ff;
-  --syn-func: #d2a8ff;
-  --syn-type: #ffa657;
-  --syn-const: #79c0ff;
-  --syn-comment: #8b949e;
-}
-* { box-sizing: border-box; }
-body { margin: 0; padding: 20px; background: var(--bg); color: var(--text);
-  font: 14px/1.5 -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
-.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-h4 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.symlink { text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Edges</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #1c2430;
+        --muted: #66707d;
+        --border: #dde2e8;
+        --code-bg: #eef1f5;
+        --accent: #2563eb;
+        --accent-soft: #dbeafe;
+        --added: #16a34a;
+        --added-soft: #dcfce7;
+        --modified: #d97706;
+        --modified-soft: #fef3c7;
+        --deleted: #dc2626;
+        --deleted-soft: #fee2e2;
+        --reviewed: #9aa4b0;
+        --syn-keyword: #cf222e;
+        --syn-string: #0a3069;
+        --syn-func: #8250df;
+        --syn-type: #953800;
+        --syn-const: #0550ae;
+        --syn-comment: #6e7781;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #12161c;
+          --panel: #1a2029;
+          --text: #e5eaf0;
+          --muted: #8b96a5;
+          --border: #2a323d;
+          --code-bg: #232b36;
+          --accent: #60a5fa;
+          --accent-soft: #1e3a5f;
+          --added: #4ade80;
+          --added-soft: #14351f;
+          --modified: #fbbf24;
+          --modified-soft: #3a2e0e;
+          --deleted: #f87171;
+          --deleted-soft: #3b1a1a;
+          --reviewed: #566172;
+          --syn-keyword: #ff7b72;
+          --syn-string: #a5d6ff;
+          --syn-func: #d2a8ff;
+          --syn-type: #ffa657;
+          --syn-const: #79c0ff;
+          --syn-comment: #8b949e;
+        }
+      }
+      :root[data-theme="light"] {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #1c2430;
+        --muted: #66707d;
+        --border: #dde2e8;
+        --code-bg: #eef1f5;
+        --accent: #2563eb;
+        --accent-soft: #dbeafe;
+        --added: #16a34a;
+        --added-soft: #dcfce7;
+        --modified: #d97706;
+        --modified-soft: #fef3c7;
+        --deleted: #dc2626;
+        --deleted-soft: #fee2e2;
+        --reviewed: #9aa4b0;
+        --syn-keyword: #cf222e;
+        --syn-string: #0a3069;
+        --syn-func: #8250df;
+        --syn-type: #953800;
+        --syn-const: #0550ae;
+        --syn-comment: #6e7781;
+      }
+      :root[data-theme="dark"] {
+        --bg: #12161c;
+        --panel: #1a2029;
+        --text: #e5eaf0;
+        --muted: #8b96a5;
+        --border: #2a323d;
+        --code-bg: #232b36;
+        --accent: #60a5fa;
+        --accent-soft: #1e3a5f;
+        --added: #4ade80;
+        --added-soft: #14351f;
+        --modified: #fbbf24;
+        --modified-soft: #3a2e0e;
+        --deleted: #f87171;
+        --deleted-soft: #3b1a1a;
+        --reviewed: #566172;
+        --syn-keyword: #ff7b72;
+        --syn-string: #a5d6ff;
+        --syn-func: #d2a8ff;
+        --syn-type: #ffa657;
+        --syn-const: #79c0ff;
+        --syn-comment: #8b949e;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 20px;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.5 -apple-system,
+          "SF Pro Text",
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+      }
+      .mono {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      }
+      h4 {
+        margin: 0 0 10px;
+        font-size: 13px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .symlink {
+        text-decoration: underline dotted;
+        text-underline-offset: 3px;
+        cursor: pointer;
+      }
 
-.lg { display: grid; grid-template-columns: 120px 1fr; gap: 10px 14px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
-svg { display: block; }
-.d { font-size: 13px; }
-.dir { margin-top: 14px; padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0; font-size: 13px; }</style></head>
-<body>
-
-<div class="lg">
-  <svg width="110" height="14"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs><line x1="2" y1="7" x2="102" y2="7" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#a)"/></svg>
-  <div class="d"><b>imports / calls / uses-type</b> — solid, source <span class="mono">ast</span> (fast engine)</div>
-  <svg width="110" height="14"><line x1="2" y1="7" x2="102" y2="7" stroke="var(--accent)" stroke-width="2.2" marker-end="url(#a)"/></svg>
-  <div class="d"><b>confirmed by deep engine</b> — accent, source <span class="mono">lsp</span> (compiler-grade)</div>
-  <svg width="110" height="14"><line x1="2" y1="7" x2="102" y2="7" stroke="var(--muted)" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/></svg>
-  <div class="d"><b>ghost reference</b> — dashed, from an unchanged file (deep only)</div>
-  <svg width="110" height="14"><line x1="2" y1="7" x2="102" y2="7" stroke="var(--muted)" stroke-width="3.2" marker-end="url(#a)"/></svg>
-  <div class="d"><b>edge weight</b> — thickness = number of symbol-level references</div>
-</div>
-<div class="dir"><b>Direction convention:</b> A → B means <b>"A depends on B"</b>. Arrows point at foundations; review flows against the arrows, left to right.</div>
-</body></html>
+      .lg {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 10px 14px;
+        align-items: center;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px;
+      }
+      svg {
+        display: block;
+      }
+      .d {
+        font-size: 13px;
+      }
+      .dir {
+        margin-top: 14px;
+        padding: 10px 14px;
+        border-left: 3px solid var(--accent);
+        background: var(--accent-soft);
+        border-radius: 0 8px 8px 0;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="lg">
+      <svg width="110" height="14">
+        <defs>
+          <marker
+            id="a"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)" />
+          </marker>
+        </defs>
+        <line
+          x1="2"
+          y1="7"
+          x2="102"
+          y2="7"
+          stroke="var(--muted)"
+          stroke-width="1.6"
+          marker-end="url(#a)"
+        />
+      </svg>
+      <div class="d">
+        <b>imports / calls / uses-type</b> — solid, source <span class="mono">ast</span> (fast
+        engine)
+      </div>
+      <svg width="110" height="14">
+        <line
+          x1="2"
+          y1="7"
+          x2="102"
+          y2="7"
+          stroke="var(--accent)"
+          stroke-width="2.2"
+          marker-end="url(#a)"
+        />
+      </svg>
+      <div class="d">
+        <b>confirmed by deep engine</b> — accent, source
+        <span class="mono">lsp</span> (compiler-grade)
+      </div>
+      <svg width="110" height="14">
+        <line
+          x1="2"
+          y1="7"
+          x2="102"
+          y2="7"
+          stroke="var(--muted)"
+          stroke-width="1.6"
+          stroke-dasharray="5 4"
+          marker-end="url(#a)"
+        />
+      </svg>
+      <div class="d"><b>ghost reference</b> — dashed, from an unchanged file (deep only)</div>
+      <svg width="110" height="14">
+        <line
+          x1="2"
+          y1="7"
+          x2="102"
+          y2="7"
+          stroke="var(--muted)"
+          stroke-width="3.2"
+          marker-end="url(#a)"
+        />
+      </svg>
+      <div class="d"><b>edge weight</b> — thickness = number of symbol-level references</div>
+    </div>
+    <div class="dir">
+      <b>Direction convention:</b> A → B means <b>"A depends on B"</b>. Arrows point at foundations;
+      review flows against the arrows, left to right.
+    </div>
+  </body>
+</html>

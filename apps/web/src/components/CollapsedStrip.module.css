@@ -1,0 +1,33 @@
+.strip {
+  flex: 0 0 34px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  background: var(--panel);
+  border: 0;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.strip:hover {
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.plus {
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* Rotated title reading bottom-to-top, like a collapsed IDE panel. */
+.label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}

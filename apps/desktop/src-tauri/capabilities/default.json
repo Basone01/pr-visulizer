@@ -1,0 +1,122 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Core capability for the main window (docs/tauri-architecture.md §7).",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-set-webview-zoom",
+    "cli:default",
+    "store:default",
+    "dialog:allow-open",
+    "fs:allow-read-text-file",
+    "fs:allow-exists",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "gh-auth-token",
+          "cmd": "gh",
+          "args": ["auth", "token"],
+          "sidecar": false
+        },
+        {
+          "name": "gh-repo-clone",
+          "cmd": "gh",
+          "args": [
+            "repo",
+            "clone",
+            { "validator": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+            { "validator": "^(/[^/\\n\\x00]+)+$" },
+            "--",
+            "--progress"
+          ],
+          "sidecar": false
+        },
+        {
+          "name": "git-fetch-pull",
+          "cmd": "git",
+          "args": [
+            "-C",
+            { "validator": "^(/[^/\\n\\x00]+)+$" },
+            "fetch",
+            "--progress",
+            "origin",
+            { "validator": "^pull/[0-9]+/head$" }
+          ],
+          "sidecar": false
+        },
+        {
+          "name": "git-checkout-detach",
+          "cmd": "git",
+          "args": [
+            "-C",
+            { "validator": "^(/[^/\\n\\x00]+)+$" },
+            "checkout",
+            "--force",
+            "--detach",
+            "FETCH_HEAD"
+          ],
+          "sidecar": false
+        },
+        {
+          "name": "git-ls-files",
+          "cmd": "git",
+          "args": ["-C", { "validator": "^(/[^/\\n\\x00]+)+$" }, "ls-files"],
+          "sidecar": false
+        },
+        {
+          "name": "git-fetch-object",
+          "cmd": "git",
+          "args": [
+            "-C",
+            { "validator": "^(/[^/\\n\\x00]+)+$" },
+            "fetch",
+            "origin",
+            { "validator": "^[0-9a-fA-F]{4,40}$" }
+          ],
+          "sidecar": false
+        }
+      ]
+    },
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "gh-repo-clone",
+          "cmd": "gh",
+          "args": [
+            "repo",
+            "clone",
+            { "validator": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+            { "validator": "^(/[^/\\n\\x00]+)+$" },
+            "--",
+            "--progress"
+          ],
+          "sidecar": false
+        },
+        {
+          "name": "git-fetch-pull",
+          "cmd": "git",
+          "args": [
+            "-C",
+            { "validator": "^(/[^/\\n\\x00]+)+$" },
+            "fetch",
+            "--progress",
+            "origin",
+            { "validator": "^pull/[0-9]+/head$" }
+          ],
+          "sidecar": false
+        }
+      ]
+    },
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "https://api.github.com/*" }]
+    },
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://*" }]
+    }
+  ]
+}

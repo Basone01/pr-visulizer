@@ -36,14 +36,20 @@ export function usePeekNavigation(
   const back = useCallback(() => dispatch({ type: "back" }), [])
   const clearFlash = useCallback(() => dispatch({ type: "clearFlash" }), [])
 
-  // Esc closes an open peek first, then unwinds the jump stack (§10).
+  // Esc closes an open peek first, then unwinds the jump stack (§10). CAPTURE phase so a
+  // focused React Flow node's stopPropagation can't swallow it before it reaches window
+  // (same reason as the AppShell Esc handler).
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") dispatch({ type: "escape" })
+      if (event.key !== "Escape") return
+
+      // Suppress the webview's native Escape default (a page reload in the packaged app).
+      event.preventDefault()
+      dispatch({ type: "escape" })
     }
 
-    window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
+    window.addEventListener("keydown", onKeyDown, true)
+    return () => window.removeEventListener("keydown", onKeyDown, true)
   }, [])
 
   return {

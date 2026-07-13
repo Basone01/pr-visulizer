@@ -12,6 +12,10 @@ export type DiffLine = {
   // Line number in the head version (RIGHT gutter); null for deleted lines and headers.
   // Symbol occurrences (§10) are keyed by head line, so this is the anchor key.
   newLine: number | null
+  // Set by the hide-whitespace-only view transform (§10): a del/add pair that differed
+  // only in whitespace, collapsed to one context-style line. Drives the subtle "hidden"
+  // marker. Absent on every line the parser emits — it is purely a view-layer tag.
+  wsOnly?: boolean
 }
 
 export type ParsedDiff = {

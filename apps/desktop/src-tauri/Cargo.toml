@@ -1,0 +1,39 @@
+[package]
+name = "pr-visualizer"
+version = "0.1.0"
+description = "PR Visualizer desktop shell"
+authors = ["basone01"]
+edition = "2021"
+
+# The library the binary and the (future) mobile entry point both call into.
+[lib]
+name = "pr_visualizer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `tauri::generate_context!` expands to code that references `serde_json` at the crate root,
+# so both must be direct dependencies (as in the stock Tauri template).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-cli = "2"
+tauri-plugin-store = "2"
+tauri-plugin-http = "2"
+# Opens external URLs (a file's GitHub page) in the OS browser — the desktop side of the
+# "open external URL" util (task 2). Scoped to https in the capability file.
+tauri-plugin-opener = "2"
+# Deep mode (docs/tauri-architecture.md §6): the folder picker for the clone root, filesystem
+# reads of the checkout, and persistence of the dialog-granted fs scope across restarts. The
+# picker adds the chosen folder to the fs runtime scope; persisted-scope saves that grant to
+# disk (it MUST be registered after the fs plugin — see lib.rs).
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-persisted-scope = "2"
+
+# Single-instance is desktop-only (docs/tauri-architecture.md §5).
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = "2"

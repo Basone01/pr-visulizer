@@ -1,35 +1,47 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
-import {
-  type LayoutEdge,
-  type LayoutNode,
-  type NodePosition,
-  layoutGraph,
-} from "@/utils/graph/elkLayout"
+import type { LayoutEdge, LayoutNode, NodePosition } from "@/utils/graph/elkLayout"
 
-// Runs the elk layered layout when the node/edge set changes. Layout is async, so it
-// returns null until positions are ready; the graph pane shows nothing meanwhile.
+import { runElkLayoutInWorker } from "@/workers/runElkLayoutInWorker"
+
+// Runs the elk layered layout when the node/edge set changes. The layout itself is seconds of
+// synchronous CPU on a big graph, so it runs in a worker; this hook returns null until the
+// positions arrive and the graph pane shows a placeholder meanwhile.
 export function useElkLayout(
   nodes: LayoutNode[],
   edges: LayoutEdge[]
 ): Map<string, NodePosition> | null {
   const [positions, setPositions] = useState<Map<string, NodePosition> | null>(null)
 
-  // Re-layout only when the topology actually changes, not on every render.
-  const signature = `${nodes.map((node) => node.path).join(",")}|${edges
-    .map((edge) => `${edge.from}->${edge.to}`)
-    .join(",")}`
+  // Re-layout only when the topology actually changes, not whenever the arrays are rebuilt
+  // (checking a file off rebuilds the view models but moves no node).
+  const signature = useMemo(
+    () =>
+      `${nodes.map((node) => `${node.path}${node.ghost ? "+g" : ""}`).join(",")}|${edges
+        .map((edge) => `${edge.from}->${edge.to}`)
+        .join(",")}`,
+    [nodes, edges]
+  )
 
   useEffect(() => {
-    let active = true
-
-    void layoutGraph(nodes, edges).then((next) => {
-      if (active) setPositions(next)
-    })
-
-    return () => {
-      active = false
+    // No nodes, no worker to spawn — an empty layout is already the answer.
+    if (nodes.length === 0) {
+      setPositions(new Map())
+      return
     }
+
+    const abort = new AbortController()
+
+    runElkLayoutInWorker(nodes, edges, { signal: abort.signal })
+      .then(setPositions)
+      .catch((error: unknown) => {
+        // Our own cleanup aborting a superseded layout — not a failure to report.
+        if (error instanceof DOMException && error.name === "AbortError") return
+
+        console.error("graph layout failed", error)
+      })
+
+    return () => abort.abort()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature])
 

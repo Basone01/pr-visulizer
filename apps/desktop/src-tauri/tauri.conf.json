@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PR Visualizer",
+  "version": "0.1.0",
+  "identifier": "dev.basone.pr-visualizer",
+  "build": {
+    "beforeDevCommand": "pnpm --filter @pr-visulizer/web dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "pnpm --filter @pr-visulizer/web build",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "PR Visualizer",
+        "width": 1200,
+        "height": 800,
+        "maximized": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "cli": {
+      "description": "Open a GitHub PR by URL",
+      "args": [
+        {
+          "name": "url",
+          "index": 1,
+          "takesValue": true
+        }
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -1,7 +1,7 @@
+import type { AnalysisEngine, PrTarget } from "@pr-visulizer/engine"
 import type { AnalysisResult } from "@pr-visulizer/shared"
 
 import type { AnalysisJobState } from "../../entities/index.js"
-import type { AnalysisEngine, PrTarget } from "./engine.js"
 
 // The 202-then-poll orchestrator (docs/architecture.md §9). The first request for a
 // PR starts the in-process pipeline and returns `analyzing`; polls return `analyzing`

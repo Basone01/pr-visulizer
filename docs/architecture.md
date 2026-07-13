@@ -56,12 +56,12 @@ This app computes that "foundations first" order automatically, visualizes it as
 
 Why this shape and not the alternatives:
 
-| Concern | Client-only SPA | **SPA + BFF (chosen)** | Full GitHub-App platform |
-|---|---|---|---|
-| GitHub token | lives in the browser (risky) | server-side only, never sent to browser | server-side |
-| Heavy parsing | strains the browser tab | on the server, cached | on workers |
-| Infra to run | none | one small service | queue + workers + DB |
-| Team features / webhooks | no | not yet (upgrade path exists) | yes |
+| Concern                  | Client-only SPA              | **SPA + BFF (chosen)**                  | Full GitHub-App platform |
+| ------------------------ | ---------------------------- | --------------------------------------- | ------------------------ |
+| GitHub token             | lives in the browser (risky) | server-side only, never sent to browser | server-side              |
+| Heavy parsing            | strains the browser tab      | on the server, cached                   | on workers               |
+| Infra to run             | none                         | one small service                       | queue + workers + DB     |
+| Team features / webhooks | no                           | not yet (upgrade path exists)           | yes                      |
 
 The BFF gives the two properties we cannot compromise on — token safety and server-side parsing — at the minimum infra cost.
 Full-clone LSP-grade analysis is not a rejected alternative — it is the opt-in **deep engine** (§4, §6), and the worker box above only exists when you enable it.
@@ -69,17 +69,17 @@ The full-platform shape (webhooks, pre-analysis) stays as a later upgrade path (
 
 ### 2.1 Tech stack
 
-| Layer | Choice | Why |
-|---|---|---|
-| SPA | React + TypeScript + Vite | standard, huge ecosystem |
-| Server state | TanStack Query | caching, polling, retries out of the box |
-| Graph rendering | React Flow + `elkjs` layered layout | topo levels map 1:1 to layout columns |
-| Diff rendering | `shiki` highlight + own unified-diff renderer | syntax colors + clickable symbol anchors (def ↔ usage, §10) |
-| BFF | Node + TypeScript + Fastify | fast, typed, tiny |
-| GitHub client | Octokit (REST + GraphQL) | official, handles pagination/rate limits |
-| Parsing | `web-tree-sitter` (WASM grammars) | no native-build pain, one grammar file per language |
-| Validation | zod at every boundary | parse-don't-validate |
-| DB (MVP) | SQLite (drizzle) | zero-ops; swap to Postgres when multi-instance |
+| Layer           | Choice                                        | Why                                                         |
+| --------------- | --------------------------------------------- | ----------------------------------------------------------- |
+| SPA             | React + TypeScript + Vite                     | standard, huge ecosystem                                    |
+| Server state    | TanStack Query                                | caching, polling, retries out of the box                    |
+| Graph rendering | React Flow + `elkjs` layered layout           | topo levels map 1:1 to layout columns                       |
+| Diff rendering  | `shiki` highlight + own unified-diff renderer | syntax colors + clickable symbol anchors (def ↔ usage, §10) |
+| BFF             | Node + TypeScript + Fastify                   | fast, typed, tiny                                           |
+| GitHub client   | Octokit (REST + GraphQL)                      | official, handles pagination/rate limits                    |
+| Parsing         | `web-tree-sitter` (WASM grammars)             | no native-build pain, one grammar file per language         |
+| Validation      | zod at every boundary                         | parse-don't-validate                                        |
+| DB (MVP)        | SQLite (drizzle)                              | zero-ops; swap to Postgres when multi-instance              |
 
 Monorepo layout (pnpm workspaces):
 
@@ -102,93 +102,98 @@ Everything below lives in `packages/shared` as zod schemas.
 // The output of the analysis pipeline. Immutable per (headSha, engine).
 // BOTH engines emit this shape — the SPA never knows which one ran.
 type AnalysisResult = {
-  engine: 'fast' | 'deep';
+  engine: "fast" | "deep"
   pr: {
-    owner: string; repo: string; number: number;
-    title: string;
-    baseSha: string;
-    headSha: string;          // cache key — new push = new SHA = new analysis
-  };
-  files: ChangedFile[];
-  symbols: ChangedSymbol[];
-  edges: Edge[];
-  ranking: RankedFile[];      // precomputed static order (see §8)
-  ghosts: GhostFile[];        // deep engine only — unchanged files that USE changed code
-  occurrences: SymbolOccurrence[];   // powers def ↔ usage navigation in the diff (§10)
-};
+    owner: string
+    repo: string
+    number: number
+    title: string
+    baseSha: string
+    headSha: string // cache key — new push = new SHA = new analysis
+  }
+  files: ChangedFile[]
+  symbols: ChangedSymbol[]
+  edges: Edge[]
+  ranking: RankedFile[] // precomputed static order (see §8)
+  ghosts: GhostFile[] // deep engine only — unchanged files that USE changed code
+  occurrences: SymbolOccurrence[] // powers def ↔ usage navigation in the diff (§10)
+}
 
 // One place a symbol appears in the PR's files. Free by-product of edge
-// resolution: fast engine records these in step 7, deep engine gets them from SCIP.
+// resolution: fast engine records these in step 7, deep engine (§6) from its
+// repo-wide resolution — so occurrences reach into unchanged ghost files too.
 type SymbolOccurrence = {
-  symbolId: string;           // the ChangedSymbol this refers to
-  path: string;
-  line: number;               // in the head version
-  role: 'definition' | 'usage';
-};
+  symbolId: string // the ChangedSymbol this refers to
+  path: string
+  line: number // in the head version
+  role: "definition" | "usage"
+}
 
 type ChangedFile = {
-  path: string;
-  status: 'added' | 'modified' | 'deleted' | 'renamed';
-  additions: number;
-  deletions: number;
-  language: string | null;    // null = no tree-sitter grammar → heuristic mode
-};
+  path: string
+  status: "added" | "modified" | "deleted" | "renamed"
+  additions: number
+  deletions: number
+  language: string | null // null = no tree-sitter grammar → heuristic mode
+}
 
 type ChangedSymbol = {
-  id: string;                 // `${path}#${name}`
-  path: string;
-  name: string;
-  kind: 'function' | 'method' | 'class' | 'type' | 'const';
-  span: { startLine: number; endLine: number };   // in the head version
-  changeKind: 'added' | 'modified' | 'deleted';
-};
+  id: string // `${path}#${name}`
+  path: string
+  name: string
+  kind: "function" | "method" | "class" | "type" | "const"
+  span: { startLine: number; endLine: number } // in the head version
+  changeKind: "added" | "modified" | "deleted"
+}
 
 type Edge = {
-  from: string;               // file path or symbol id — "from DEPENDS ON to"
-  to: string;
-  kind: 'imports' | 'calls' | 'uses-type';
-  level: 'file' | 'symbol';
-  source: 'ast' | 'lsp' | 'heuristic';   // which engine/fallback produced it
-};
+  from: string // file path or symbol id — "from DEPENDS ON to"
+  to: string
+  kind: "imports" | "calls" | "uses-type"
+  level: "file" | "symbol"
+  source: "ast" | "lsp" | "heuristic" // which engine/fallback produced it
+}
 
 type RankedFile = {
-  path: string;
-  topoLevel: number;          // 0 = depends on no other CHANGED file
-  fanIn: number;              // how many changed files depend on it
-  churn: number;              // additions + deletions
-  order: number;              // 1-based position in the static order
-  blastRadius?: number;       // deep engine only — UNCHANGED files that depend on it
-};
+  path: string
+  topoLevel: number // 0 = depends on no other CHANGED file
+  fanIn: number // how many changed files depend on it
+  churn: number // additions + deletions
+  order: number // 1-based position in the static order
+  blastRadius?: number // deep engine only — UNCHANGED files that depend on it
+}
 
 // deep engine only: an unchanged file that references changed code.
 // Rendered as a dashed "ghost" node — context, never part of the review queue.
 type GhostFile = {
-  path: string;
-  usedChangedSymbols: string[];   // which changed symbols it references
-};
+  path: string
+  usedChangedSymbols: string[] // which changed symbols it references
+}
 ```
 
 Review progress is per user, per PR, per SHA:
 
 ```ts
 type ReviewProgress = {
-  userId: string;
-  owner: string; repo: string; prNumber: number;
-  headSha: string;
-  reviewedFiles: string[];    // the checkmarks
-  drafts: DraftComment[];
-  verdict?: 'approve' | 'request_changes' | 'comment';
-};
+  userId: string
+  owner: string
+  repo: string
+  prNumber: number
+  headSha: string
+  reviewedFiles: string[] // the checkmarks
+  drafts: DraftComment[]
+  verdict?: "approve" | "request_changes" | "comment"
+}
 
 type DraftComment = {
-  path: string;
-  line: number;               // line in the head version
-  side: 'LEFT' | 'RIGHT';
-  body: string;
-};
+  path: string
+  line: number // line in the head version
+  side: "LEFT" | "RIGHT"
+  body: string
+}
 ```
 
-**Edge direction convention (memorize this):** `from → to` means *"from depends on to"*.
+**Edge direction convention (memorize this):** `from → to` means _"from depends on to"_.
 All algorithms below assume this direction.
 
 ---
@@ -201,25 +206,30 @@ Both engines implement one interface and emit the same `AnalysisResult` — the 
 ```ts
 interface AnalysisEngine {
   // keyed by (owner, repo, prNumber, headSha, engineName) — immutable per key
-  analyze(target: PrTarget): Promise<AnalysisResult>;
+  analyze(target: PrTarget): Promise<AnalysisResult>
 }
 
-class FastAstEngine implements AnalysisEngine { /* §5 — tree-sitter, in-process  */ }
-class DeepLspEngine implements AnalysisEngine { /* §6 — clone + SCIP, on workers */ }
+class FastAstEngine implements AnalysisEngine {
+  /* §5 — tree-sitter, in-process  */
+}
+class DeepLspEngine implements AnalysisEngine {
+  /* §6 — clone + SCIP, on workers */
+}
 ```
 
 ### 4.1 When to use which
 
-| | **Fast (AST)** — default | **Deep (LSP-grade)** — opt-in |
-|---|---|---|
-| What it reads | changed files only (+1-hop imports) | the whole repo at `headSha` |
-| How | tree-sitter parse + name resolution | shallow clone + SCIP compiler-grade index |
-| Latency | seconds | 1–10 min depending on repo size |
-| Extra infra | none | job queue + worker pool + disk |
-| Call edges | best-effort (misses dynamic dispatch, re-export chains) | precise references |
-| Blast radius (unchanged callers of changed code) | invisible | ghost nodes + `blastRadius` metric |
-| Monorepo path aliases | needs the `tsconfig.json` fetch hack | resolved natively by the indexer |
-| Good for | everyday PRs, instant feedback | risky refactors, core-library changes, huge monorepos |
+|                                                  | **Fast (AST)** — default                                | **Deep (repo-wide AST)** — opt-in                                 |
+| ------------------------------------------------ | ------------------------------------------------------- | ----------------------------------------------------------------- |
+| What it reads                                    | changed files only (+1-hop imports)                     | the whole repo at `headSha`                                       |
+| How                                              | tree-sitter parse + name resolution                     | full clone + repo-wide tree-sitter index (§6)                     |
+| Where it runs                                    | in-process (server or webview)                          | desktop-local (the clone lives on the user's machine)             |
+| Latency                                          | seconds                                                 | seconds–minutes with repo size (index the whole tree)             |
+| Extra infra                                      | none                                                    | a local git checkout + disk (no server workers in v1)             |
+| Call edges                                       | best-effort (misses dynamic dispatch, re-export chains) | repo-wide name resolution (SCIP-precise in the future tier, §6.2) |
+| Blast radius (unchanged callers of changed code) | invisible                                               | ghost nodes + `blastRadius` metric                                |
+| Monorepo path aliases                            | needs the `tsconfig.json` fetch hack                    | repo-wide relative resolution (aliases: future tier)              |
+| Good for                                         | everyday PRs, instant feedback                          | risky refactors, core-library changes, huge monorepos             |
 
 ### 4.2 Progressive upgrade, not either/or
 
@@ -240,7 +250,7 @@ Three invariants make this safe:
 
 - **Same contract** — swapping results is a re-render, not a new UI mode.
 - **Progress is engine-independent** — `ReviewProgress` never references edges, only file paths.
-- **Deep can only add** — every fast edge is either confirmed (re-tagged `lsp`) or kept as `ast`; files never disappear, so a half-reviewed queue never loses items. Review *order* of still-unreviewed files may improve — the UI badges re-ranked rows instead of silently reshuffling.
+- **Deep can only add** — every fast edge is either confirmed (re-tagged `lsp`) or kept as `ast`; files never disappear, so a half-reviewed queue never loses items. Review _order_ of still-unreviewed files may improve — the UI badges re-ranked rows instead of silently reshuffling.
 
 If the deep job fails or times out, the fast result simply stays — deep mode is an enhancement with a built-in fallback, never a gate.
 
@@ -263,6 +273,12 @@ A new push produces a new SHA and simply misses the cache.
 8. Compute ranking                           → topo levels, fan-in, static order
 9. Cache AnalysisResult                      LRU keyed by headSha
 ```
+
+### Bounded-concurrency fetches + progress events
+
+Step 3 fetches each changed file's content with **bounded concurrency** — a fixed pool (a controllable-core setting, `fetchConcurrency`, default 6), not one request at a time (the reported slow path where nothing rendered until every sequential fetch had landed). The deep engine (§6) reads the whole checkout the same way (`readConcurrency`, default 6, on the `RepoFiles` scan).
+
+Both engines also accept an optional progress callback: `analyze(target, { onProgress })`, where `onProgress` reports `{ step, done?, total? }` for `step ∈ { fetching-pr, reading-files, parsing, resolving, ranking }`. The fast engine reports `reading-files` and `parsing` with live `done/total` over the changed-file set; the deep engine's counts are repo-wide (thousands), so its `reading-files`/`parsing` callbacks are **throttled to ~one per 25 files**. The `AnalysisResult` contract (§3) is unchanged — progress is an engine-side signal the desktop client relays to the UI (§9) and the BFF simply ignores.
 
 ### Step 4 — symbol extraction
 
@@ -299,7 +315,7 @@ index every exported symbol name per file, then for each changed symbol's body, 
 
 This is **name resolution, not type inference**.
 It will miss dynamic dispatch and complex re-export chains.
-That is acceptable: edges feed a review-order *heuristic*, not a compiler.
+That is acceptable: edges feed a review-order _heuristic_, not a compiler.
 File-level import edges (step 6) are the reliable backbone; symbol edges add precision where they can.
 
 Each successful resolution is also recorded as a `SymbolOccurrence` (definition line from the tree-sitter span, usage line from the call site).
@@ -307,21 +323,91 @@ That list is the entire data source for def ↔ usage navigation in the diff pan
 
 ### Fallbacks and limits
 
-| Situation | Behavior |
-|---|---|
-| No grammar for a language | file stays in the graph (grey node), edges from import-line regex only |
-| PR > 300 files | full AST for the top-churn 300, heuristic mode for the rest — the UI must say so |
-| Circular imports | Tarjan SCC → collapse the cycle into one super-node, members share a topo level, UI badge "review together" |
-| GitHub rate limit | ETag conditional requests + the SHA-keyed cache keep repeat cost near zero |
+| Situation                 | Behavior                                                                                                    |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| No grammar for a language | file stays in the graph (grey node), edges from import-line regex only                                      |
+| PR > 300 files            | full AST for the top-churn 300, heuristic mode for the rest — the UI must say so                            |
+| Circular imports          | Tarjan SCC → collapse the cycle into one super-node, members share a topo level, UI badge "review together" |
+| GitHub rate limit         | ETag conditional requests + the SHA-keyed cache keep repeat cost near zero                                  |
 
 ---
 
-## 6. Deep engine — LSP-grade pipeline (opt-in, on workers)
+## 6. Deep engine — repo-wide index (opt-in, desktop-local)
 
-"LSP-grade" is the precision target; the implementation is **SCIP indexers**, not live LSP servers.
-A live language server is a long-running process you query interactively — wrong shape for a batch job.
-A SCIP indexer (`scip-typescript`, `scip-go`, …) runs once over a checkout and emits one index file containing every definition and reference, compiler-grade.
-Same data you would get from asking an LSP "find references" on everything, produced in one shot.
+**Deep v1 is a repo-wide tree-sitter index over the PR head, run locally in the desktop app.**
+In the shipped desktop it reads from the user's **linked local repo** when one is registered — `git fetch` of the PR head into the clone's object DB, then object-DB reads at the head SHA, never touching the working tree; a managed clone under the app's clone root is the fallback (see docs/tauri-architecture.md §6, "Deep-only desktop"). The CPU pipeline itself is a pure core (`analyzeFromSources`) shared with the BFF and runs off the main thread in a Web Worker.
+It is _not_ a server worker running a SCIP job — that is the documented **future precision tier** (§6.2), still behind this same `AnalysisEngine` interface.
+v1 reuses the exact tree-sitter grammars the fast engine already ships (TypeScript/TSX, Go), only pointed at the _whole_ checkout instead of the changed files.
+No job queue, no worker pool, no sandbox container: the clone lives on the user's own machine, so the honest cost is disk and CPU on the desktop, not server infrastructure.
+
+Why this shape for v1 — the motivating win of deep mode is not compiler-grade precision, it is **seeing unchanged code and same-package references**:
+
+> A Go PR that only adds a field to a struct has **no call edges at all**, yet the reviewer must know which files — changed _and_ unchanged — reference that struct type.
+> Go same-package references carry no import statement and no qualifier, so the per-file fast engine can _never_ see them; only a repo-wide index can.
+
+Tree-sitter name resolution over the full checkout delivers exactly that today, with grammars we already have.
+
+### 6.1 Pipeline (deep v1)
+
+```
+1. Get PR meta + changed files       gateway.getPullRequest (same as fast, §5 step 1)
+2. Read the whole repo @ headSha      the RepoFiles seam — a git checkout in the desktop,
+                                      an in-memory map in tests; skips vendored dirs and
+                                      oversized/unreadable files (controllable-core limits)
+3. Parse every source file           one tree-sitter grammar per language (TS/TSX, Go)
+4. Build a repo-wide definition index by id, and — for Go — by (directory, name)
+5. Resolve references repo-wide       TS relative imports; Go same-package (same directory)
+                                      and cross-package (go.mod module path → repo dir)
+6. Project onto the PR                changed symbols + ALL their references, incl. unchanged
+7. Build edges (source: 'ast')        changed→changed edges like fast; unchanged referrers →
+                                      GhostFile[]; per changed file → blastRadius
+8. Same ranking algorithm (§8)        changed-files-only inputs + blastRadius risk badge
+9. Cache AnalysisResult               LRU keyed by (headSha, 'deep')
+```
+
+The **`RepoFiles` seam** is platform-neutral — `{ listFiles(): Promise<string[]>; readFile(path): Promise<string> }`.
+The desktop provides it from the clone at `headSha`; the engine asserts nothing about git, it only lists and reads paths.
+Vendored directories (`vendor/`, `node_modules/`, `.git/`), generated protobuf (`*.pb.go`), and a per-file size cap (~1.5 MB) are **controllable-core settings** with those defaults; the ghost list is capped (default 50) and ordered by reference count.
+
+Edges stay tagged **`source:'ast'`** — deep v1 is honest AST _name resolution_, not type inference (the same limits as §5 step 7).
+The `Edge.source` enum is deliberately not widened; the result's `engine: 'deep'` already records which engine ran.
+**Known misses (stated up front):** Go interface satisfaction, dot-imports (`import . "pkg"`), dynamic dispatch, TS path aliases (`@app/...`), re-export chains, and nested Go modules (a `go.mod` in a subdirectory — the root-most one wins).
+
+### What deep mode adds, concretely
+
+On PR #42 (§7), suppose an **unchanged** file `src/api/routes/admin.ts` also calls `withRateLimit`.
+The fast engine cannot see it — it never reads unchanged files.
+The deep engine emits it as a ghost node with a dashed edge, and `withRateLimit.ts` gets `blastRadius: 1`.
+The reviewer now knows: _this middleware change affects a route that is not in the diff_ — often the exact thing that makes a "small PR" risky.
+The Go struct-field case above is the same story with an even sharper point: there, the ghost referrers are the **only** signal, because a field-only change produces no call edges whatsoever.
+
+Ghosts are context, never work: they are excluded from the review queue, the readiness math, and the checkmark list.
+`topoLevel` and `fanIn` stay defined over changed files only, so the review order stays comparable across engines; `blastRadius` is a separate risk signal shown as a badge.
+Deep mode also widens `occurrences` from "what the fast engine's step 7 could resolve" to the whole-repo set — so symbol navigation (§10) gains targets in ghost files too.
+
+### 6.2 Deep v2 — compiler-grade precision
+
+The precision ceiling of deep v1 is tree-sitter _name_ resolution; it inherits the misses listed above.
+Two tiers raise it to **compiler-grade**, both behind this _same_ `AnalysisEngine` interface — nothing upstream changes when either lands.
+
+#### Shipped: the in-worker TypeScript LanguageService (TS/JS, desktop)
+
+`tsserver` and `typescript-language-server` are JSON-RPC wrappers around `ts.createLanguageService`.
+The desktop already holds the whole checkout in memory (the worker's `contents` map), so the engine runs **that same LanguageService in-process, in the analysis Web Worker**, over a virtual host — no child process, no LSP transport, no server to install.
+
+- **`node_modules` is not required.** Measured on a real 3.5 k-file monorepo with no install: internal references resolve; only external-package types are missing, and external edges are ignored anyway.
+- **It resolves what name resolution structurally cannot** — a type-directed method call (`s.doThing()` where `s = make()`), interface satisfaction, re-export chains.
+- **Module resolution is delegated to the engine's own resolver** (`tsconfigPaths.ts`), so nearest-tsconfig `@/…` aliasing has exactly one definition.
+- **It satisfies §12 by construction**: it never reads `compilerOptions.plugins`, so — unlike a real `tsserver` — it cannot load and execute a TS language-service plugin out of the repo's `node_modules`.
+- Cost: a ~9 MB lazily-imported `typescript` chunk plus ~2.35 MB of `lib.*.d.ts` text, loaded only when the tier is enabled.
+- Controllable core: `PrecisionPolicy { enabled, maxSymbols, programTimeoutMs, queryBudgetMs }` with `off` / `balanced` / `thorough` presets. Every failure path — no lib, program timeout, a throw — returns the AST result untouched.
+
+#### Documented, not built: SCIP indexers (multi-language, server worker)
+
+Go, and any language without an in-process service, still want **SCIP indexers** (`scip-typescript`, `scip-go`, …).
+A SCIP indexer runs once over a checkout and emits one index file containing every definition and reference, resolving exactly what tree-sitter name resolution cannot (interface satisfaction, dynamic dispatch, re-export chains, path aliases).
+A SCIP indexer runs once over a checkout and emits one index file containing every definition and reference, resolving exactly what tree-sitter name resolution cannot (interface satisfaction, dynamic dispatch, re-export chains, path aliases).
+It is heavier — a checkout, an indexer per language, and (for TS) `node_modules` — so it is the natural fit for a **server worker**, not the desktop:
 
 ```
 1. BFF enqueues job                    (repo, headSha, languages)      pg-boss on the existing SQLite/Postgres
@@ -335,23 +421,16 @@ Same data you would get from asking an LSP "find references" on everything, prod
 9. Store AnalysisResult                on disk / object store (deep results are big), keyed by (headSha, 'deep')
 ```
 
-### What deep mode adds, concretely
-
-On PR #42 (§7), suppose an **unchanged** file `src/api/routes/admin.ts` also calls `withRateLimit`.
-The fast engine cannot see it — it never reads unchanged files.
-The deep engine emits it as a ghost node with a dashed edge, and `withRateLimit.ts` gets `blastRadius: 1`.
-The reviewer now knows: *this middleware change affects a route that is not in the diff* — often the exact thing that makes a "small PR" risky.
-
-Ghosts are context, never work: they are excluded from the review queue, the readiness math, and the checkmark list.
-`topoLevel` and `fanIn` stay defined over changed files only, so the review order stays comparable across engines; `blastRadius` is a separate risk signal shown as a badge.
-Deep mode also upgrades `occurrences` from "what step 7 could resolve" to the compiler-grade, repo-wide set — so symbol navigation (§10) gains targets in ghost files too.
-
-### Worker constraints (the honest cost of deep mode)
+Worker constraints (the honest cost of the SCIP tier):
 
 - One clone per (repo, headSha), wiped after indexing; LRU disk cache with a hard quota.
-- Per-job timeout (default 10 min) — on timeout the job dies and the fast result stands.
+- Per-job timeout (default 10 min) — on timeout the job dies and the fast (or deep-v1) result stands.
 - Indexers run in a sandboxed container: no network except the package registry, CPU/memory limits, and **never execute repo code** (`--ignore-scripts` on installs — see §12).
 - Skipping dependency install keeps the job fast but degrades cross-package resolution in TS monorepos; this is a per-repo setting, default off (skip install).
+
+**`source:'lsp'` means "a language service / compiler asserted this edge"** — not "an LSP process answered".
+Both tiers above emit it: the in-worker LanguageService today, a SCIP indexer later. Deep v1's tree-sitter edges remain `source:'ast'`.
+Whichever tier runs, §4.2's invariant holds: **deep can only add.** An AST edge is either confirmed (re-tagged `lsp`) or left exactly as it was — never removed, never re-pointed.
 
 ---
 
@@ -361,14 +440,14 @@ Every number in §7–§8 (and every animation frame in the HTML version) uses t
 
 **PR #42 — "Add login rate limiting"**, 6 changed files, TypeScript:
 
-| # | File | Status | Churn (＋/−) | Imports (of changed files) |
-|---|---|---|---|---|
-| 1 | `src/config/limits.ts` | added | +4 −0 | — |
-| 2 | `src/types/http.ts` | modified | +2 −1 | — |
-| 3 | `src/lib/rateLimiter.ts` | added | +48 −0 | `limits.ts` |
-| 4 | `src/middleware/withRateLimit.ts` | added | +26 −0 | `rateLimiter.ts`, `http.ts`, `limits.ts` |
-| 5 | `src/api/routes/login.ts` | modified | +6 −2 | `withRateLimit.ts` |
-| 6 | `src/lib/rateLimiter.test.ts` | added | +52 −0 | `rateLimiter.ts`, `limits.ts` |
+| #   | File                              | Status   | Churn (＋/−) | Imports (of changed files)               |
+| --- | --------------------------------- | -------- | ------------ | ---------------------------------------- |
+| 1   | `src/config/limits.ts`            | added    | +4 −0        | —                                        |
+| 2   | `src/types/http.ts`               | modified | +2 −1        | —                                        |
+| 3   | `src/lib/rateLimiter.ts`          | added    | +48 −0       | `limits.ts`                              |
+| 4   | `src/middleware/withRateLimit.ts` | added    | +26 −0       | `rateLimiter.ts`, `http.ts`, `limits.ts` |
+| 5   | `src/api/routes/login.ts`         | modified | +6 −2        | `withRateLimit.ts`                       |
+| 6   | `src/lib/rateLimiter.test.ts`     | added    | +52 −0       | `rateLimiter.ts`, `limits.ts`            |
 
 The pipeline extracts (abridged):
 
@@ -398,7 +477,7 @@ Two parts: a **static order** computed once, and a **dynamic "best next"** recom
 
 Three signals per file:
 
-- **`topoLevel`** — `0` if the file depends on no other *changed* file, else `1 + max(topoLevel of its changed dependencies)`. Lower = more foundational.
+- **`topoLevel`** — `0` if the file depends on no other _changed_ file, else `1 + max(topoLevel of its changed dependencies)`. Lower = more foundational.
 - **`fanIn`** — how many changed files depend on it. Higher = more of the PR is built on it.
 - **`churn`** — additions + deletions. A tie-breaker only.
 
@@ -406,18 +485,18 @@ Sort: `topoLevel` ascending → `fanIn` descending → `churn` descending → pa
 
 Traced on PR #42 (verified by executing the algorithm, not by hand):
 
-| Order | File | topoLevel | Why this level | fanIn | churn |
-|---|---|---|---|---|---|
-| 1 | `limits.ts` | 0 | no changed deps | **3** | 4 |
-| 2 | `http.ts` | 0 | no changed deps | 1 | 3 |
-| 3 | `rateLimiter.ts` | 1 | depends on limits (L0) | 2 | 48 |
-| 4 | `withRateLimit.ts` | 2 | depends on rateLimiter (L1) | 1 | 26 |
-| 5 | `rateLimiter.test.ts` | 2 | depends on rateLimiter (L1) | 0 | 52 |
-| 6 | `login.ts` | 3 | depends on withRateLimit (L2) | 0 | 8 |
+| Order | File                  | topoLevel | Why this level                | fanIn | churn |
+| ----- | --------------------- | --------- | ----------------------------- | ----- | ----- |
+| 1     | `limits.ts`           | 0         | no changed deps               | **3** | 4     |
+| 2     | `http.ts`             | 0         | no changed deps               | 1     | 3     |
+| 3     | `rateLimiter.ts`      | 1         | depends on limits (L0)        | 2     | 48    |
+| 4     | `withRateLimit.ts`    | 2         | depends on rateLimiter (L1)   | 1     | 26    |
+| 5     | `rateLimiter.test.ts` | 2         | depends on rateLimiter (L1)   | 0     | 52    |
+| 6     | `login.ts`            | 3         | depends on withRateLimit (L2) | 0     | 8     |
 
 Start file = `limits.ts`: it is level 0 **and** three other files are built on it — 4 lines that unlock the rest of the PR.
 
-Note what fell out for free: **tests rank after their subject** with no special-casing, because a test *imports* its subject and therefore always sits one topo level above it.
+Note what fell out for free: **tests rank after their subject** with no special-casing, because a test _imports_ its subject and therefore always sits one topo level above it.
 
 ### 8.2 Dynamic "best next" — after every checkmark
 
@@ -432,18 +511,18 @@ next = unreviewed file with max readiness
        tie → lower topoLevel → higher fanIn → path ascending
 ```
 
-`readiness = 1.0` means *"you have already reviewed everything this file is built from — you have full context right now."*
+`readiness = 1.0` means _"you have already reviewed everything this file is built from — you have full context right now."_
 
 Traced on PR #42, reviewer following suggestions (all six steps, readiness of every unreviewed file):
 
-| Step | Reviewed so far | limits | http | rateLimiter | withRateLimit | test | login | → Suggest |
-|---|---|---|---|---|---|---|---|---|
-| 1 | — | **1.00** | 1.00 | 0.00 | 0.00 | 0.00 | 0.00 | `limits` (tie with http → higher fanIn 3 vs 1) |
-| 2 | limits | ✓ | **1.00** | 1.00 | 0.33 | 0.50 | 0.00 | `http` (tie with rateLimiter → lower topoLevel 0 vs 1) |
-| 3 | +http | ✓ | ✓ | **1.00** | 0.67 | 0.50 | 0.00 | `rateLimiter` |
-| 4 | +rateLimiter | ✓ | ✓ | ✓ | **1.00** | 1.00 | 0.00 | `withRateLimit` (tie with test → higher fanIn 1 vs 0) |
-| 5 | +withRateLimit | ✓ | ✓ | ✓ | ✓ | **1.00** | 1.00 | `test` (tie with login → lower topoLevel 2 vs 3) |
-| 6 | +test | ✓ | ✓ | ✓ | ✓ | ✓ | **1.00** | `login` |
+| Step | Reviewed so far | limits   | http     | rateLimiter | withRateLimit | test     | login    | → Suggest                                              |
+| ---- | --------------- | -------- | -------- | ----------- | ------------- | -------- | -------- | ------------------------------------------------------ |
+| 1    | —               | **1.00** | 1.00     | 0.00        | 0.00          | 0.00     | 0.00     | `limits` (tie with http → higher fanIn 3 vs 1)         |
+| 2    | limits          | ✓        | **1.00** | 1.00        | 0.33          | 0.50     | 0.00     | `http` (tie with rateLimiter → lower topoLevel 0 vs 1) |
+| 3    | +http           | ✓        | ✓        | **1.00**    | 0.67          | 0.50     | 0.00     | `rateLimiter`                                          |
+| 4    | +rateLimiter    | ✓        | ✓        | ✓           | **1.00**      | 1.00     | 0.00     | `withRateLimit` (tie with test → higher fanIn 1 vs 0)  |
+| 5    | +withRateLimit  | ✓        | ✓        | ✓           | ✓             | **1.00** | 1.00     | `test` (tie with login → lower topoLevel 2 vs 3)       |
+| 6    | +test           | ✓        | ✓        | ✓           | ✓             | ✓        | **1.00** | `login`                                                |
 
 And the adaptivity case: if the reviewer ignores the suggestion and reviews `login.ts` first, the next recompute still points at `limits.ts` (readiness 1.0, fanIn 3) — the algorithm never blocks, it only guides.
 
@@ -453,15 +532,15 @@ The sort priorities live in one config object, not scattered in code:
 
 ```ts
 type RankingPolicy = {
-  primary: 'topoLevel' | 'fanIn' | 'churnAsc';
-  tieBreakers: Array<'topoLevel' | 'fanIn' | 'churn' | 'path'>;
-};
+  primary: "topoLevel" | "fanIn" | "churnAsc"
+  tieBreakers: Array<"topoLevel" | "fanIn" | "churn" | "path">
+}
 
 const PRESETS = {
-  'foundations-first': { primary: 'topoLevel', tieBreakers: ['fanIn', 'churn', 'path'] },  // default
-  'blast-radius-first': { primary: 'fanIn',    tieBreakers: ['topoLevel', 'churn', 'path'] },
-  'quick-wins':        { primary: 'churnAsc',  tieBreakers: ['topoLevel', 'fanIn', 'path'] },
-} satisfies Record<string, RankingPolicy>;
+  "foundations-first": { primary: "topoLevel", tieBreakers: ["fanIn", "churn", "path"] }, // default
+  "blast-radius-first": { primary: "fanIn", tieBreakers: ["topoLevel", "churn", "path"] },
+  "quick-wins": { primary: "churnAsc", tieBreakers: ["topoLevel", "fanIn", "path"] },
+} satisfies Record<string, RankingPolicy>
 ```
 
 Default is `foundations-first` (everything traced above).
@@ -470,26 +549,45 @@ A reviewer who prefers small files first flips one setting — no algorithm chan
 Engine note: the ranking inputs (`topoLevel`, `fanIn`) are defined over changed files only, so the same policy produces comparable orders under both engines.
 Deep mode adds `blastRadius` as a per-file **risk badge**; `blast-radius-first` sorts by `fanIn + blastRadius` when deep data is present.
 
+### 8.4 The two review-queue modes
+
+The tray toggles between two `QueueMode`s. They differ in **order** _and_ in what "next" means — a mode whose queue and whose suggestion disagreed would send the reviewer somewhere the queue never pointed.
+
+| Mode                              | Order                                                   | "Next" (the `isNext` highlight)                        |
+| --------------------------------- | ------------------------------------------------------- | ------------------------------------------------------ |
+| `foundations` (default)           | the §8.1 static sort (`foundations-first`)              | the §8.2 readiness pick                                |
+| `branch` — labelled **"Chain"** | post-order DFS, each dependency chain start→end          | the first unreviewed file **in that order**            |
+
+**Branch order.** A post-order DFS from the entry points (files nothing else depends on, `fanIn = 0`) emits every dependency before the file that needs it, so within a chain you read start→end. Roots and each file's dependencies are visited in policy order, so the tie-breakers still decide which chain comes first and the result is deterministic. **A foundation shared by two chains is emitted once, with the first chain that reaches it.** Cyclic back-edges are broken by an on-stack guard; anything unreached (an isolated file, or a node only inside a cycle) is appended in policy order, so the order is total.
+
+**Branch "next" is _not_ the readiness pick.** Readiness maximises "what has full context right now" across the whole graph. When a PR's changed files form two disjoint chains — a stacked PR touching two services, say — every chain's foundation scores `readiness = 1.0`, so the readiness pick alternates between them and the reviewer is thrown into an unrelated part of the PR on each checkmark. Branch mode therefore suggests the **first unreviewed file in the branch order**, keeping the highlight inside the current chain until it is exhausted.
+
+Nothing is lost by not consulting readiness there: the order _is_ a post-order DFS, so a file's changed dependencies always precede it in the queue. The first unreviewed file already has every changed dependency behind it — which is exactly what readiness measured.
+
+Both modes are pure functions of (changed files, file edges, reviewed set). Neither can ever surface a file outside the changed set: the ranking graph is built from the changed files, and edges touching anything else are dropped.
+
 ---
 
 ## 9. API contracts (BFF ↔ SPA)
 
 All request/response bodies validated with the shared zod schemas.
 
-| Endpoint | Method | Purpose |
-|---|---|---|
-| `/api/auth/login` | GET | redirect to GitHub OAuth |
-| `/api/auth/callback` | GET | exchange code, set httpOnly session cookie |
-| `/api/me` | GET | current user |
-| `/api/prs/:owner/:repo/:number` | GET | PR meta |
-| `/api/prs/:owner/:repo/:number/analysis?engine=fast\|deep` | GET | `AnalysisResult`; default `fast`; returns `202 {status:'analyzing'}` while running — SPA polls (TanStack Query `refetchInterval`) |
-| `/api/prs/:owner/:repo/:number/analysis/deepen` | POST | enqueue the deep-engine job; idempotent per headSha (re-POST returns the existing job); SPA then polls `?engine=deep` |
-| `/api/prs/:owner/:repo/:number/files/*path?sha=` | GET | file content for the diff renderer (base or head) |
-| `/api/prs/:owner/:repo/:number/progress` | GET / PUT | `ReviewProgress` read/write |
-| `/api/prs/:owner/:repo/:number/review` | POST | submit the real review to GitHub |
+| Endpoint                                                   | Method    | Purpose                                                                                                                                                                                                                                      |
+| ---------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/auth/login`                                          | GET       | redirect to GitHub OAuth                                                                                                                                                                                                                     |
+| `/api/auth/callback`                                       | GET       | exchange code, set httpOnly session cookie                                                                                                                                                                                                   |
+| `/api/me`                                                  | GET       | current user                                                                                                                                                                                                                                 |
+| `/api/prs/:owner/:repo/:number`                            | GET       | PR **overview**: `{ pr: PrMeta; files: ChangedFile[] }` — meta + the changed-file list, the instant-open payload the SPA renders the shell from before analysis lands (each file's patch is stripped; the diff renderer fetches it per file) |
+| `/api/prs/:owner/:repo/:number/analysis?engine=fast\|deep` | GET       | `AnalysisResult`; default `fast`; returns `202 {status:'analyzing'}` while running — SPA polls (TanStack Query `refetchInterval`)                                                                                                            |
+| `/api/prs/:owner/:repo/:number/analysis/deepen`            | POST      | enqueue the deep-engine job; idempotent per headSha (re-POST returns the existing job); SPA then polls `?engine=deep`                                                                                                                        |
+| `/api/prs/:owner/:repo/:number/files/*path?sha=`           | GET       | file content for the diff renderer (base or head)                                                                                                                                                                                            |
+| `/api/prs/:owner/:repo/:number/progress`                   | GET / PUT | `ReviewProgress` read/write                                                                                                                                                                                                                  |
+| `/api/prs/:owner/:repo/:number/review`                     | POST      | submit the real review to GitHub                                                                                                                                                                                                             |
 
 Design notes:
 
+- **Progressive open.** The SPA queries the **overview** (this route) separately from the analysis and renders the shell — TopBar, the review-tray file rows (path + churn + live checkbox), and the first file's diff — the instant the overview lands, while the (slower) `AnalysisResult` is still computing. The graph, ranking, readiness and suggested-next fill in when the analysis query resolves; until then the graph pane hosts an **analysis-progress panel** (the step list below with the current step highlighted and a live counter). `PrOverview` is a shared zod schema; the `PrClient` gains `getOverview(target)` (http → this route; fixture/tauri → the gateway direct).
+- **Live progress (tauri).** A TanStack `queryFn` cannot stream, so analysis-step progress rides a separate seam: `PrClient.subscribeAnalysisProgress(target, listener)`. In desktop mode the in-webview engine's `onProgress` callback (see §5) feeds a per-target emitter the `useAnalysisProgress` hook subscribes to; the fixture client emits a synthetic sequence so the progressive UI is exercisable in dev; **http mode has no step events** (202-poll) and the panel shows an indeterminate state + elapsed seconds instead of faking progress.
 - **202-then-poll** keeps the MVP free of WebSocket infrastructure; analysis of a typical PR is a few seconds.
 - The SPA never talks to `api.github.com` — every GitHub call goes through the BFF, where the token lives.
 - `PUT progress` is idempotent full-state replacement — simplest possible sync for checkmarks and drafts.
@@ -512,8 +610,8 @@ Data source: `AnalysisResult.occurrences` — no separate indexing step (see §5
 Rules:
 
 - An identifier gets a dotted underline **only when its counterpart exists in the PR** (fast engine) or in a ghost file (deep engine). No underline = nothing to navigate to; the UI never dead-ends.
-- Click a **usage** → **peek popup**: the definition renders inline in a popover, with the same diff-status + syntax layers as the main view. Most definitions are short — the peek *is* the answer, and the reviewer's scroll position never moves.
-- **Long definitions** (span > `peekMaxLines`, default 15 — one more controllable-core setting): the peek shows the first 10 lines with a fade and two actions — **"Show N more ↓"** and **"Jump ⏎"**. *Show more* expands the popup in place; past a max height (~60% of the viewport) the code scrolls **inside** the popup. The reviewer's position in the main diff still never moves. Jump opens that file's diff, scrolls, flash-highlights — for when the definition deserves full-width reading. `⌘`-click bypasses the peek and jumps directly.
+- Click a **usage** → **peek popup**: the definition renders inline in a popover, with the same diff-status + syntax layers as the main view. Most definitions are short — the peek _is_ the answer, and the reviewer's scroll position never moves.
+- **Long definitions** (span > `peekMaxLines`, default 15 — one more controllable-core setting): the peek shows the first 10 lines with a fade and two actions — **"Show N more ↓"** and **"Jump ⏎"**. _Show more_ expands the popup in place; past a max height (~60% of the viewport) the code scrolls **inside** the popup. The reviewer's position in the main diff still never moves. Jump opens that file's diff, scrolls, flash-highlights — for when the definition deserves full-width reading. `⌘`-click bypasses the peek and jumps directly.
 - The ladder is **peek → expand → jump**, each step heavier than the last; only the last one pushes the jump stack.
 - A **definition** line shows an "N usages in this PR" pill → popover lists every usage **with its one-line context inline** — usages are single lines, so the list is effectively pre-peeked; click one to jump when more context is needed, `⌥]` / `⌥[` cycles.
 - Peek is lighter than jump: it pushes nothing. Only real jumps go onto the **jump stack**, and a persistent "↩ back" chip (and `Esc`) returns exactly where you left.
@@ -521,6 +619,10 @@ Rules:
 - Deep mode: peeks into ghost files fetch the unchanged content read-only at `headSha`; a jump there opens a read-only file view (there is nothing to review in a ghost).
 
 Edge cases stated up front: a symbol with multiple definitions in the PR (overloads, re-declarations) gets the popover instead of a direct jump; a renamed symbol's old-name usages resolve to the new definition via the rename mapping GitHub provides; on the fast engine, an identifier step 7 could not resolve simply gets no underline — precision over coverage.
+
+### Diff-view settings (per viewer, persisted)
+
+Two controllable-core toggles live in the diff-pane header (`DiffViewSettings`, both default off, persisted through the app storage and applied across every file). **Wrap** switches code lines from `pre` (horizontal scroll) to `pre-wrap`; continuation lines stay inside the content column, which the flex layout already places to the right of the line-number gutter, so a wrapped line never slides under the gutter. **Hide whitespace-only changes** is a pure view transform over the `parseUnifiedDiff` output: within each hunk it pairs the del-block and add-block positionally (1st del with 1st add, …) and, when a pair is equal after whitespace normalization — every run of spaces/tabs collapsed to one space and both ends trimmed, with no special-casing of whitespace inside strings or comments — collapses it to a single context-style line showing the head content, carrying both the base and head line numbers and tagged `wsOnly` for a subtle "hidden" marker. It never renumbers and unpaired remainders stay as-is, so head-line symbol anchors keep resolving.
 
 ---
 
@@ -568,11 +670,11 @@ Deep-engine specifics (a clone of untrusted code is a bigger attack surface than
 
 ## 13. Upgrade path (explicitly out of MVP scope)
 
-| Later need | Change |
-|---|---|
-| Pre-analysis on PR open | become a GitHub App, add webhook → queue → worker (the deep-engine queue from §6 is reused as-is) |
-| Teams / shared progress | Postgres, progress keyed per (user, PR) with team overlays |
-| More languages | fast engine: ship tree-sitter grammars; deep engine: add SCIP indexers — both pipelines are language-agnostic past parsing |
+| Later need              | Change                                                                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Pre-analysis on PR open | become a GitHub App, add webhook → queue → worker (the deep-engine queue from §6 is reused as-is)                          |
+| Teams / shared progress | Postgres, progress keyed per (user, PR) with team overlays                                                                 |
+| More languages          | fast engine: ship tree-sitter grammars; deep engine: add SCIP indexers — both pipelines are language-agnostic past parsing |
 
 ---
 

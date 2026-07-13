@@ -1,3 +1,5 @@
+import { useMemo } from "react"
+
 import type { LineTokenizer } from "@/utils/highlight/highlighter"
 
 import type { SymbolAnchor } from "@/entity/anchor"
@@ -18,10 +20,12 @@ export function CodeContent({
   anchors: SymbolAnchor[]
   onAnchorClick: (anchor: SymbolAnchor, withMeta: boolean) => void
 }) {
-  // Until shiki loads, show plain text — highlighting never blocks the diff.
-  if (!tokenizer) return <span className={styles.content}>{text}</span>
+  // Tokenizing is a grammar run per line; a re-render for any other reason (selection, flash,
+  // a draft pill) must not pay for it again.
+  const tokens = useMemo(() => (tokenizer ? tokenizer(text) : null), [tokenizer, text])
 
-  const tokens = tokenizer(text)
+  // Until shiki loads, show plain text — highlighting never blocks the diff.
+  if (!tokens) return <span className={styles.content}>{text}</span>
 
   return (
     <span className={styles.content}>

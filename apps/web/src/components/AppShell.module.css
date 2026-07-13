@@ -5,10 +5,73 @@
 }
 
 .shell {
-  display: grid;
-  grid-template-columns: 400px 1fr 300px;
+  /* Side-pane widths are inline styles driven by usePanelSizes (drag-resizable,
+     persisted); the center diff pane flexes between them. */
+  display: flex;
   flex: 1;
   min-height: 0;
+}
+
+.sidePane {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* Widths come from CSS vars on the shell so a divider drag can update them imperatively
+   (no React re-render of the panes during the drag). */
+.graphPane {
+  width: var(--graph-width, 400px);
+}
+
+.trayPane {
+  width: var(--tray-width, 300px);
+}
+
+.centerPane {
+  flex: 1;
+  min-width: 0;
+}
+
+.errorBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  font-size: 12px;
+  background: var(--deleted-soft);
+  color: var(--deleted);
+  border-bottom: 1px solid var(--border);
+}
+
+.errorText {
+  flex: 1;
+}
+
+/* Fallback shown when a diff render crashes (ErrorBoundary) — keeps graph + tray alive. */
+.diffError {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 24px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.diffErrorDetail {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--deleted);
+  word-break: break-word;
+}
+
+.errorClose {
+  background: none;
+  border: 0;
+  color: var(--deleted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 4px;
 }
 
 .pane {
@@ -47,4 +110,22 @@
   justify-content: center;
   height: 100%;
   color: var(--muted);
+}
+
+/* Small pane-header hide control ("－"); each pane can collapse to a strip (Esc restores all). */
+.hideButton {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 1px 7px;
+}
+
+.hideButton:hover {
+  color: var(--text);
+  border-color: var(--muted);
 }

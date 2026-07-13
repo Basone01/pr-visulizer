@@ -1,197 +1,524 @@
 <!-- @dsCard group="Screens" name="App shell — reviewing PR #42" subtitle="graph pane · rich diff · review tray (3/6, next suggested)" viewport="1440x780" -->
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>App shell — reviewing PR #42</title>
-<style>
-:root {
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --text: #1c2430;
-  --muted: #66707d;
-  --border: #dde2e8;
-  --code-bg: #eef1f5;
-  --accent: #2563eb;
-  --accent-soft: #dbeafe;
-  --added: #16a34a;
-  --added-soft: #dcfce7;
-  --modified: #d97706;
-  --modified-soft: #fef3c7;
-  --deleted: #dc2626;
-  --deleted-soft: #fee2e2;
-  --reviewed: #9aa4b0;
-  --syn-keyword: #cf222e;
-  --syn-string: #0a3069;
-  --syn-func: #8250df;
-  --syn-type: #953800;
-  --syn-const: #0550ae;
-  --syn-comment: #6e7781;
-}
-@media (prefers-color-scheme: dark) { :root {
-  --bg: #12161c;
-  --panel: #1a2029;
-  --text: #e5eaf0;
-  --muted: #8b96a5;
-  --border: #2a323d;
-  --code-bg: #232b36;
-  --accent: #60a5fa;
-  --accent-soft: #1e3a5f;
-  --added: #4ade80;
-  --added-soft: #14351f;
-  --modified: #fbbf24;
-  --modified-soft: #3a2e0e;
-  --deleted: #f87171;
-  --deleted-soft: #3b1a1a;
-  --reviewed: #566172;
-  --syn-keyword: #ff7b72;
-  --syn-string: #a5d6ff;
-  --syn-func: #d2a8ff;
-  --syn-type: #ffa657;
-  --syn-const: #79c0ff;
-  --syn-comment: #8b949e;
-} }
-:root[data-theme="light"] {
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --text: #1c2430;
-  --muted: #66707d;
-  --border: #dde2e8;
-  --code-bg: #eef1f5;
-  --accent: #2563eb;
-  --accent-soft: #dbeafe;
-  --added: #16a34a;
-  --added-soft: #dcfce7;
-  --modified: #d97706;
-  --modified-soft: #fef3c7;
-  --deleted: #dc2626;
-  --deleted-soft: #fee2e2;
-  --reviewed: #9aa4b0;
-  --syn-keyword: #cf222e;
-  --syn-string: #0a3069;
-  --syn-func: #8250df;
-  --syn-type: #953800;
-  --syn-const: #0550ae;
-  --syn-comment: #6e7781;
-}
-:root[data-theme="dark"] {
-  --bg: #12161c;
-  --panel: #1a2029;
-  --text: #e5eaf0;
-  --muted: #8b96a5;
-  --border: #2a323d;
-  --code-bg: #232b36;
-  --accent: #60a5fa;
-  --accent-soft: #1e3a5f;
-  --added: #4ade80;
-  --added-soft: #14351f;
-  --modified: #fbbf24;
-  --modified-soft: #3a2e0e;
-  --deleted: #f87171;
-  --deleted-soft: #3b1a1a;
-  --reviewed: #566172;
-  --syn-keyword: #ff7b72;
-  --syn-string: #a5d6ff;
-  --syn-func: #d2a8ff;
-  --syn-type: #ffa657;
-  --syn-const: #79c0ff;
-  --syn-comment: #8b949e;
-}
-* { box-sizing: border-box; }
-body { margin: 0; padding: 20px; background: var(--bg); color: var(--text);
-  font: 14px/1.5 -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
-.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-h4 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.symlink { text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>App shell — reviewing PR #42</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #1c2430;
+        --muted: #66707d;
+        --border: #dde2e8;
+        --code-bg: #eef1f5;
+        --accent: #2563eb;
+        --accent-soft: #dbeafe;
+        --added: #16a34a;
+        --added-soft: #dcfce7;
+        --modified: #d97706;
+        --modified-soft: #fef3c7;
+        --deleted: #dc2626;
+        --deleted-soft: #fee2e2;
+        --reviewed: #9aa4b0;
+        --syn-keyword: #cf222e;
+        --syn-string: #0a3069;
+        --syn-func: #8250df;
+        --syn-type: #953800;
+        --syn-const: #0550ae;
+        --syn-comment: #6e7781;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #12161c;
+          --panel: #1a2029;
+          --text: #e5eaf0;
+          --muted: #8b96a5;
+          --border: #2a323d;
+          --code-bg: #232b36;
+          --accent: #60a5fa;
+          --accent-soft: #1e3a5f;
+          --added: #4ade80;
+          --added-soft: #14351f;
+          --modified: #fbbf24;
+          --modified-soft: #3a2e0e;
+          --deleted: #f87171;
+          --deleted-soft: #3b1a1a;
+          --reviewed: #566172;
+          --syn-keyword: #ff7b72;
+          --syn-string: #a5d6ff;
+          --syn-func: #d2a8ff;
+          --syn-type: #ffa657;
+          --syn-const: #79c0ff;
+          --syn-comment: #8b949e;
+        }
+      }
+      :root[data-theme="light"] {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #1c2430;
+        --muted: #66707d;
+        --border: #dde2e8;
+        --code-bg: #eef1f5;
+        --accent: #2563eb;
+        --accent-soft: #dbeafe;
+        --added: #16a34a;
+        --added-soft: #dcfce7;
+        --modified: #d97706;
+        --modified-soft: #fef3c7;
+        --deleted: #dc2626;
+        --deleted-soft: #fee2e2;
+        --reviewed: #9aa4b0;
+        --syn-keyword: #cf222e;
+        --syn-string: #0a3069;
+        --syn-func: #8250df;
+        --syn-type: #953800;
+        --syn-const: #0550ae;
+        --syn-comment: #6e7781;
+      }
+      :root[data-theme="dark"] {
+        --bg: #12161c;
+        --panel: #1a2029;
+        --text: #e5eaf0;
+        --muted: #8b96a5;
+        --border: #2a323d;
+        --code-bg: #232b36;
+        --accent: #60a5fa;
+        --accent-soft: #1e3a5f;
+        --added: #4ade80;
+        --added-soft: #14351f;
+        --modified: #fbbf24;
+        --modified-soft: #3a2e0e;
+        --deleted: #f87171;
+        --deleted-soft: #3b1a1a;
+        --reviewed: #566172;
+        --syn-keyword: #ff7b72;
+        --syn-string: #a5d6ff;
+        --syn-func: #d2a8ff;
+        --syn-type: #ffa657;
+        --syn-const: #79c0ff;
+        --syn-comment: #8b949e;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 20px;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.5 -apple-system,
+          "SF Pro Text",
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+      }
+      .mono {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      }
+      h4 {
+        margin: 0 0 10px;
+        font-size: 13px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .symlink {
+        text-decoration: underline dotted;
+        text-underline-offset: 3px;
+        cursor: pointer;
+      }
 
-body { padding: 0; }
-.shell { display: grid; grid-template-columns: 400px 1fr 300px; height: 740px; }
-.pane { border-right: 1px solid var(--border); overflow: hidden; display: flex; flex-direction: column; }
-.ph { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; background: var(--panel); }
-.badge { font-size: 10px; font-weight: 700; border-radius: 5px; padding: 1px 7px; background: var(--added-soft); color: var(--added); }
-.gwrap { position: relative; flex: 1; }
-.mn { position: absolute; width: 150px; background: var(--panel); border: 1.5px solid var(--border); border-radius: 8px; padding: 6px 9px; font-size: 10px; }
-.mn .o { color: var(--accent); font-weight: 700; margin-left: 5px; }
-.mn .t { color: var(--added); font-weight: 700; float: right; }
-.mn.added { border-color: var(--added); } .mn.modified { border-color: var(--modified); }
-.mn.next { border-color: var(--accent); border-width: 2.5px; box-shadow: 0 0 0 3px var(--accent-soft); }
-.mn.done { opacity: .5; }
-.mn.ghost { border-style: dashed; border-color: var(--muted); background: transparent; }
-.glines { position: absolute; inset: 0; }
-.diff { flex: 1; overflow: hidden; font: 12px/1.7 ui-monospace, Menlo, monospace; }
-.dl { padding: 0 14px; white-space: pre; }
-.dl.add { background: var(--added-soft); }
-.dl .ln { display: inline-block; width: 30px; color: var(--muted); }
-.tray-rows { flex: 1; }
-.tr { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 11px; }
-.tr .p { flex: 1; }
-.tr.done { color: var(--reviewed); }
-.tr.next { background: var(--accent-soft); font-weight: 700; }
-.ok { color: var(--added); font-weight: 700; } .nx { color: var(--accent); font-weight: 700; }
-.ft { padding: 10px 12px; display: flex; gap: 8px; border-top: 1px solid var(--border); }
-.btn { flex: 1; text-align: center; padding: 8px 0; border-radius: 8px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.top { height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 13px; }</style></head>
-<body>
+      body {
+        padding: 0;
+      }
+      .shell {
+        display: grid;
+        grid-template-columns: 400px 1fr 300px;
+        height: 740px;
+      }
+      .pane {
+        border-right: 1px solid var(--border);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .ph {
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
+        font-weight: 600;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: var(--panel);
+      }
+      .badge {
+        font-size: 10px;
+        font-weight: 700;
+        border-radius: 5px;
+        padding: 1px 7px;
+        background: var(--added-soft);
+        color: var(--added);
+      }
+      .gwrap {
+        position: relative;
+        flex: 1;
+      }
+      .mn {
+        position: absolute;
+        width: 150px;
+        background: var(--panel);
+        border: 1.5px solid var(--border);
+        border-radius: 8px;
+        padding: 6px 9px;
+        font-size: 10px;
+      }
+      .mn .o {
+        color: var(--accent);
+        font-weight: 700;
+        margin-left: 5px;
+      }
+      .mn .t {
+        color: var(--added);
+        font-weight: 700;
+        float: right;
+      }
+      .mn.added {
+        border-color: var(--added);
+      }
+      .mn.modified {
+        border-color: var(--modified);
+      }
+      .mn.next {
+        border-color: var(--accent);
+        border-width: 2.5px;
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+      .mn.done {
+        opacity: 0.5;
+      }
+      .mn.ghost {
+        border-style: dashed;
+        border-color: var(--muted);
+        background: transparent;
+      }
+      .glines {
+        position: absolute;
+        inset: 0;
+      }
+      .diff {
+        flex: 1;
+        overflow: hidden;
+        font:
+          12px/1.7 ui-monospace,
+          Menlo,
+          monospace;
+      }
+      .dl {
+        padding: 0 14px;
+        white-space: pre;
+      }
+      .dl.add {
+        background: var(--added-soft);
+      }
+      .dl .ln {
+        display: inline-block;
+        width: 30px;
+        color: var(--muted);
+      }
+      .tray-rows {
+        flex: 1;
+      }
+      .tr {
+        display: flex;
+        gap: 8px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        font-size: 11px;
+      }
+      .tr .p {
+        flex: 1;
+      }
+      .tr.done {
+        color: var(--reviewed);
+      }
+      .tr.next {
+        background: var(--accent-soft);
+        font-weight: 700;
+      }
+      .ok {
+        color: var(--added);
+        font-weight: 700;
+      }
+      .nx {
+        color: var(--accent);
+        font-weight: 700;
+      }
+      .ft {
+        padding: 10px 12px;
+        display: flex;
+        gap: 8px;
+        border-top: 1px solid var(--border);
+      }
+      .btn {
+        flex: 1;
+        text-align: center;
+        padding: 8px 0;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+      }
+      .btn.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .top {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="top">
+      <b>PR #42 — Add login rate limiting</b><span class="badge">DEEP · REPO</span
+      ><span title="Clone folder settings" style="font-size: 13px; cursor: pointer">⚙️</span
+      ><span style="flex: 1"></span
+      ><span class="mono" style="font-size: 11px; color: var(--muted)"
+        >acme/webapp · headSha 3f9c2e1</span
+      >
+    </div>
+    <div class="shell">
+      <div class="pane">
+        <div class="ph">
+          Dependency graph
+          <span class="mono" style="font-size: 10px; color: var(--muted)">A → B = depends on</span>
+        </div>
+        <div class="gwrap">
+          <svg class="glines" width="400" height="640">
+            <defs>
+              <marker
+                id="m"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="6"
+                markerHeight="6"
+                orient="auto"
+              >
+                <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)" />
+              </marker>
+            </defs>
+            <line
+              x1="150"
+              y1="215"
+              x2="110"
+              y2="120"
+              stroke="var(--muted)"
+              stroke-width="1.4"
+              marker-end="url(#m)"
+            />
+            <line
+              x1="215"
+              y1="360"
+              x2="160"
+              y2="245"
+              stroke="var(--muted)"
+              stroke-width="1.4"
+              marker-end="url(#m)"
+            />
+            <line
+              x1="215"
+              y1="380"
+              x2="120"
+              y2="470"
+              stroke="var(--muted)"
+              stroke-width="1.4"
+              marker-end="url(#m)"
+            />
+            <line
+              x1="200"
+              y1="370"
+              x2="115"
+              y2="140"
+              stroke="var(--muted)"
+              stroke-width="1.4"
+              marker-end="url(#m)"
+            />
+            <line
+              x1="235"
+              y1="520"
+              x2="245"
+              y2="415"
+              stroke="var(--muted)"
+              stroke-width="1.4"
+              marker-end="url(#m)"
+            />
+            <line
+              x1="140"
+              y1="595"
+              x2="120"
+              y2="245"
+              stroke="var(--muted)"
+              stroke-width="1.4"
+              marker-end="url(#m)"
+            />
+            <line
+              x1="170"
+              y1="600"
+              x2="145"
+              y2="140"
+              stroke="var(--muted)"
+              stroke-width="1.4"
+              marker-end="url(#m)"
+            />
+          </svg>
 
-<div class="top"><b>PR #42 — Add login rate limiting</b><span class="badge">FAST · AST · 3.2s</span><a href="#" style="color:var(--accent);font-size:12px">Deepen analysis 🔬</a><span style="flex:1"></span><span class="mono" style="font-size:11px;color:var(--muted)">acme/webapp · headSha 3f9c2e1</span></div>
-<div class="shell">
-  <div class="pane">
-    <div class="ph">Dependency graph <span class="mono" style="font-size:10px;color:var(--muted)">A → B = depends on</span></div>
-    <div class="gwrap">
-      <svg class="glines" width="400" height="640">
-        <defs><marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
-        <line x1="150" y1="215" x2="110" y2="120" stroke="var(--muted)" stroke-width="1.4" marker-end="url(#m)"/>
-        <line x1="215" y1="360" x2="160" y2="245" stroke="var(--muted)" stroke-width="1.4" marker-end="url(#m)"/>
-        <line x1="215" y1="380" x2="120" y2="470" stroke="var(--muted)" stroke-width="1.4" marker-end="url(#m)"/>
-        <line x1="200" y1="370" x2="115" y2="140" stroke="var(--muted)" stroke-width="1.4" marker-end="url(#m)"/>
-        <line x1="235" y1="520" x2="245" y2="415" stroke="var(--muted)" stroke-width="1.4" marker-end="url(#m)"/>
-        <line x1="140" y1="595" x2="120" y2="245" stroke="var(--muted)" stroke-width="1.4" marker-end="url(#m)"/>
-        <line x1="170" y1="600" x2="145" y2="140" stroke="var(--muted)" stroke-width="1.4" marker-end="url(#m)"/>
-      </svg>
-      
-<div class="mn added done" style="left:40px;top:80px"><span class="mono">limits.ts</span><span class="o">#1</span><span class="t">✓</span></div>
-      
-<div class="mn modified done" style="left:40px;top:460px"><span class="mono">http.ts</span><span class="o">#2</span><span class="t">✓</span></div>
-      
-<div class="mn added done" style="left:100px;top:205px"><span class="mono">rateLimiter.ts</span><span class="o">#3</span><span class="t">✓</span></div>
-      
-<div class="mn added next" style="left:180px;top:350px"><span class="mono">withRateLimit.ts</span><span class="o">#4</span></div>
-      
-<div class="mn added" style="left:180px;top:510px"><span class="mono">rateLimiter.test.ts</span><span class="o">#5</span></div>
-      
-<div class="mn modified" style="left:100px;top:590px"><span class="mono">login.ts</span><span class="o">#6</span></div>
+          <div class="mn added done" style="left: 40px; top: 80px">
+            <span class="mono">limits.ts</span><span class="o">#1</span><span class="t">✓</span>
+          </div>
+
+          <div class="mn modified done" style="left: 40px; top: 460px">
+            <span class="mono">http.ts</span><span class="o">#2</span><span class="t">✓</span>
+          </div>
+
+          <div class="mn added done" style="left: 100px; top: 205px">
+            <span class="mono">rateLimiter.ts</span><span class="o">#3</span
+            ><span class="t">✓</span>
+          </div>
+
+          <div class="mn added next" style="left: 180px; top: 350px">
+            <span class="mono">withRateLimit.ts</span><span class="o">#4</span>
+          </div>
+
+          <div class="mn added" style="left: 180px; top: 510px">
+            <span class="mono">rateLimiter.test.ts</span><span class="o">#5</span>
+          </div>
+
+          <div class="mn modified" style="left: 100px; top: 590px">
+            <span class="mono">login.ts</span><span class="o">#6</span>
+          </div>
+        </div>
+      </div>
+      <div class="pane">
+        <div class="ph">
+          <span class="mono">src/middleware/withRateLimit.ts</span
+          ><label style="font-weight: 400; font-size: 12px"
+            ><input type="checkbox" /> Mark viewed</label
+          >
+        </div>
+        <div class="diff">
+          <div class="dl add">
+            <span class="ln">1</span>+ <span style="color: var(--syn-keyword)">import</span> {
+            <span class="symlink"
+              ><span style="color: var(--syn-func)">createRateLimiter</span></span
+            >
+            } <span style="color: var(--syn-keyword)">from</span>
+            <span style="color: var(--syn-string)">'../lib/rateLimiter'</span>;
+          </div>
+          <div class="dl add">
+            <span class="ln">2</span>+ <span style="color: var(--syn-keyword)">import</span> {
+            <span class="symlink"
+              ><span style="color: var(--syn-const)">LOGIN_RATE_LIMIT</span></span
+            >
+            } <span style="color: var(--syn-keyword)">from</span>
+            <span style="color: var(--syn-string)">'../config/limits'</span>;
+          </div>
+          <div class="dl add">
+            <span class="ln">3</span>+ <span style="color: var(--syn-keyword)">import type</span> {
+            <span class="symlink"><span style="color: var(--syn-type)">ApiError</span></span> }
+            <span style="color: var(--syn-keyword)">from</span>
+            <span style="color: var(--syn-string)">'../types/http'</span>;
+          </div>
+          <div class="dl add"><span class="ln">4</span>+</div>
+          <div class="dl add">
+            <span class="ln">5</span>+ <span style="color: var(--syn-keyword)">const</span> limiter
+            =
+            <span class="symlink"
+              ><span style="color: var(--syn-func)">createRateLimiter</span></span
+            >(<span class="symlink"
+              ><span style="color: var(--syn-const)">LOGIN_RATE_LIMIT</span></span
+            >);
+          </div>
+          <div class="dl add"><span class="ln">6</span>+</div>
+          <div class="dl add">
+            <span class="ln">7</span>+
+            <span style="color: var(--syn-keyword)">export function</span>
+            <span style="color: var(--syn-func)">withRateLimit</span>(handler:
+            <span style="color: var(--syn-type)">Handler</span>):
+            <span style="color: var(--syn-type)">Handler</span> {
+          </div>
+          <div class="dl add">
+            <span class="ln">8</span>+ <span style="color: var(--syn-keyword)">return</span>
+            <span style="color: var(--syn-keyword)">async</span> (req, res) => {
+          </div>
+          <div class="dl add">
+            <span class="ln">9</span>+
+            <span style="color: var(--syn-keyword)">if</span> (!limiter.<span class="symlink"
+              ><span style="color: var(--syn-func)">checkLimit</span></span
+            >(req.ip)) {
+          </div>
+          <div class="dl add">
+            <span class="ln">10</span>+ <span style="color: var(--syn-keyword)">const</span> err:
+            <span class="symlink"><span style="color: var(--syn-type)">ApiError</span></span> = {
+            code: <span style="color: var(--syn-string)">'RATE_LIMITED'</span>,
+          </div>
+          <div class="dl add">
+            <span class="ln">11</span>+ message:
+            <span style="color: var(--syn-string)">'Too many attempts'</span>, retryAfterSeconds:
+            <span style="color: var(--syn-const)">60</span> };
+          </div>
+          <div class="dl add">
+            <span class="ln">12</span>+
+            <span style="color: var(--syn-keyword)">return</span> res.status(<span
+              style="color: var(--syn-const)"
+              >429</span
+            >).json(err);
+          </div>
+          <div class="dl add"><span class="ln">13</span>+ }</div>
+          <div class="dl add">
+            <span class="ln">14</span>+
+            <span style="color: var(--syn-keyword)">return</span> handler(req, res);
+          </div>
+          <div class="dl add"><span class="ln">15</span>+ };</div>
+          <div class="dl add"><span class="ln">16</span>+ }</div>
+        </div>
+      </div>
+      <div class="pane" style="border-right: 0">
+        <div class="ph">Review — <span class="mono">3/6</span></div>
+        <div class="tray-rows">
+          <div class="tr done"><span class="p mono">limits.ts</span><span class="ok">✓</span></div>
+          <div class="tr done"><span class="p mono">http.ts</span><span class="ok">✓</span></div>
+          <div class="tr done">
+            <span class="p mono">rateLimiter.ts</span><span class="ok">✓</span>
+          </div>
+          <div class="tr next">
+            <span class="p mono">withRateLimit.ts</span><span class="nx">👉 next</span>
+          </div>
+          <div class="tr">
+            <span class="p mono">rateLimiter.test.ts</span
+            ><span class="mono" style="color: var(--muted)">1.00</span>
+          </div>
+          <div class="tr">
+            <span class="p mono">login.ts</span
+            ><span class="mono" style="color: var(--muted)">0.00</span>
+          </div>
+        </div>
+        <div class="ft">
+          <button class="btn" disabled>Submit</button><button class="btn primary">Open next</button>
+        </div>
+      </div>
     </div>
-  </div>
-  <div class="pane">
-    <div class="ph"><span class="mono">src/middleware/withRateLimit.ts</span><label style="font-weight:400;font-size:12px"><input type="checkbox"> Mark viewed</label></div>
-    <div class="diff">
-<div class="dl add"><span class="ln">1</span>+ <span style="color:var(--syn-keyword)">import</span> { <span class="symlink"><span style="color:var(--syn-func)">createRateLimiter</span></span> } <span style="color:var(--syn-keyword)">from</span> <span style="color:var(--syn-string)">'../lib/rateLimiter'</span>;</div>
-<div class="dl add"><span class="ln">2</span>+ <span style="color:var(--syn-keyword)">import</span> { <span class="symlink"><span style="color:var(--syn-const)">LOGIN_RATE_LIMIT</span></span> } <span style="color:var(--syn-keyword)">from</span> <span style="color:var(--syn-string)">'../config/limits'</span>;</div>
-<div class="dl add"><span class="ln">3</span>+ <span style="color:var(--syn-keyword)">import type</span> { <span class="symlink"><span style="color:var(--syn-type)">ApiError</span></span> } <span style="color:var(--syn-keyword)">from</span> <span style="color:var(--syn-string)">'../types/http'</span>;</div>
-<div class="dl add"><span class="ln">4</span>+</div>
-<div class="dl add"><span class="ln">5</span>+ <span style="color:var(--syn-keyword)">const</span> limiter = <span class="symlink"><span style="color:var(--syn-func)">createRateLimiter</span></span>(<span class="symlink"><span style="color:var(--syn-const)">LOGIN_RATE_LIMIT</span></span>);</div>
-<div class="dl add"><span class="ln">6</span>+</div>
-<div class="dl add"><span class="ln">7</span>+ <span style="color:var(--syn-keyword)">export function</span> <span style="color:var(--syn-func)">withRateLimit</span>(handler: <span style="color:var(--syn-type)">Handler</span>): <span style="color:var(--syn-type)">Handler</span> {</div>
-<div class="dl add"><span class="ln">8</span>+   <span style="color:var(--syn-keyword)">return</span> <span style="color:var(--syn-keyword)">async</span> (req, res) => {</div>
-<div class="dl add"><span class="ln">9</span>+     <span style="color:var(--syn-keyword)">if</span> (!limiter.<span class="symlink"><span style="color:var(--syn-func)">checkLimit</span></span>(req.ip)) {</div>
-<div class="dl add"><span class="ln">10</span>+       <span style="color:var(--syn-keyword)">const</span> err: <span class="symlink"><span style="color:var(--syn-type)">ApiError</span></span> = { code: <span style="color:var(--syn-string)">'RATE_LIMITED'</span>,</div>
-<div class="dl add"><span class="ln">11</span>+         message: <span style="color:var(--syn-string)">'Too many attempts'</span>, retryAfterSeconds: <span style="color:var(--syn-const)">60</span> };</div>
-<div class="dl add"><span class="ln">12</span>+       <span style="color:var(--syn-keyword)">return</span> res.status(<span style="color:var(--syn-const)">429</span>).json(err);</div>
-<div class="dl add"><span class="ln">13</span>+     }</div>
-<div class="dl add"><span class="ln">14</span>+     <span style="color:var(--syn-keyword)">return</span> handler(req, res);</div>
-<div class="dl add"><span class="ln">15</span>+   };</div>
-<div class="dl add"><span class="ln">16</span>+ }</div>
-    </div>
-  </div>
-  <div class="pane" style="border-right:0">
-    <div class="ph">Review — <span class="mono">3/6</span></div>
-    <div class="tray-rows">
-      <div class="tr done"><span class="p mono">limits.ts</span><span class="ok">✓</span></div>
-      <div class="tr done"><span class="p mono">http.ts</span><span class="ok">✓</span></div>
-      <div class="tr done"><span class="p mono">rateLimiter.ts</span><span class="ok">✓</span></div>
-      <div class="tr next"><span class="p mono">withRateLimit.ts</span><span class="nx">👉 next</span></div>
-      <div class="tr"><span class="p mono">rateLimiter.test.ts</span><span class="mono" style="color:var(--muted)">1.00</span></div>
-      <div class="tr"><span class="p mono">login.ts</span><span class="mono" style="color:var(--muted)">0.00</span></div>
-    </div>
-    <div class="ft"><button class="btn" disabled>Submit</button><button class="btn primary">Open next</button></div>
-  </div>
-</div>
-</body></html>
+  </body>
+</html>

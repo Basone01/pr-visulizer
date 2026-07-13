@@ -1,0 +1,1005 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tauri Desktop Mode — Architecture</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #1c2430;
+        --muted: #66707d;
+        --border: #dde2e8;
+        --accent: #2563eb;
+        --accent-soft: #dbeafe;
+        --green: #16a34a;
+        --green-soft: #dcfce7;
+        --amber: #d97706;
+        --amber-soft: #fef3c7;
+        --code-bg: #eef1f5;
+        --danger: #dc2626;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #12161c;
+          --panel: #1a2029;
+          --text: #e5eaf0;
+          --muted: #8b96a5;
+          --border: #2a323d;
+          --accent: #60a5fa;
+          --accent-soft: #1e3a5f;
+          --green: #4ade80;
+          --green-soft: #14351f;
+          --amber: #fbbf24;
+          --amber-soft: #3a2e0e;
+          --code-bg: #232b36;
+          --danger: #f87171;
+        }
+      }
+      :root[data-theme="light"] {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #1c2430;
+        --muted: #66707d;
+        --border: #dde2e8;
+        --accent: #2563eb;
+        --accent-soft: #dbeafe;
+        --green: #16a34a;
+        --green-soft: #dcfce7;
+        --amber: #d97706;
+        --amber-soft: #fef3c7;
+        --code-bg: #eef1f5;
+        --danger: #dc2626;
+      }
+      :root[data-theme="dark"] {
+        --bg: #12161c;
+        --panel: #1a2029;
+        --text: #e5eaf0;
+        --muted: #8b96a5;
+        --border: #2a323d;
+        --accent: #60a5fa;
+        --accent-soft: #1e3a5f;
+        --green: #4ade80;
+        --green-soft: #14351f;
+        --amber: #fbbf24;
+        --amber-soft: #3a2e0e;
+        --code-bg: #232b36;
+        --danger: #f87171;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          15px/1.55 -apple-system,
+          "SF Pro Text",
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+      }
+      main {
+        max-width: 1150px;
+        margin: 0 auto;
+        padding: 28px 20px 80px;
+      }
+      h1 {
+        font-size: 25px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 19px;
+        margin: 40px 0 12px;
+      }
+      .sub {
+        color: var(--muted);
+        margin: 0 0 6px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 18px;
+      }
+      code,
+      .mono {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 13px;
+      }
+      code {
+        background: var(--code-bg);
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+      .theme-btn {
+        float: right;
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px 12px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+
+      /* trees */
+      .trees {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      @media (max-width: 800px) {
+        .trees {
+          grid-template-columns: 1fr;
+        }
+      }
+      .tree {
+        font:
+          12px/1.75 ui-monospace,
+          Menlo,
+          monospace;
+        white-space: pre;
+        overflow-x: auto;
+      }
+      .tree .new {
+        color: var(--green);
+        font-weight: 700;
+      }
+      .tree .move {
+        color: var(--amber);
+      }
+      .tree .dim {
+        color: var(--muted);
+      }
+      .tree-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 6px;
+      }
+
+      /* flow stage */
+      .flow-wrap {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+        gap: 16px;
+      }
+      @media (max-width: 900px) {
+        .flow-wrap {
+          grid-template-columns: 1fr;
+        }
+      }
+      svg {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      .box rect {
+        fill: var(--panel);
+        stroke: var(--border);
+        stroke-width: 1.5;
+      }
+      .box text {
+        fill: var(--text);
+        font:
+          600 12px -apple-system,
+          sans-serif;
+      }
+      .box .small {
+        fill: var(--muted);
+        font:
+          10px ui-monospace,
+          Menlo,
+          monospace;
+      }
+      .box.on rect {
+        stroke: var(--accent);
+        stroke-width: 2.5;
+      }
+      .box.done rect {
+        stroke: var(--green);
+      }
+      .wire {
+        stroke: var(--border);
+        stroke-width: 1.6;
+        fill: none;
+        marker-end: url(#arr);
+        opacity: 0.55;
+      }
+      .wire.on {
+        stroke: var(--accent);
+        stroke-width: 2.4;
+        opacity: 1;
+      }
+      .terminal {
+        background: #0d1117;
+        color: #e6edf3;
+        border-radius: 10px;
+        padding: 12px 14px;
+        font:
+          12px/1.7 ui-monospace,
+          Menlo,
+          monospace;
+        min-height: 74px;
+      }
+      .terminal .p {
+        color: #7ee787;
+      }
+      .terminal .dim2 {
+        color: #8b949e;
+      }
+
+      /* step list — signature rule: full list always visible */
+      .steps {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .steps li {
+        padding: 8px 12px;
+        border-left: 3px solid var(--border);
+        margin-bottom: 4px;
+        color: var(--muted);
+        font-size: 13px;
+        border-radius: 0 8px 8px 0;
+      }
+      .steps li.cur {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+        color: var(--text);
+        font-weight: 600;
+      }
+      .steps li.done {
+        border-color: var(--green);
+        color: var(--text);
+      }
+      .steps li.done::after {
+        content: " ✓";
+        color: var(--green);
+        font-weight: 700;
+      }
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      .controls button {
+        background: var(--accent);
+        color: #fff;
+        border: 0;
+        border-radius: 8px;
+        padding: 8px 18px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .controls button:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+      .controls button.secondary {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+      }
+      .narr {
+        margin-top: 12px;
+        border-left: 3px solid var(--accent);
+        padding: 8px 12px;
+        background: var(--accent-soft);
+        border-radius: 0 8px 8px 0;
+        font-size: 14px;
+      }
+
+      /* seams + mode toggle */
+      .mode-toggle {
+        display: inline-flex;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 14px;
+      }
+      .mode-toggle button {
+        border: 0;
+        background: var(--panel);
+        color: var(--text);
+        padding: 8px 18px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .mode-toggle button.on {
+        background: var(--accent);
+        color: #fff;
+        font-weight: 600;
+      }
+      .seam-diagram {
+        font:
+          12px/1.9 ui-monospace,
+          Menlo,
+          monospace;
+        white-space: pre;
+        overflow-x: auto;
+      }
+      .seam-diagram .hot {
+        color: var(--accent);
+        font-weight: 700;
+      }
+      .seam-diagram .cold {
+        color: var(--muted);
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 12px;
+      }
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px;
+        background: var(--panel);
+      }
+      .card h4 {
+        margin: 0 0 6px;
+        font-size: 14px;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 13px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 7px 9px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      th {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      ol.mig {
+        padding-left: 20px;
+      }
+      ol.mig li {
+        margin-bottom: 10px;
+      }
+
+      /* home-screen mock */
+      .home-mock {
+        max-width: 460px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel);
+        padding: 14px 16px;
+        font-size: 13px;
+      }
+      .hm-title {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--muted);
+        letter-spacing: 0.05em;
+        margin-bottom: 10px;
+      }
+      .hm-row {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      .hm-input {
+        flex: 1;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 7px 10px;
+        color: var(--muted);
+        background: var(--code-bg);
+      }
+      .hm-go {
+        border: 0;
+        border-radius: 8px;
+        background: var(--accent);
+        color: #fff;
+        padding: 7px 16px;
+        font-weight: 600;
+      }
+      .hm-section {
+        font-weight: 700;
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .hm-add,
+      .hm-refresh {
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        border-radius: 6px;
+        padding: 1px 8px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .hm-repo {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 8px 0 4px;
+      }
+      .hm-pr {
+        display: flex;
+        gap: 8px;
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin-bottom: 4px;
+        cursor: pointer;
+      }
+      .hm-pr.suggest {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+      .hm-meta {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .verify {
+        color: var(--green);
+        font-size: 13px;
+      }
+      .note {
+        color: var(--muted);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <button class="theme-btn" id="themeBtn">◐ theme</button>
+      <h1>Tauri Desktop Mode — Architecture</h1>
+      <p class="sub">
+        <code>pr-visualizer &lt;github-pr-url&gt;</code> as a desktop app: no server process, no
+        OAuth — auth borrowed from the <code>gh</code> CLI. Companion to
+        <code>docs/tauri-architecture.md</code>.
+      </p>
+
+      <h2>1 · Before / after — what moves, what appears</h2>
+      <div class="panel trees">
+        <div>
+          <div class="tree-title">Before</div>
+          <div class="tree">
+            packages/shared contract + ranking apps/server routes, auth, progress store
+            <span class="move">githubGateway/ ← moves</span>
+            <span class="move">analysis/ ← moves</span>
+            <span class="move">utils (diff/path/lang) ← move</span>
+            apps/web SPA · PrClient seam (http | fixture)
+          </div>
+        </div>
+        <div>
+          <div class="tree-title">After</div>
+          <div class="tree">
+            packages/shared <span class="dim">(unchanged)</span>
+            <span class="new">packages/engine ← NEW (extracted, not rewritten)</span>
+            FastAstEngine · treeSitter(+GrammarSource seam) gateway iface + octokit + fake · utils ·
+            cache apps/server <span class="dim">thin BFF shell — consumes engine</span> apps/web SPA
+            · PrClient (http | fixture | <span class="new">tauri</span>)
+            <span class="new">apps/desktop ← NEW · Tauri 2 shell (Rust ≈ 0 custom)</span>
+          </div>
+        </div>
+      </div>
+      <p class="note">
+        Dependency direction stays clean:
+        <span class="mono">desktop → web → engine → shared</span> and
+        <span class="mono">server → engine → shared</span>. The BFF survives for the hosted-web
+        deployment and keeps its 9 integration tests guarding the engine.
+      </p>
+
+      <h2>2 · Three entry paths, one review screen</h2>
+      <p class="note">
+        <b>It's a normal installed app first.</b> <span class="mono">tauri build</span> ships a
+        standard <span class="mono">.app</span>/installer — double-click from the Dock and you land
+        on the home screen; no terminal required. The CLI is an optional shim over the same binary.
+      </p>
+      <div class="panel">
+        <div class="cards" style="margin-bottom: 14px">
+          <div class="card">
+            <h4>A — CLI arg <span class="note">(optional)</span></h4>
+            <p>
+              <span class="mono">pr-visualizer &lt;pr-url&gt;</span> → straight to the review screen
+              (deep link). Accepted forms: full URL, <span class="mono">owner/repo#42</span>,
+              <span class="mono">owner/repo/42</span>. The shim execs the same installed binary;
+              Single Instance focuses an open window.
+            </p>
+          </div>
+          <div class="card">
+            <h4>B — paste a URL</h4>
+            <p>
+              Open the app plain → home screen with a parse-as-you-type input; a valid target
+              enables <b>Go</b>, invalid shows the accepted forms inline.
+            </p>
+          </div>
+          <div class="card">
+            <h4>C — watched repos</h4>
+            <p>
+              Add <span class="mono">owner/repo</span> once (persisted in the <b>Store</b> plugin) →
+              home screen lists that repo's <b>open PRs</b> (via
+              <span class="mono">listOpenPullRequests</span>, one Octokit call). Click a PR →
+              review.
+            </p>
+          </div>
+        </div>
+        <div class="home-mock">
+          <div class="hm-title">HOME — PR Review Visualizer</div>
+          <div class="hm-row">
+            <span class="hm-input mono">https://github.com/acme/web/pull/…</span
+            ><button class="hm-go">Go</button>
+          </div>
+          <div class="hm-section">
+            Watched repos <button class="hm-add">+ add</button> <span class="hm-refresh">↻</span>
+          </div>
+          <div class="hm-repo"><b class="mono">acme/web</b> · 3 open</div>
+          <div class="hm-pr suggest">
+            <span class="mono">#42</span> Add login rate limiting
+            <span class="hm-meta">bas · 2h ago →</span>
+          </div>
+          <div class="hm-pr">
+            <span class="mono">#40</span> Fix session refresh
+            <span class="hm-meta">mint · 1d ago →</span>
+          </div>
+          <div class="hm-pr">
+            <span class="mono">#39</span> Bump deps <span class="hm-meta">bot · 3d ago →</span>
+          </div>
+          <div class="hm-repo"><b class="mono">acme/mobile</b> · 1 open</div>
+          <div class="hm-pr">
+            <span class="mono">#7</span> Onboarding flow <span class="hm-meta">bas · 5h ago →</span>
+          </div>
+        </div>
+        <p class="note" style="margin-bottom: 0">
+          The home screen is <b>shared UI</b> — browser mode gets it too, backed by a new BFF route.
+          Fetch-on-open + manual refresh; no background polling (a future tray mode can build on the
+          same list). Contract additions: <span class="mono">PrSummary</span> in shared,
+          <span class="mono">listOpenPullRequests</span> on gateway + PrClient.
+        </p>
+      </div>
+
+      <h2>
+        3 · Startup flow — <span class="mono">pr-visualizer &lt;url&gt;</span> to rendered graph
+      </h2>
+      <div class="panel">
+        <div class="flow-wrap">
+          <div>
+            <div class="terminal" id="term"></div>
+            <svg viewBox="0 0 640 300" style="margin-top: 12px">
+              <defs>
+                <marker
+                  id="arr"
+                  viewBox="0 0 10 10"
+                  refX="9"
+                  refY="5"
+                  markerWidth="7"
+                  markerHeight="7"
+                  orient="auto"
+                >
+                  <path d="M0,0 L10,5 L0,10 z" fill="currentColor" />
+                </marker>
+              </defs>
+              <g id="wires"></g>
+              <g id="boxes"></g>
+            </svg>
+            <div class="narr" id="narr"></div>
+            <div class="controls">
+              <button class="secondary" id="prevBtn">‹ Prev</button>
+              <button id="nextBtn">Next ›</button>
+              <span class="note" id="stepLabel"></span>
+            </div>
+          </div>
+          <div>
+            <ul class="steps" id="stepList"></ul>
+          </div>
+        </div>
+      </div>
+
+      <h2>4 · The three seams — Tauri adds implementations, never seams</h2>
+      <div class="panel">
+        <div class="mode-toggle" id="modeToggle">
+          <button data-mode="browser">Browser mode (today)</button>
+          <button data-mode="tauri" class="on">Tauri mode</button>
+        </div>
+        <div class="seam-diagram" id="seamDiagram"></div>
+      </div>
+      <div class="cards" style="margin-top: 12px">
+        <div class="card">
+          <h4>Seam 1 — PrClient <span class="note">(exists)</span></h4>
+          <p>
+            <span class="mono">apps/web/src/service/prClient.ts</span> — six methods the whole SPA
+            depends on. Tauri mode is a <b>third implementation</b> picked in
+            <span class="mono">clientFactory.ts</span>; zero component changes.
+          </p>
+        </div>
+        <div class="card">
+          <h4>Seam 2 — GithubGateway <span class="note">(exists)</span></h4>
+          <p>
+            Octokit runs in webviews; only CORS blocks it. Tauri's official
+            <b>HTTP Client plugin</b> is a Rust-side client (no CORS), and Octokit accepts an
+            injected <span class="mono">fetch</span> — same gateway, different fetch.
+          </p>
+        </div>
+        <div class="card">
+          <h4>Seam 3 — GrammarSource <span class="note">(the ONE refactor)</span></h4>
+          <p>
+            <span class="mono">treeSitter.ts</span> resolves grammar wasm via
+            <span class="mono">createRequire</span> — node-only. Extract a
+            <span class="mono">(grammarId) ⇒ Promise&lt;Uint8Array&gt;</span> setting: node reads
+            from <span class="mono">tree-sitter-wasms</span>, the webview fetches bundled Vite
+            assets. Everything else in the file moves untouched.
+          </p>
+        </div>
+      </div>
+
+      <h2>5 · TauriPrClient — method by method</h2>
+      <div class="panel" style="overflow-x: auto">
+        <table>
+          <tr>
+            <th>PrClient method</th>
+            <th>In-webview implementation</th>
+          </tr>
+          <tr>
+            <td class="mono">getAnalysis</td>
+            <td>
+              run
+              <span class="mono">createFastAstEngine({ gateway }).analyze(target)</span> directly —
+              no 202 polling; the promise is the progress signal
+            </td>
+          </tr>
+          <tr>
+            <td class="mono">getPatch</td>
+            <td>from the gateway's PR file list (already fetched, cached per headSha)</td>
+          </tr>
+          <tr>
+            <td class="mono">get/putProgress</td>
+            <td>
+              Tauri <b>Store</b> plugin JSON, key <span class="mono">owner/repo#n@headSha</span>,
+              re-parsed through shared <span class="mono">reviewProgressSchema</span> on read
+            </td>
+          </tr>
+          <tr>
+            <td class="mono">submitReview</td>
+            <td>
+              gateway → <span class="mono">POST /pulls/:n/reviews</span> — same Octokit call the BFF
+              makes
+            </td>
+          </tr>
+          <tr>
+            <td class="mono">deepen(target, onProgress)</td>
+            <td>
+              deep v1, desktop-local (§6 main doc): resolve the clone-root setting (reject
+              <span class="mono">NeedsCloneRootError</span> when unset → the UI opens the folder
+              picker), clone/fetch the PR head through the clone manager, build
+              <span class="mono">RepoFiles</span> from the checkout, run
+              <span class="mono">createDeepEngine({ gateway, repoFiles, grammarSource })</span>, and
+              cache it so <span class="mono">getAnalysis(target, "deep")</span> returns it.
+              <span class="mono">onProgress</span> reports cloning / fetching / checking out /
+              analyzing
+            </td>
+          </tr>
+          <tr>
+            <td class="mono">listOpenPullRequests</td>
+            <td>
+              gateway → <span class="mono">GET /repos/:o/:r/pulls?state=open</span> — feeds the home
+              screen's watched-repos picker (browser mode: new BFF route)
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <h3>Deep mode (v1) — desktop-local clone</h3>
+      <p>
+        Deep v1 (§6 main doc) is wired into the desktop app: a full clone + repo-wide tree-sitter
+        index, run on the user's own disk. No server worker, no SCIP — that stays the §6.2 precision
+        tier behind the same <span class="mono">AnalysisEngine</span> interface.
+      </p>
+      <ul>
+        <li>
+          <b>Clone-root setting.</b> The user picks ONE folder (native picker,
+          <span class="mono">@tauri-apps/plugin-dialog</span>), persisted in app storage under
+          <span class="mono">cloneRoot</span> and reused across every PR. The first Deepen press
+          with no folder set rejects <span class="mono">NeedsCloneRootError</span> → a modal
+          explains deep mode + "Choose folder…"; a gear reopens it to show/change the folder.
+        </li>
+        <li>
+          <b>Clone layout</b> —
+          <span class="mono">&lt;cloneRoot&gt;/&lt;owner&gt;/&lt;repo&gt;</span>, one worktree per
+          repo. <b>Fresh:</b>
+          <span class="mono">gh repo clone &lt;owner&gt;/&lt;repo&gt; &lt;dir&gt;</span> (gh carries
+          private-repo auth) then fetch + checkout the PR head. <b>Reuse:</b>
+          <span class="mono">git -C &lt;dir&gt; fetch origin pull/&lt;n&gt;/head</span> then
+          <span class="mono">git -C &lt;dir&gt; checkout --force --detach FETCH_HEAD</span>. Dir
+          exists but not a git repo → error; dirty worktree → <span class="mono">--force</span> (our
+          cache dir); fetch/auth/network failures surface stderr on the top bar.
+        </li>
+        <li>
+          <b>RepoFiles</b> — listing via
+          <span class="mono">git -C &lt;dir&gt; ls-files</span> (respects
+          <span class="mono">.gitignore</span>); reads via
+          <span class="mono">@tauri-apps/plugin-fs</span>
+          <span class="mono">readTextFile</span>.
+        </li>
+        <li>
+          <b>Folder-picker ↔ fs-scope (verified, Tauri 2 docs, 2026-07).</b> A directory chosen
+          through the Dialog <span class="mono">open()</span> picker is automatically added to the
+          fs runtime scope, so <span class="mono">readTextFile</span> under it works in the same
+          session. That grant is not persisted alone —
+          <span class="mono">tauri-plugin-persisted-scope</span> (registered <b>after</b> fs) saves
+          it to disk so a cloneRoot survives restarts. Fallback if it proves unreliable:
+          <span class="mono">git -C &lt;dir&gt; show HEAD:&lt;path&gt;</span>
+          (correct but one process per file).
+        </li>
+        <li>
+          <b>Capability scopes added</b> (minimal): <span class="mono">dialog:allow-open</span>,
+          <span class="mono">fs:allow-read-text-file</span>,
+          <span class="mono">fs:allow-exists</span>, and
+          <span class="mono">shell:allow-execute</span> entries with anchored per-arg validators —
+          <span class="mono">gh-repo-clone</span>, <span class="mono">git-fetch-pull</span>,
+          <span class="mono">git-checkout-detach</span>, <span class="mono">git-ls-files</span>.
+        </li>
+      </ul>
+
+      <h2>6 · Security posture</h2>
+      <div class="cards">
+        <div class="card">
+          <h4>Token</h4>
+          <p>
+            Webview memory only — never in the Store file, a URL, or a log. Comes from
+            <span class="mono">gh auth token</span>; gh owns storage + refresh.
+          </p>
+        </div>
+        <div class="card">
+          <h4>Plugin scopes</h4>
+          <p>
+            Shell pinned to exactly <span class="mono">gh auth token</span>; HTTP allowlist
+            <span class="mono">api.github.com</span> only. A compromised webview can't run arbitrary
+            commands or exfiltrate elsewhere.
+          </p>
+        </div>
+        <div class="card">
+          <h4>Error UX</h4>
+          <p>
+            <span class="mono">gh</span> missing → install hint · not authed →
+            <span class="mono">gh auth login</span> hint · bad URL → usage help · no repo access →
+            GitHub's 403/404 with repo name.
+          </p>
+        </div>
+      </div>
+
+      <h2>7 · Migration plan — each slice independently verified</h2>
+      <div class="panel">
+        <ol class="mig">
+          <li>
+            <b>Extract <span class="mono">packages/engine</span></b> + GrammarSource seam; BFF
+            consumes it.<br /><span class="verify"
+              >Verify: all 49 existing tests green with import-only changes.</span
+            >
+          </li>
+          <li>
+            <b>Webview grammar loading</b> — bundle grammar + core wasm as Vite assets, fetch-based
+            loader.<br /><span class="verify"
+              >Verify: browser-mode test parses PR #42 fixture to the same symbol set as the node
+              loader.</span
+            >
+          </li>
+          <li>
+            <b>TauriPrClient</b> behind <span class="mono">env.tauriMode</span>.<br /><span
+              class="verify"
+              >Verify: engine-in-page reproduces the §8.1 ranking with the fixture gateway.</span
+            >
+          </li>
+          <li>
+            <b>Home screen</b> — <span class="mono">{home | review}</span> app state, URL input with
+            inline parse hints, watched-repos list (<span class="mono">PrSummary</span> +
+            <span class="mono">listOpenPullRequests</span> through gateway/PrClient/BFF).<br /><span
+              class="verify"
+              >Verify: fixture gateway lists PR #42 under acme/web; clicking lands on review.</span
+            >
+          </li>
+          <li>
+            <b><span class="mono">apps/desktop</span> Tauri shell</b> — five plugins, gh-token
+            startup, CLI arg → deep link, error screens.<br /><span class="verify"
+              >Verify: real PR renders end-to-end; plain open lands on home.</span
+            >
+          </li>
+          <li>
+            <b>CLI polish</b> — Single Instance forwarding,
+            <span class="mono">pr-visualizer</span> on PATH, packaging.<br /><span class="verify"
+              >Verify: two invocations reuse one window.</span
+            >
+          </li>
+        </ol>
+        <p class="note">
+          Slices 1–4 are pure TypeScript — value lands (engine-in-browser + PR picker) before Rust
+          is even installed.
+        </p>
+      </div>
+    </main>
+
+    <script>
+      // ── startup-flow stage ──────────────────────────────────────
+      const BOXES = [
+        { id: "term", x: 10, y: 20, w: 130, h: 54, label: "Terminal", sub: "pr-visualizer <url>" },
+        {
+          id: "shell",
+          x: 10,
+          y: 120,
+          w: 130,
+          h: 64,
+          label: "Tauri shell",
+          sub: "CLI · SingleInstance",
+        },
+        { id: "gh", x: 10, y: 226, w: 130, h: 54, label: "gh CLI", sub: "auth token" },
+        {
+          id: "web",
+          x: 230,
+          y: 100,
+          w: 190,
+          h: 110,
+          label: "Webview (SPA)",
+          sub: "engine · gateway · store",
+        },
+        { id: "github", x: 500, y: 120, w: 130, h: 64, label: "GitHub API", sub: "REST + GraphQL" },
+      ]
+      const WIRES = [
+        { id: "t-s", from: [75, 74], to: [75, 120] },
+        { id: "s-gh", from: [75, 184], to: [75, 226] },
+        { id: "s-w", from: [140, 152], to: [230, 152] },
+        { id: "w-g", from: [420, 152], to: [500, 152] },
+      ]
+      const STEPS = [
+        {
+          t: "Invoke the command",
+          boxes: ["term"],
+          wires: [],
+          term: '<span class="p">$</span> pr-visualizer https://github.com/acme/web/pull/42',
+          n: "One command, one argument. Also accepts <code>acme/web#42</code> and <code>acme/web/42</code>.",
+        },
+        {
+          t: "Single Instance + CLI parse",
+          boxes: ["shell"],
+          wires: ["t-s"],
+          term: '<span class="dim2">single-instance: no running window → continue\ncli: url → { owner: acme, repo: web, number: 42 }</span>',
+          n: "If a window already exists, the args are forwarded to it and this process exits — the <b>Single Instance</b> plugin. Otherwise the <b>CLI</b> plugin hands over the parsed target. <b>No argument?</b> Same flow, but the webview opens on the home screen (§2) instead of a review target.",
+        },
+        {
+          t: "gh auth token (replaces OAuth)",
+          boxes: ["gh"],
+          wires: ["s-gh"],
+          term: '<span class="p">$</span> gh auth token\n<span class="dim2">gho_••••••••••••••••  (memory only — never persisted)</span>',
+          n: "The <b>Shell</b> plugin runs exactly this one command (scope-pinned). gh already stores and refreshes credentials — the app's entire auth service becomes this one line.",
+        },
+        {
+          t: "Webview loads the SPA",
+          boxes: ["web"],
+          wires: ["s-w"],
+          term: '<span class="dim2">window → /?owner=acme&repo=web&number=42</span>',
+          n: "The SPA already reads its PR target from URL params — the same entry the browser build uses. <code>clientFactory</code> picks <b>TauriPrClient</b>.",
+        },
+        {
+          t: "Engine runs in the page",
+          boxes: ["web", "github"],
+          wires: ["w-g"],
+          term: '<span class="dim2">gateway.fetch (HTTP plugin, no CORS) → files @ headSha\ntree-sitter wasm parse → symbols/edges/occurrences\nrankFiles() → foundations-first order</span>',
+          n: "FastAstEngine — unchanged code from <code>packages/engine</code> — fetches via the <b>HTTP Client</b> plugin (Rust-side, CORS-free), parses with the same wasm grammars, ranks with the same shared core.",
+        },
+        {
+          t: "Graph renders — review starts",
+          boxes: ["web"],
+          wires: [],
+          term: '<span class="dim2">ranking: limits → http → rateLimiter → withRateLimit → test → login\nreview progress ↔ Store plugin (local JSON)</span>',
+          n: "Same UI, same §8.1 order, no server process anywhere. Checkmarks persist to a local Store file; submit posts the real review through the gateway.",
+        },
+      ]
+
+      const boxesG = document.getElementById("boxes")
+      const wiresG = document.getElementById("wires")
+      const NS = "http://www.w3.org/2000/svg"
+      for (const w of WIRES) {
+        const l = document.createElementNS(NS, "line")
+        l.setAttribute("x1", w.from[0])
+        l.setAttribute("y1", w.from[1])
+        l.setAttribute("x2", w.to[0])
+        l.setAttribute("y2", w.to[1])
+        l.setAttribute("class", "wire")
+        l.dataset.id = w.id
+        wiresG.appendChild(l)
+      }
+      for (const b of BOXES) {
+        const g = document.createElementNS(NS, "g")
+        g.setAttribute("class", "box")
+        g.dataset.id = b.id
+        g.innerHTML = `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="9"/>
+    <text x="${b.x + 12}" y="${b.y + 22}">${b.label}</text>
+    <text class="small" x="${b.x + 12}" y="${b.y + 40}">${b.sub}</text>`
+        boxesG.appendChild(g)
+      }
+
+      const stepList = document.getElementById("stepList")
+      STEPS.forEach((s, i) => {
+        const li = document.createElement("li")
+        li.textContent = `${i + 1}. ${s.t}`
+        li.onclick = () => {
+          cur = i
+          render()
+        }
+        li.style.cursor = "pointer"
+        stepList.appendChild(li)
+      })
+
+      let cur = 0
+      function render() {
+        const s = STEPS[cur]
+        document.getElementById("term").innerHTML = s.term
+        document.getElementById("narr").innerHTML = `<b>${s.t}.</b> ${s.n}`
+        document.getElementById("stepLabel").textContent = `step ${cur + 1} / ${STEPS.length}`
+        document.getElementById("prevBtn").disabled = cur === 0
+        document.getElementById("nextBtn").disabled = cur === STEPS.length - 1
+        const doneBoxes = new Set(STEPS.slice(0, cur).flatMap((x) => x.boxes))
+        for (const g of boxesG.children) {
+          const on = s.boxes.includes(g.dataset.id)
+          g.setAttribute("class", "box" + (on ? " on" : doneBoxes.has(g.dataset.id) ? " done" : ""))
+        }
+        for (const l of wiresG.children)
+          l.setAttribute("class", "wire" + (s.wires.includes(l.dataset.id) ? " on" : ""))
+        ;[...stepList.children].forEach(
+          (li, i) => (li.className = i === cur ? "cur" : i < cur ? "done" : "")
+        )
+      }
+      document.getElementById("prevBtn").onclick = () => {
+        cur = Math.max(0, cur - 1)
+        render()
+      }
+      document.getElementById("nextBtn").onclick = () => {
+        cur = Math.min(STEPS.length - 1, cur + 1)
+        render()
+      }
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowRight") document.getElementById("nextBtn").click()
+        if (e.key === "ArrowLeft") document.getElementById("prevBtn").click()
+      })
+
+      // ── seam diagram mode toggle ────────────────────────────────
+      const SEAMS = {
+        browser: `SPA components → PrClient ── <span class="hot">httpPrClient</span> ──▶ <span class="hot">BFF (Fastify)</span> ──▶ engine (node) ──▶ GitHub
+                       └─ <span class="cold">fixturePrClient</span>          <span class="cold">tauriPrClient (unused)</span>
+grammar wasm: <span class="hot">createRequire → tree-sitter-wasms (node fs)</span>
+progress:     <span class="hot">SQLite via BFF</span>          token: <span class="hot">OAuth / PAT on the server</span>`,
+        tauri: `SPA components → PrClient ── <span class="hot">tauriPrClient</span> ──▶ <span class="hot">engine (in-webview wasm)</span> ──▶ GitHub
+                       └─ <span class="cold">httpPrClient (unused)</span>       ▲ fetch = <span class="hot">HTTP plugin (no CORS)</span>
+grammar wasm: <span class="hot">fetch bundled Vite asset (GrammarSource seam)</span>
+progress:     <span class="hot">Store plugin (local JSON)</span>   token: <span class="hot">gh auth token → memory</span>`,
+      }
+      const seamDiagram = document.getElementById("seamDiagram")
+      const modeToggle = document.getElementById("modeToggle")
+      function setMode(mode) {
+        seamDiagram.innerHTML = SEAMS[mode]
+        for (const b of modeToggle.children) b.classList.toggle("on", b.dataset.mode === mode)
+      }
+      for (const b of modeToggle.children) b.onclick = () => setMode(b.dataset.mode)
+      setMode("tauri")
+
+      document.getElementById("themeBtn").onclick = () => {
+        const root = document.documentElement
+        const dark = getComputedStyle(document.body).backgroundColor === "rgb(18, 22, 28)"
+        root.dataset.theme = dark ? "light" : "dark"
+      }
+      render()
+    </script>
+  </body>
+</html>

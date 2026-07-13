@@ -4,6 +4,6 @@ import { defineConfig } from "vitest/config"
 // `vitest.workspace.ts` file is gone). Each project owns its own config.
 export default defineConfig({
   test: {
-    projects: ["packages/shared", "apps/server"],
+    projects: ["packages/shared", "packages/engine", "apps/server"],
   },
 })

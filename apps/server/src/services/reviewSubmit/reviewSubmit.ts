@@ -1,11 +1,5 @@
+import type { GithubGateway, PrTarget, ReviewEvent, SubmitReviewResult } from "@pr-visulizer/engine"
 import type { DraftComment, ReviewProgress } from "@pr-visulizer/shared"
-
-import type {
-  GithubGateway,
-  PrTarget,
-  ReviewEvent,
-  SubmitReviewResult,
-} from "../githubGateway/index.js"
 
 // Review-submit flow (docs/architecture.md §11): map the app-side verdict to a GitHub
 // review event and post ONE real review, and sync the "Viewed" checkboxes on progress
@@ -44,6 +38,9 @@ export function createReviewSubmitService(gateway: GithubGateway): ReviewSubmitS
         line: comment.line,
         side: comment.side,
         body: comment.body,
+        // Carry the range start through to the gateway; the octokit impl turns it into
+        // GitHub's start_line/start_side, and only for a real multi-line range (§11).
+        ...(comment.startLine !== undefined ? { startLine: comment.startLine } : {}),
       })),
     })
   }

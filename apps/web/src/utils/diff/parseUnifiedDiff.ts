@@ -14,6 +14,12 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
   let oldLine = 0
   let newLine = 0
 
+  // Local `git diff` patches carry a file header (`diff --git`, `index`, `--- a/…`,
+  // `+++ b/…`) before the first hunk; GitHub-API patches start at `@@`. The header's
+  // `---`/`+++` lines would otherwise parse as del/add rows (a "-- /dev/null" artifact
+  // at the top of every added file), so nothing counts until the first hunk header.
+  let sawHunk = false
+
   // Drop the final-split artifact of a trailing newline so it can't render as a
   // phantom blank context line.
   const rawLines = patch.split("\n")
@@ -25,9 +31,12 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
     if (header) {
       oldLine = Number(header[1])
       newLine = Number(header[2])
+      sawHunk = true
       lines.push({ kind: "hunk", content: raw, oldLine: null, newLine: null })
       continue
     }
+
+    if (!sawHunk) continue
 
     // "No newline at end of file" markers carry no line — skip them.
     if (raw.startsWith("\\")) continue

@@ -209,6 +209,7 @@ export const pr42Analysis: AnalysisResult = analysisResultSchema.parse({
     repo: "webapp",
     number: 42,
     title: "Add login rate limiting",
+    author: "octocat", // PR opener; the fixture viewer ("reviewer-dev") differs → Approve enabled
     baseSha: "a1b2c3d",
     headSha: "3f9c2e1",
   },

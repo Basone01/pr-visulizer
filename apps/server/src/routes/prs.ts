@@ -1,3 +1,4 @@
+import { prOverviewSchema } from "@pr-visulizer/shared"
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
 
@@ -22,7 +23,10 @@ const fileQuerySchema = z.object({
 })
 
 export function registerPrRoutes(app: FastifyInstance, ctx: AppContext): void {
-  // GET /api/prs/:owner/:repo/:number — PR meta.
+  // GET /api/prs/:owner/:repo/:number — the PR overview: meta + changed-file list, the
+  // instant-open payload the SPA renders the shell from before analysis lands (§9). The
+  // gateway already fetches both; we strip each file's patch (the diff renderer fetches it
+  // per file) and validate against the shared contract before sending.
   app.get("/api/prs/:owner/:repo/:number", async (req, reply) => {
     const user = requireUser(req, reply, ctx)
     if (!user) return reply
@@ -30,8 +34,18 @@ export function registerPrRoutes(app: FastifyInstance, ctx: AppContext): void {
     const params = parse(prParamsSchema, req.params)
     if (!params.ok) return badRequest(reply, params.issues)
 
-    const { pr } = await ctx.gateway.getPullRequest(toTarget(params.value))
-    return reply.send(pr)
+    const { pr, files } = await ctx.gateway.getPullRequest(toTarget(params.value))
+    const overview = prOverviewSchema.parse({
+      pr,
+      files: files.map((file) => ({
+        path: file.path,
+        status: file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+        language: file.language,
+      })),
+    })
+    return reply.send(overview)
   })
 
   // GET .../analysis?engine=fast — 202 {status:'analyzing'} while running, then the

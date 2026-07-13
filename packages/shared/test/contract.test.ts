@@ -21,6 +21,7 @@ describe("AnalysisResult contract (§3)", () => {
         repo: "api",
         number: 42,
         title: "Add login rate limiting",
+        author: "octocat",
         baseSha: "base0000",
         headSha: "head1111",
       },

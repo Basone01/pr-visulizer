@@ -34,7 +34,9 @@ export type ChangedSymbol = z.infer<typeof changedSymbolSchema>
 export const edgeSchema = z.object({
   from: z.string(),
   to: z.string(),
-  kind: z.enum(["imports", "calls", "uses-type"]),
+  // "uses" = a value reference to a const/var (e.g. Go `constant.TempKeyPrefix`), distinct
+  // from "calls" (a function call) and "uses-type" (a type reference).
+  kind: z.enum(["imports", "calls", "uses-type", "uses"]),
   level: z.enum(["file", "symbol"]),
   source: z.enum(["ast", "lsp", "heuristic"]), // which engine/fallback produced it
 })
@@ -72,10 +74,21 @@ export const prMetaSchema = z.object({
   repo: z.string(),
   number: z.number().int().positive(),
   title: z.string(),
+  author: z.string(), // the PR opener's login — GitHub forbids approving your own PR (§11)
   baseSha: z.string(),
   headSha: z.string(), // cache key — new push = new SHA = new analysis
 })
 export type PrMeta = z.infer<typeof prMetaSchema>
+
+// The instant-open payload (docs/architecture.md §9): PR meta + the changed-file list, with
+// NO analysis. It is the cheap gateway read the SPA renders the shell from — the TopBar, the
+// review-tray rows, and the first file's diff — while the (slower) AnalysisResult is still
+// computing. The full result supersedes it once ready.
+export const prOverviewSchema = z.object({
+  pr: prMetaSchema,
+  files: z.array(changedFileSchema),
+})
+export type PrOverview = z.infer<typeof prOverviewSchema>
 
 // The output of the analysis pipeline. Immutable per (headSha, engine).
 export const analysisResultSchema = z.object({

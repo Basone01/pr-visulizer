@@ -16,6 +16,33 @@
   background: var(--panel);
 }
 
+/* Queue-order toggle: a compact segmented control under the header. */
+.modeToggle {
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.modeButton {
+  flex: 1;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.modeOn {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .count {
   font-variant-numeric: tabular-nums;
 }
@@ -47,6 +74,12 @@
 .row.next {
   background: var(--accent-soft);
   font-weight: 600;
+}
+
+/* The file currently open in the diff pane — a left accent bar, distinct from `next`'s
+   background tint, and readable even when the row is also next/reviewed. */
+.row.active {
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .check {
@@ -82,10 +115,27 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Churn (additions + deletions), shown from the overview before analysis lands (task 4). */
+.churn {
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
 .blast {
   font-size: 10px;
   background: var(--modified-soft);
   color: var(--modified);
+  border-radius: 4px;
+  padding: 0 5px;
+  font-weight: 600;
+}
+
+/* Per-file draft-comment count (task 5): same pill shape as the blast badge. */
+.draftBadge {
+  font-size: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
   border-radius: 4px;
   padding: 0 5px;
   font-weight: 600;
@@ -157,4 +207,21 @@
   padding: 0;
   font-size: 11px;
   text-decoration: underline;
+}
+
+.hideButton {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 1px 7px;
+}
+
+.hideButton:hover {
+  color: var(--text);
+  border-color: var(--muted);
 }

@@ -11,13 +11,24 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@pr-visulizer/engine": "workspace:*",
     "@pr-visulizer/shared": "workspace:*",
     "@tanstack/react-query": "^5.101.0",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-cli": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-fs": "^2.5.1",
+    "@tauri-apps/plugin-http": "^2.0.0",
+    "@tauri-apps/plugin-opener": "^2.5.4",
+    "@tauri-apps/plugin-shell": "^2.0.0",
+    "@tauri-apps/plugin-store": "^2.0.0",
     "@xyflow/react": "^12.11.0",
     "elkjs": "^0.11.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "shiki": "^4.3.0",
+    "tree-sitter-wasms": "^0.1.11",
+    "web-tree-sitter": "^0.25.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {

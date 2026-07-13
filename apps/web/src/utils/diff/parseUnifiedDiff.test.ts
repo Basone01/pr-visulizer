@@ -22,6 +22,31 @@ describe("parseUnifiedDiff", () => {
     expect(added[15]!.newLine).toBe(16)
   })
 
+  it("skips the local-git file header so /dev/null never renders as a diff row", () => {
+    // Arrange — a local `git diff` patch for an added file, headers included (the
+    // GitHub API strips these; the desktop's local git does not).
+    const localGitPatch = [
+      "diff --git a/pkg/entity/brandscan.go b/pkg/entity/brandscan.go",
+      "new file mode 100644",
+      "index 0000000..3b2e19a",
+      "--- /dev/null",
+      "+++ b/pkg/entity/brandscan.go",
+      "@@ -0,0 +1,2 @@",
+      "+package entity",
+      "+",
+    ].join("\n")
+
+    // Act
+    const parsed = parseUnifiedDiff(localGitPatch)
+    const contents = parsed.lines.map((line) => line.content)
+
+    // Assert — only the hunk header and the two added lines survive; no header row
+    // (the "-- /dev/null" / "++ b/…" artifacts) leaks into the rendered diff.
+    const expected = ["@@ -0,0 +1,2 @@", "package entity", ""]
+    expect(contents).toEqual(expected)
+    expect(parsed.lines[1]!.newLine).toBe(1)
+  })
+
   it("keeps base and head numbering independent across a modify hunk", () => {
     // Arrange — http.ts: one deletion then two additions inside a context block.
     const patch = pr42Patches["src/types/http.ts"]!
@@ -58,8 +83,12 @@ describe("parseUnifiedDiff", () => {
 
     // Act
     const parsed = parseUnifiedDiff(patchWithBareBlankLine)
-    const blankContext = parsed.lines.filter((line) => line.kind === "context" && line.content === "")
-    const guardedLine = parsed.lines.find((line) => line.content.includes("withRateLimit(() => null)"))
+    const blankContext = parsed.lines.filter(
+      (line) => line.kind === "context" && line.content === ""
+    )
+    const guardedLine = parsed.lines.find((line) =>
+      line.content.includes("withRateLimit(() => null)")
+    )
 
     // Assert — the empty line is context at head line 3, so the usage lands on head
     // line 5 (where the analysis occurrence points); the trailing artifact adds nothing.

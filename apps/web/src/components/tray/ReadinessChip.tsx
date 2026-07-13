@@ -8,7 +8,8 @@ export function ReadinessChip({
   isNext,
   reviewed,
 }: {
-  readiness: number
+  // null = analysis not ready yet (the overview has no ranking) → a "…" placeholder (task 4).
+  readiness: number | null
   isNext: boolean
   reviewed: boolean
 }) {
@@ -24,6 +25,14 @@ export function ReadinessChip({
     return (
       <span className={styles.next} data-testid="readiness-chip">
         👉 next
+      </span>
+    )
+  }
+
+  if (readiness === null) {
+    return (
+      <span className={`${styles.readiness} mono`} data-testid="readiness-chip">
+        …
       </span>
     )
   }

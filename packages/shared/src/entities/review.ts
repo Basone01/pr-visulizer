@@ -5,7 +5,12 @@ import { z } from "zod"
 
 export const draftCommentSchema = z.object({
   path: z.string(),
-  line: z.number().int(), // line in the head version
+  // The LAST line of the comment, in the head version. For a single-line comment it is
+  // the only line; for a multi-line range it is GitHub's `line` (paired with startLine).
+  line: z.number().int(),
+  // Present only for a multi-line range comment — GitHub's `start_line` (§11). Omitted
+  // for a single-line comment, so the range fields are sent only when it is a real range.
+  startLine: z.number().int().optional(),
   side: z.enum(["LEFT", "RIGHT"]),
   body: z.string(),
 })

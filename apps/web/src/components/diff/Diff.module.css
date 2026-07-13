@@ -20,9 +20,50 @@
   gap: 10px;
 }
 
+/* Toolbar buttons cluster into three groups (view+github | review | hide). A left border on
+   each group after the first draws a subtle divider between them. */
+.toolGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolGroup + .toolGroup {
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+/* File name on its own line BELOW the toolbar: the toolbar renders first at a fixed height,
+   so the buttons (esp. "next") keep a stable position no matter how long the path wraps. */
+.titleRow {
+  display: flex;
+  min-width: 0;
+}
+
 .path {
   font-size: 12px;
   font-weight: 600;
+  /* Wrap a long path instead of overflowing (min-width:0 unlocks flex shrink; overflow-wrap
+     breaks unbreakable paths). */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Square icon toggle for the toolbar (wrap / hide-whitespace / mark-viewed). Shares the
+   accent on-state with .toggleOn. */
+.iconToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 13px;
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
 }
 
 .tag {
@@ -64,6 +105,50 @@
   gap: 5px;
 }
 
+/* Diff-view toggle chips (§10): same chip shape as the ↩ back chip; the pressed state
+   picks up the accent border/background used by every other active chip in the app. */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 2px 10px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.toggleOn {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Small icon-only "open next suggested file" button (task 1): sits beside Mark viewed,
+   follows the live suggestion, dims when nothing is left to review. */
+.nextButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 13px;
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.nextButton:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .back {
   align-self: flex-start;
   display: inline-flex;
@@ -76,6 +161,16 @@
   background: var(--panel);
 }
 
+/* Holds the scrolling diff plus the floating find bar; relative so the bar anchors to it and
+   sits ABOVE the rows without covering the header toolbar. */
+.diffRegion {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .diff {
   flex: 1;
   overflow: auto;
@@ -85,6 +180,83 @@
     Menlo,
     monospace;
   padding: 4px 0;
+}
+
+/* Programmatic focus target (Escape returns focus here from the find bar) — no visible ring. */
+.diff:focus {
+  outline: none;
+}
+
+/* Find-in-file bar, floated top-right of the diff region (Cmd/Ctrl+F). */
+.findBar {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.findInput {
+  width: 160px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.findInput:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.findCount {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 34px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.findNav,
+.findClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 13px;
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.findNav:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.findNav:hover:not(:disabled),
+.findClose:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* The current find match: an accent outline that reads over any row background (add/del). */
+.findCurrent {
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .empty {
@@ -99,6 +271,15 @@
 .line {
   display: flex;
   white-space: pre;
+}
+
+/* Wrap mode: continuation lines stay inside the content column, which the flex layout
+   already places to the RIGHT of the fixed line-number gutter — so a wrapped line can
+   never slide under the gutter. `min-width: 0` lets the content flex item shrink enough
+   to wrap; `overflow-wrap: anywhere` breaks tokens with no break opportunity. */
+.diffWrap .content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .lineAdd {
@@ -126,7 +307,7 @@
 
 .gutter {
   flex: 0 0 auto;
-  width: 30px;
+  width: var(--gutter-width, 30px);
   text-align: right;
   padding-right: 8px;
   color: var(--muted);
@@ -135,6 +316,18 @@
 
 .content {
   flex: 1;
+  min-width: 0;
+}
+
+/* Muted dot on a line the hide-whitespace transform collapsed — a quiet signal that a
+   whitespace-only del/add pair was folded away here (§10). */
+.wsOnly {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 9px;
+  align-self: center;
+  user-select: none;
 }
 
 .anchor {
@@ -154,6 +347,125 @@
   color: var(--accent);
   cursor: pointer;
   vertical-align: middle;
+}
+
+/* The line-number gutter doubles as the range-selection handle (task 5): a bare button so
+   it stays keyboard-reachable while looking exactly like the number it replaces. */
+.gutterButton {
+  flex: 0 0 auto;
+  width: var(--gutter-width, 30px);
+  text-align: right;
+  padding-right: 8px;
+  color: var(--muted);
+  user-select: none;
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.gutterButton:hover {
+  color: var(--accent);
+}
+
+/* A line inside the active comment selection (task 5). */
+.lineSelected {
+  background: var(--accent-soft);
+}
+
+/* Marker + inline edit/delete for a saved draft on a line (task 5); same pill shape as the
+   "N usages" pill so the diff's affordances stay consistent. */
+.draftMarker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  font-size: 10px;
+  vertical-align: middle;
+}
+
+.draftPill {
+  border-radius: 10px;
+  padding: 0 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.draftAction {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0;
+}
+
+.draftAction:hover {
+  color: var(--accent);
+}
+
+/* Inline comment composer anchored under the selected range (task 5). */
+.composer {
+  margin: 6px 12px 10px 38px;
+  max-width: 560px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  padding: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+}
+
+.composerLabel {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.composerInput {
+  width: 100%;
+  min-height: 56px;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  background: var(--code-bg);
+  color: inherit;
+}
+
+.composerActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.composerAdd,
+.composerCancel {
+  font-size: 11px;
+  border-radius: 6px;
+  padding: 3px 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+
+.composerAdd {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--panel);
+}
+
+.composerAdd:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.composerCancel {
+  background: var(--panel);
+  color: var(--muted);
 }
 
 /* Peek popover (§10) */
