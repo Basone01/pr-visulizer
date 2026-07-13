@@ -5,6 +5,7 @@ import type { PrTarget, RepoRef } from "@/entity/pr"
 
 import type { AnalysisResponse, PrClient, ReviewSubmission } from "../prClient"
 import { BIG_FIXTURE_NUMBER, bigPatch, buildBigAnalysis } from "./bigFixture"
+import { pr42HeadFile } from "./headFiles"
 import { pr42Patches } from "./patches"
 import { pr42Analysis } from "./pr42"
 
@@ -106,6 +107,14 @@ export function createFixturePrClient(): PrClient {
       if (target.number === BIG_FIXTURE_NUMBER) return delay(bigPatch(path))
 
       return delay(pr42Patches[path] ?? "")
+    },
+
+    // The big fixture is synthetic patches with no head file behind them — it answers "no head
+    // content", which is exactly the unavailable path the toolbar has to handle.
+    getFileAtHead(target: PrTarget, path: string): Promise<string | null> {
+      if (target.number === BIG_FIXTURE_NUMBER) return delay(null)
+
+      return delay(pr42HeadFile(path))
     },
 
     getProgress(): Promise<ReviewProgress> {

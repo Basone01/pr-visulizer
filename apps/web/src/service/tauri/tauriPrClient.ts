@@ -2,10 +2,10 @@ import {
   DEFAULT_REPO_SCAN,
   type GatewayChangedFile,
   type GithubGateway,
+  type PrecisionPolicy,
   type PullRequestData,
   type ReviewEvent,
   type SessionUser,
-  type PrecisionPolicy,
   createAnalysisCache,
   createOctokitGateway,
   mapWithConcurrency,
@@ -379,6 +379,20 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
       if (patch === null) throw new Error(`no diff available for ${path}`)
 
       return patch
+    },
+
+    // The full-file view's head content (§10). The prepared repo already exposes a read pinned
+    // at the head SHA (the same object-DB batch read the analysis feeds on) — no new Tauri
+    // command, no API call. Anything that makes the file unreadable HERE (no repo source yet,
+    // a deleted path, a binary blob) is "unavailable", not an error: the pane keeps rendering
+    // the hunks and the toggle explains itself.
+    async getFileAtHead(target: PrTarget, path: string): Promise<string | null> {
+      try {
+        const prepared = await prepareDeep(target)
+        return await prepared.readFile(path)
+      } catch {
+        return null
+      }
     },
 
     async getProgress(target: PrTarget): Promise<ReviewProgress> {

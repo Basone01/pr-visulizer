@@ -6,6 +6,20 @@ import type { DiffLine, ParsedDiff } from "@/entity/diff"
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/
 
+// Where a hunk starts on each side. Exported so the full-file view (fullFileView.ts) reads the
+// head-side start from the SAME regex this parser walks with, instead of re-deriving it.
+export type HunkStart = {
+  oldStart: number
+  newStart: number
+}
+
+export function parseHunkHeader(content: string): HunkStart | null {
+  const header = HUNK_HEADER.exec(content)
+  if (!header) return null
+
+  return { oldStart: Number(header[1]), newStart: Number(header[2]) }
+}
+
 // Parse a single file's unified-diff patch (the `patch` field GitHub returns).
 export function parseUnifiedDiff(patch: string): ParsedDiff {
   const lines: DiffLine[] = []
@@ -26,11 +40,11 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
   if (rawLines.at(-1) === "") rawLines.pop()
 
   for (const raw of rawLines) {
-    const header = HUNK_HEADER.exec(raw)
+    const header = parseHunkHeader(raw)
 
     if (header) {
-      oldLine = Number(header[1])
-      newLine = Number(header[2])
+      oldLine = header.oldStart
+      newLine = header.newStart
       sawHunk = true
       lines.push({ kind: "hunk", content: raw, oldLine: null, newLine: null })
       continue

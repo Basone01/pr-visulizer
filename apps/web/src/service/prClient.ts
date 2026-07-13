@@ -36,6 +36,10 @@ export interface PrClient {
   // implementation is a no-op. Returns an unsubscribe.
   subscribeAnalysisProgress(target: PrTarget, listener: AnalysisProgressListener): () => void
   getPatch(target: PrTarget, path: string): Promise<string>
+  // One file's WHOLE content at the PR's head revision — the full-file diff view (§10). null
+  // means "no head content for this file here" (a deleted file, a binary blob, or a client that
+  // can't reconstruct it); the toolbar falls back to the hunks-only view and says so.
+  getFileAtHead(target: PrTarget, path: string): Promise<string | null>
   getProgress(target: PrTarget): Promise<ReviewProgress>
   putProgress(target: PrTarget, progress: ReviewProgress): Promise<ReviewProgress>
   submitReview(target: PrTarget, submission: ReviewSubmission): Promise<void>

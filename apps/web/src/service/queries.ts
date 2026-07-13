@@ -71,3 +71,16 @@ export function patchQueryOptions(target: PrTarget, path: string) {
     enabled: path.length > 0,
   })
 }
+
+// The head-revision content behind the full-file view (§10). `enabled` is the toggle itself, so
+// a reviewer who never turns it on never pays for the fetch — and once fetched, the content is
+// immutable per headSha (same reasoning as the patch), so flipping the toggle back and forth,
+// or leaving and re-opening the file, re-reads nothing.
+export function fileAtHeadQueryOptions(target: PrTarget, path: string, enabled: boolean) {
+  return queryOptions({
+    queryKey: ["fileAtHead", prKey(target), path] as const,
+    queryFn: () => getPrClient().getFileAtHead(target, path),
+    staleTime: Infinity,
+    enabled: enabled && path.length > 0,
+  })
+}

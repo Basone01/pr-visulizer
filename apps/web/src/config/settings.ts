@@ -31,11 +31,17 @@ export type DiffViewSettings = {
 
   // Collapse del/add pairs that differ only in whitespace into one context line.
   hideWhitespace: boolean
+
+  // Render the WHOLE head file (changed lines still marked) instead of only the hunks.
+  // Needs the head content, so it can't apply to a deleted file — the patch is already
+  // that file in full.
+  fullFile: boolean
 }
 
 export const DEFAULT_DIFF_VIEW_SETTINGS: DiffViewSettings = {
   wrap: false,
   hideWhitespace: false,
+  fullFile: false,
 }
 
 // Deep-v2 precision tier preset for the desktop shell (docs/architecture.md §6.2).

@@ -12,6 +12,7 @@ import {
 
 import { isLineInSelection, selectionRange } from "@/utils/comments/lineSelection"
 import { anchorsForLine } from "@/utils/diff/anchors"
+import { buildFullFileView } from "@/utils/diff/fullFileView"
 import { hideWhitespaceOnly } from "@/utils/diff/hideWhitespaceOnly"
 import { parseUnifiedDiff } from "@/utils/diff/parseUnifiedDiff"
 import { openExternalUrl } from "@/utils/externalLink/openExternal"
@@ -22,7 +23,7 @@ import type { AnchorIndex, SymbolAnchor } from "@/entity/anchor"
 import type { DiffLine as DiffLineVM } from "@/entity/diff"
 import type { PrTarget } from "@/entity/pr"
 
-import { patchQueryOptions } from "@/service/queries"
+import { fileAtHeadQueryOptions, patchQueryOptions } from "@/service/queries"
 
 import { useDiffFind } from "@/hooks/useDiffFind"
 import { useDiffShortcuts } from "@/hooks/useDiffShortcuts"
@@ -88,6 +89,13 @@ const NO_DRAFTS: DraftComment[] = []
 // Stable reference so the find hook's `lines` dep doesn't churn while the diff is still loading.
 const NO_LINES: DiffLineVM[] = []
 
+function fullFileTitleFor(status: ChangedFile["status"], unavailable: boolean): string {
+  if (status === "deleted") return "A deleted file's patch is already the whole file"
+  if (unavailable) return "Full file unavailable for this file — showing the changed hunks"
+
+  return "View the whole file, not just the changed hunks"
+}
+
 function draftsByLineFor(drafts: DraftComment[], path: string): Map<number, DraftComment[]> {
   const byLine = new Map<number, DraftComment[]>()
 
@@ -123,7 +131,19 @@ export function DiffPane({
   const path = file?.path ?? ""
   const patchQuery = useQuery(patchQueryOptions(target, path))
   const tokenizer = useLineTokenizer(file?.language ?? null)
-  const { settings, toggleWrap, toggleHideWhitespace } = useDiffViewSettings()
+  const { settings, toggleWrap, toggleHideWhitespace, toggleFullFile } = useDiffViewSettings()
+
+  // A deleted file has no head revision, and its patch already IS the whole file — the toggle
+  // is disabled there rather than fetching content that cannot exist.
+  const canShowFullFile = file !== null && file.status !== "deleted"
+  const headFileQuery = useQuery(
+    fileAtHeadQueryOptions(target, path, settings.fullFile && canShowFullFile)
+  )
+  // null = not fetched yet, or the client has no head content for this file (see PrClient).
+  const headText = headFileQuery.data ?? null
+  const fullFileOn = settings.fullFile && headText !== null
+  const fullFileUnavailable =
+    settings.fullFile && canShowFullFile && !headFileQuery.isPending && headText === null
   const [usagesAnchor, setUsagesAnchor] = useState<SymbolAnchor | null>(null)
   const selection = useLineSelection()
   const [editingKey, setEditingKey] = useState<string | null>(null)
@@ -135,14 +155,19 @@ export function DiffPane({
     setEditingKey(null)
   }, [path, selection.clear])
 
-  // Hide-whitespace is a pure view transform layered over the parse (§10): it never renumbers,
-  // so anchors keep resolving. Wrap is CSS-only, applied on the diff container below.
+  // Both are pure view transforms layered over the parse (§10): neither renumbers the head side,
+  // so anchors, drafts and find keep resolving in either mode. Full-file re-renders the patch
+  // over the whole head file; hide-whitespace then collapses the del/add pairs it finds — the
+  // order matters, since the full-file view keeps those pairs adjacent for it. Wrap is CSS-only.
   const parsed = useMemo(() => {
     if (!patchQuery.data) return null
 
     const base = parseUnifiedDiff(patchQuery.data)
-    return settings.hideWhitespace ? hideWhitespaceOnly(base) : base
-  }, [patchQuery.data, settings.hideWhitespace])
+    // Gated on the SETTING, not just on `headText`: a disabled query keeps serving its cached
+    // content, so reading the content alone would leave the full view stuck on after a toggle off.
+    const view = settings.fullFile && headText !== null ? buildFullFileView(headText, base) : base
+    return settings.hideWhitespace ? hideWhitespaceOnly(view) : view
+  }, [patchQuery.data, settings.hideWhitespace, settings.fullFile, headText])
 
   // Mounting (and unmounting) thousands of rows is the longest task a file switch causes, and
   // the click that caused it can't paint until React is done. Deferring the row list drops it
@@ -397,6 +422,17 @@ export function DiffPane({
               onClick={toggleHideWhitespace}
             >
               ␣
+            </button>
+            <button
+              type="button"
+              className={`${styles.iconToggle} ${fullFileOn ? styles.toggleOn : ""}`}
+              aria-pressed={fullFileOn}
+              aria-label="View full file"
+              title={fullFileTitleFor(file.status, fullFileUnavailable)}
+              disabled={!canShowFullFile}
+              onClick={toggleFullFile}
+            >
+              ≡
             </button>
             <button
               type="button"

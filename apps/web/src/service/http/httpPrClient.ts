@@ -25,8 +25,10 @@ function base(target: PrTarget): string {
 }
 
 // The files endpoint returns { path, sha, content, patch } — patch is the unified
-// diff for the renderer, null when GitHub omits it (binary, too large, pure rename).
+// diff for the renderer, null when GitHub omits it (binary, too large, pure rename);
+// content is the file at the head sha, the full-file view's input (§10).
 const patchResponseSchema = z.object({ patch: z.string().nullable() })
+const contentResponseSchema = z.object({ content: z.string().nullable() })
 
 const prSummaryListSchema = z.array(prSummarySchema)
 
@@ -62,6 +64,14 @@ export function createHttpPrClient(): PrClient {
       if (parsed.patch === null) throw new Error(`no diff available for ${path}`)
 
       return parsed.patch
+    },
+
+    // The same files route already serves the head content beside the patch — no new endpoint.
+    async getFileAtHead(target: PrTarget, path: string): Promise<string | null> {
+      const url = `${base(target)}/files/${encodeURI(path)}`
+      const parsed = await parseJson(url, contentResponseSchema)
+
+      return parsed.content
     },
 
     getProgress(target: PrTarget): Promise<ReviewProgress> {

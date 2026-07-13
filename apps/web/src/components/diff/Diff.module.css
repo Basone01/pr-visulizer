@@ -66,6 +66,14 @@
   cursor: pointer;
 }
 
+/* A toggle that can't apply to this file (full-file on a deleted file) — same dimmed
+   treatment as the disabled "next" button. */
+.iconToggle:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .tag {
   font-size: 10px;
   font-weight: 600;
