@@ -17,10 +17,13 @@ import {
 import {
   type AnalysisResult,
   type ChangedFile,
+  type CommitRange,
   type DraftComment,
+  type PrCommitList,
   type PrMeta,
   type PrOverview,
   type PrSummary,
+  type RangeDiff,
   type ReviewProgress,
   type Viewer,
   reviewProgressSchema,
@@ -423,6 +426,17 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
       if (patch === null) throw new Error(`no diff available for ${path}`)
 
       return patch
+    },
+
+    // §10 commit-range picker. Both reads go to the API rather than the local clone: the clone
+    // is fetched pinned at base/head for the analysis, so an arbitrary intermediate commit's
+    // objects may simply not be present locally, and a compare is one cheap call.
+    listCommits(target: PrTarget): Promise<PrCommitList> {
+      return gateway.listPrCommits(target)
+    },
+
+    getRangeDiff(target: PrTarget, range: CommitRange): Promise<RangeDiff> {
+      return gateway.compareRange(target, range.baseSha, range.headSha)
     },
 
     // The full-file view's head content (§10). The prepared repo already exposes a read pinned

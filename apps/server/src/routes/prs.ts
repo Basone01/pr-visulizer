@@ -1,4 +1,4 @@
-import { prOverviewSchema } from "@pr-visulizer/shared"
+import { prCommitListSchema, prOverviewSchema, rangeDiffSchema } from "@pr-visulizer/shared"
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
 
@@ -20,6 +20,13 @@ const analysisQuerySchema = z.object({
 
 const fileQuerySchema = z.object({
   sha: z.string().optional(),
+})
+
+// The two ends of a commit range, as the SPA sends them (§10). Both are required: a compare
+// with a missing side is a bug, not a defaultable request.
+const compareQuerySchema = z.object({
+  base: z.string().min(1),
+  head: z.string().min(1),
 })
 
 export function registerPrRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -69,6 +76,40 @@ export function registerPrRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (state.status === "analyzing") return reply.code(202).send({ status: "analyzing" })
 
     return reply.send(state.result)
+  })
+
+  // GET .../commits — the PR's commits, for the diff pane's commit-range picker (§10). Read-only
+  // and whole-PR; the range it produces narrows the DIFF only, never the ranking or the queue.
+  app.get("/api/prs/:owner/:repo/:number/commits", async (req, reply) => {
+    const user = requireUser(req, reply, ctx)
+    if (!user) return reply
+
+    const params = parse(prParamsSchema, req.params)
+    if (!params.ok) return badRequest(reply, params.issues)
+
+    const commits = await ctx.gateway.listPrCommits(toTarget(params.value))
+    return reply.send(prCommitListSchema.parse(commits))
+  })
+
+  // GET .../compare?base=&head= — the diff restricted to one commit range (§10). `base` is the
+  // EXCLUSIVE boundary the SPA derived from the first selected commit's first parent; the
+  // gateway turns the pair into GitHub's three-dot compare.
+  app.get("/api/prs/:owner/:repo/:number/compare", async (req, reply) => {
+    const user = requireUser(req, reply, ctx)
+    if (!user) return reply
+
+    const params = parse(prParamsSchema, req.params)
+    if (!params.ok) return badRequest(reply, params.issues)
+
+    const query = parse(compareQuerySchema, req.query)
+    if (!query.ok) return badRequest(reply, query.issues)
+
+    const diff = await ctx.gateway.compareRange(
+      toTarget(params.value),
+      query.value.base,
+      query.value.head
+    )
+    return reply.send(rangeDiffSchema.parse(diff))
   })
 
   // GET .../files/*?sha= — raw file content for the diff renderer (base or head).

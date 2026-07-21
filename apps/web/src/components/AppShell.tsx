@@ -22,6 +22,7 @@ import { getAppStorage } from "@/service/clientFactory"
 import { analysisQueryOptions, overviewQueryOptions, viewerQueryOptions } from "@/service/queries"
 
 import { useAnalysisProgress } from "@/hooks/useAnalysisProgress"
+import { useDiffCommitRange } from "@/hooks/useDiffCommitRange"
 import { type PaneId, usePaneCollapse } from "@/hooks/usePaneCollapse"
 import { usePanelSizes } from "@/hooks/usePanelSizes"
 import { usePeekNavigation } from "@/hooks/usePeekNavigation"
@@ -70,6 +71,10 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   const analysisQuery = useQuery(analysisQueryOptions(target, engine))
   const viewerQuery = useQuery(viewerQueryOptions())
   const analysisProgress = useAnalysisProgress(target)
+  // The diff pane's commit-range lens (§10). It lives HERE, not inside DiffPane, for one reason:
+  // the tray also reads it — to mute rows outside the range — and PR-screen state is the one
+  // place both panes can share. Deliberately not persisted: a fresh open shows the whole PR.
+  const commitRange = useDiffCommitRange(target, overviewQuery.data?.pr.baseSha ?? "")
   const { progress, toggleReviewed, saveDraft, editDraft, removeDraft } = useReviewProgress(target)
   const panels = usePanelSizes()
   const collapse = usePaneCollapse()
@@ -449,6 +454,7 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
                   onAddDraft={saveDraft}
                   onUpdateDraft={editDraft}
                   onDeleteDraft={removeDraft}
+                  commitRange={commitRange}
                 />
               )}
             </ErrorBoundary>
@@ -494,6 +500,7 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
                   ? (progress.viewedSync.reason ?? "GitHub sync failed")
                   : null
               }
+              rangeTouchedPaths={commitRange.touchedPaths}
             />
           </div>
         )}

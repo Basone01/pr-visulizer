@@ -16,6 +16,7 @@ import { getAppStorage } from "@/service/clientFactory"
 import { usePeekNavigation } from "@/hooks/usePeekNavigation"
 
 import { DiffPane } from "./DiffPane"
+import { NO_COMMIT_RANGE } from "./diffPaneTestProps"
 
 // Multi-line comment ranges are picked with TWO CLICKS (§11): the first gutter click anchors
 // and opens the composer on that line, a second plain click completes the range, and a click
@@ -78,6 +79,7 @@ function Harness({ onAddDraft }: { onAddDraft: (draft: unknown) => void }) {
       onAddDraft={onAddDraft}
       onUpdateDraft={() => {}}
       onDeleteDraft={() => {}}
+      commitRange={NO_COMMIT_RANGE}
     />
   )
 }

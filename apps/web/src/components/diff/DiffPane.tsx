@@ -1,4 +1,9 @@
-import type { ChangedFile, ChangedSymbol, DraftComment } from "@pr-visulizer/shared"
+import {
+  type ChangedFile,
+  type ChangedSymbol,
+  type DraftComment,
+  shortSha,
+} from "@pr-visulizer/shared"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import {
   Fragment,
@@ -32,6 +37,7 @@ import type { PrTarget } from "@/entity/pr"
 import { getPrClient } from "@/service/clientFactory"
 import { fileAtHeadQueryOptions, patchQueryOptions } from "@/service/queries"
 
+import type { DiffCommitRangeApi } from "@/hooks/useDiffCommitRange"
 import { useDiffFind } from "@/hooks/useDiffFind"
 import { useDiffShortcuts } from "@/hooks/useDiffShortcuts"
 import { useDiffViewSettings } from "@/hooks/useDiffViewSettings"
@@ -41,6 +47,7 @@ import type { PeekNavApi } from "@/hooks/usePeekNavigation"
 import { useProgressiveRows } from "@/hooks/useProgressiveRows"
 
 import { CommentComposer } from "./CommentComposer"
+import { CommitRangePicker } from "./CommitRangePicker"
 import styles from "./Diff.module.css"
 import { DiffLine } from "./DiffLine"
 import { FindBar } from "./FindBar"
@@ -85,6 +92,9 @@ type DiffPaneProps = {
   onAddDraft: (draft: DraftComment) => void
   onUpdateDraft: (key: string, body: string) => void
   onDeleteDraft: (key: string) => void
+  // The commit-range lens (§10). With no range selected this changes nothing about the pane —
+  // the whole-PR patch renders exactly as it did before the feature existed.
+  commitRange: DiffCommitRangeApi
 }
 
 function baseName(path: string): string {
@@ -137,6 +147,7 @@ export function DiffPane({
   onAddDraft,
   onUpdateDraft,
   onDeleteDraft,
+  commitRange,
 }: DiffPaneProps) {
   const path = file?.path ?? ""
   const patchQuery = useQuery(patchQueryOptions(target, path))
@@ -144,9 +155,21 @@ export function DiffPane({
   const { settings, toggleWrap, toggleHideWhitespace, toggleFullFile, toggleSplitView } =
     useDiffViewSettings()
 
+  // Which patch this pane is rendering. With no range selected it is the whole-PR patch, byte
+  // for byte what it was before commit-range selection existed. With a range selected it is the
+  // range's own patch for this file — and `outsideRange` distinguishes "the range doesn't touch
+  // this file" (a quiet empty state) from "the patch hasn't arrived yet" (loading).
+  const rangeFile = commitRange.range !== null ? commitRange.fileInRange(path) : null
+  const rangeActive = commitRange.range !== null && commitRange.rangeDiff !== null
+  const outsideRange = rangeActive && rangeFile === null
+  const activePatch = commitRange.range !== null ? (rangeFile?.patch ?? null) : patchQuery.data
+
   // A deleted file has no head revision, and its patch already IS the whole file — the toggle
-  // is disabled there rather than fetching content that cannot exist.
-  const canShowFullFile = file !== null && file.status !== "deleted"
+  // is disabled there rather than fetching content that cannot exist. A range narrows it too:
+  // the head content is the PR's head, so overlaying a range patch (which ends at an earlier
+  // commit) onto it would renumber lines against the wrong revision. Better to disable the
+  // toggle than to render a subtly-wrong file.
+  const canShowFullFile = file !== null && file.status !== "deleted" && commitRange.range === null
   const headFileQuery = useQuery(
     fileAtHeadQueryOptions(target, path, settings.fullFile && canShowFullFile)
   )
@@ -171,14 +194,14 @@ export function DiffPane({
   // over the whole head file; hide-whitespace then collapses the del/add pairs it finds — the
   // order matters, since the full-file view keeps those pairs adjacent for it. Wrap is CSS-only.
   const parsed = useMemo(() => {
-    if (!patchQuery.data) return null
+    if (!activePatch) return null
 
-    const base = parseUnifiedDiff(patchQuery.data)
+    const base = parseUnifiedDiff(activePatch)
     // Gated on the SETTING, not just on `headText`: a disabled query keeps serving its cached
     // content, so reading the content alone would leave the full view stuck on after a toggle off.
     const view = settings.fullFile && headText !== null ? buildFullFileView(headText, base) : base
     return settings.hideWhitespace ? hideWhitespaceOnly(view) : view
-  }, [patchQuery.data, settings.hideWhitespace, settings.fullFile, headText])
+  }, [activePatch, settings.hideWhitespace, settings.fullFile, headText])
 
   // Mounting (and unmounting) thousands of rows is the longest task a file switch causes, and
   // the click that caused it can't paint until React is done. Deferring the row list drops it
@@ -614,8 +637,34 @@ export function DiffPane({
             </button>
           </div>
 
-          {/* Group 3 — hide the pane. */}
+          {/* Group 3 — commit-range picker + hide the pane. */}
           <div className={styles.toolGroup}>
+            <div className={styles.pickerAnchor}>
+              <button
+                type="button"
+                className={`${styles.iconToggle} ${commitRange.range ? styles.toggleOn : ""}`}
+                aria-pressed={commitRange.range !== null}
+                aria-haspopup="dialog"
+                aria-expanded={commitRange.pickerOpen}
+                aria-label="Changes from commits"
+                title="Show changes from selected commits only"
+                onClick={commitRange.pickerOpen ? commitRange.closePicker : commitRange.openPicker}
+              >
+                ⑂
+              </button>
+
+              {commitRange.pickerOpen && (
+                <CommitRangePicker
+                  commits={commitRange.commits}
+                  selection={commitRange.selection}
+                  truncated={commitRange.commitsTruncated}
+                  onSelect={commitRange.select}
+                  onClear={commitRange.clear}
+                  onClose={commitRange.closePicker}
+                />
+              )}
+            </div>
+
             <button
               type="button"
               className={styles.nextButton}
@@ -630,6 +679,26 @@ export function DiffPane({
         <div className={styles.titleRow}>
           <span className={`${styles.path} mono`}>{file.path}</span>
         </div>
+
+        {commitRange.range && (
+          <div className={styles.rangeChip} role="status">
+            <span className={styles.rangeLabel}>
+              commits{" "}
+              <span className="mono">
+                {shortSha(commitRange.range.baseSha)}…{shortSha(commitRange.range.headSha)}
+              </span>
+              {commitRange.rangeDiff && ` · ${commitRange.fileCount} files`}
+            </span>
+            <button
+              type="button"
+              className={styles.rangeReset}
+              onClick={commitRange.clear}
+              title="Show all changes in this PR"
+            >
+              show all changes
+            </button>
+          </div>
+        )}
 
         {nav.state.jumpStack.length > 0 && (
           <button className={styles.back} onClick={nav.back}>
@@ -649,7 +718,28 @@ export function DiffPane({
             gutterWidth ? ({ "--gutter-width": gutterWidth } as React.CSSProperties) : undefined
           }
         >
-          {!shownDiff && <div className={styles.empty}>Loading diff…</div>}
+          {/* A file the selected commits never touched is a normal, expected state — say so
+              quietly and offer the way back, rather than showing an error or an endless spinner.
+              This also catches a range patch GitHub omits (a rename with no content change),
+              which is why the copy talks about changes rather than about a missing patch. */}
+          {outsideRange && (
+            <div className={styles.rangeEmpty}>
+              <p>No changes in the selected commits.</p>
+              <button type="button" className={styles.rangeReset} onClick={commitRange.clear}>
+                show all changes
+              </button>
+            </div>
+          )}
+
+          {!outsideRange && commitRange.error && (
+            <div className={styles.empty} role="alert">
+              Couldn't load the diff for these commits — {commitRange.error}
+            </div>
+          )}
+
+          {!outsideRange && !commitRange.error && !shownDiff && (
+            <div className={styles.empty}>Loading diff…</div>
+          )}
 
           {shownDiff &&
             !splitRows &&

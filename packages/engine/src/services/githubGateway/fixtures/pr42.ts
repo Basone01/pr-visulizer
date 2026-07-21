@@ -1,6 +1,6 @@
-import type { PrMeta } from "@pr-visulizer/shared"
+import type { PrMeta, RangeDiffFile } from "@pr-visulizer/shared"
 
-import type { GatewayChangedFile } from "../gateway.js"
+import type { GatewayChangedFile, GatewayFixtureCommit } from "../gateway.js"
 
 // PR #42 — "Add login rate limiting" (docs/architecture.md §7), the worked example
 // every §7–§8 number is asserted against. These are REAL TypeScript sources: parsing
@@ -212,5 +212,61 @@ export const PR42_FILES: GatewayChangedFile[] = [
     deletions: 0,
     language: "typescript",
     patch: addedFilePatch(testSource),
+  },
+]
+
+// The three commits PR #42 was built from (§10, commit-range selection). They partition the six
+// changed files in dependency order — config, then the limiter, then the wiring — so selecting
+// one commit in the picker restricts the diff to a genuinely different slice of the PR, and
+// selecting a contiguous pair unions two of them.
+export const PR42_COMMIT_SHAS = {
+  config: "c0ffee1000000000000000000000000000000001",
+  limiter: "c0ffee2000000000000000000000000000000002",
+  wiring: "c0ffee3000000000000000000000000000000003",
+} as const
+
+// Pull one file's whole-PR patch back out for a fixture commit that introduced it. The fixture's
+// per-commit slices are file-level, so a file's range patch IS its whole-PR patch — which keeps
+// the fixture a faithful stand-in without hand-maintaining a second set of diffs.
+function rangeFile(path: string): RangeDiffFile {
+  const file = PR42_FILES.find((candidate) => candidate.path === path)
+  if (!file) throw new Error(`PR #42 fixture has no changed file at ${path}`)
+
+  return {
+    path: file.path,
+    status: file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    patch: file.patch,
+    previousPath: null,
+  }
+}
+
+export const PR42_COMMITS: GatewayFixtureCommit[] = [
+  {
+    sha: PR42_COMMIT_SHAS.config,
+    // The first commit's parent IS the PR base, so selecting it alone compares base...c1 —
+    // exactly what the range-base derivation produces from `parents[0]`.
+    parents: [PR42_META.baseSha],
+    messageHeadline: "Add rate-limit config and the retryAfter field",
+    author: "contributor-dev",
+    authoredAt: "2026-06-28T09:14:00Z",
+    files: [rangeFile(PR42_PATHS.limits), rangeFile(PR42_PATHS.http)],
+  },
+  {
+    sha: PR42_COMMIT_SHAS.limiter,
+    parents: [PR42_COMMIT_SHAS.config],
+    messageHeadline: "Add the rate limiter and its unit tests",
+    author: "contributor-dev",
+    authoredAt: "2026-06-29T15:02:00Z",
+    files: [rangeFile(PR42_PATHS.rateLimiter), rangeFile(PR42_PATHS.test)],
+  },
+  {
+    sha: PR42_COMMIT_SHAS.wiring,
+    parents: [PR42_COMMIT_SHAS.limiter],
+    messageHeadline: "Wire the middleware into the login route",
+    author: "contributor-dev",
+    authoredAt: "2026-06-30T11:47:00Z",
+    files: [rangeFile(PR42_PATHS.withRateLimit), rangeFile(PR42_PATHS.login)],
   },
 ]

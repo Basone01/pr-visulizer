@@ -1,12 +1,17 @@
 import {
+  type CommitRange,
   type DraftComment,
+  type PrCommitList,
   type PrOverview,
   type PrSummary,
+  type RangeDiff,
   type ReviewProgress,
   type Viewer,
   analysisResultSchema,
+  prCommitListSchema,
   prOverviewSchema,
   prSummarySchema,
+  rangeDiffSchema,
   reviewProgressSchema,
   viewerSchema,
 } from "@pr-visulizer/shared"
@@ -65,6 +70,16 @@ export function createHttpPrClient(): PrClient {
       if (parsed.patch === null) throw new Error(`no diff available for ${path}`)
 
       return parsed.patch
+    },
+
+    async listCommits(target: PrTarget): Promise<PrCommitList> {
+      return parseJson(`${base(target)}/commits`, prCommitListSchema)
+    },
+
+    async getRangeDiff(target: PrTarget, range: CommitRange): Promise<RangeDiff> {
+      const query = new URLSearchParams({ base: range.baseSha, head: range.headSha })
+
+      return parseJson(`${base(target)}/compare?${query}`, rangeDiffSchema)
     },
 
     // The same files route already serves the head content beside the patch — no new endpoint.

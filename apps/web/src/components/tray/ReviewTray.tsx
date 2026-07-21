@@ -52,6 +52,10 @@ type ReviewTrayProps = {
   // Set when the app's checkmarks could not be mirrored into GitHub's "Viewed" state (§11).
   // The checkmarks are still the reviewer's own — this only says the mirror is behind.
   viewedSyncError: string | null
+  // Paths the diff pane's selected commit range touches, or null when no range is selected (§10).
+  // null means "no range" — every row renders normally. The queue itself never changes: order,
+  // readiness and the checkmarks stay whole-PR; this only mutes the rows outside the range.
+  rangeTouchedPaths: Set<string> | null
   onHide: () => void
 }
 
@@ -75,6 +79,7 @@ export function ReviewTray({
   submitError,
   onResetSubmit,
   viewedSyncError,
+  rangeTouchedPaths,
   onHide,
 }: ReviewTrayProps) {
   const [overridden, setOverridden] = useState(false)
@@ -136,6 +141,7 @@ export function ReviewTray({
             key={row.path}
             row={row}
             active={row.path === activePath}
+            outsideRange={rangeTouchedPaths !== null && !rangeTouchedPaths.has(row.path)}
             onToggle={onToggleReviewed}
             onOpen={onOpenFile}
           />

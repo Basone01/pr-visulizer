@@ -1,5 +1,12 @@
 import { Octokit } from "@octokit/rest"
-import type { ChangedFile, PrMeta, PrSummary } from "@pr-visulizer/shared"
+import type {
+  ChangedFile,
+  PrCommitList,
+  PrMeta,
+  PrSummary,
+  RangeDiff,
+  RangeDiffFile,
+} from "@pr-visulizer/shared"
 
 import type { SessionUser } from "../../entities/index.js"
 import { decodeBase64Utf8 } from "../../utils/base64.js"
@@ -70,6 +77,18 @@ type ViewedFilesPage = {
     } | null
   } | null
 }
+
+// GitHub's own ceilings on the two commit-range reads (§10). Both are documented limits, not
+// guesses, and both are verified 2026-07:
+//   - "Lists a maximum of 250 commits for a pull request."
+//     docs.github.com/en/rest/pulls/pulls#list-commits-on-a-pull-request
+//   - "The list of changed files is only shown on the first page of results, and it includes
+//      up to 300 changed files for the entire comparison."
+//     docs.github.com/en/rest/commits/commits#compare-two-commits
+// Hitting either means the payload is SHORT, so we report it instead of letting the UI imply
+// the list is whole.
+const PR_COMMIT_LIMIT = 250
+const COMPARE_FILE_LIMIT = 300
 
 // GitHub's file status vocabulary is wider than our contract's — clamp it (§3).
 function toChangedFileStatus(status: string): ChangedFile["status"] {
@@ -156,6 +175,62 @@ export function createOctokitGateway(
     }
 
     return decodeBase64Utf8(response.data.content)
+  }
+
+  // §10: the commits behind the diff pane's range picker. `parents` rides along because it is
+  // how a range's base is derived — the first parent of the first selected commit — so the
+  // picker never has to ask GitHub a second time to find a range boundary.
+  async function listPrCommits(target: PrTarget): Promise<PrCommitList> {
+    const { owner, repo, number: pull_number } = target
+
+    const commits = await octokit.paginate(octokit.pulls.listCommits, {
+      owner,
+      repo,
+      pull_number,
+      per_page: 100,
+    })
+
+    return {
+      commits: commits.map((entry) => ({
+        sha: entry.sha,
+        parents: (entry.parents ?? []).map((parent) => parent.sha),
+        // The headline is the message's first line; the body below it is not shown in a picker row.
+        messageHeadline: entry.commit.message.split("\n")[0] ?? "",
+        // A commit whose email matches no GitHub account has a null `author` — fall back to the
+        // git-level name so the row still says who wrote it.
+        author: entry.author?.login ?? entry.commit.author?.name ?? "unknown",
+        authoredAt: entry.commit.author?.date ?? "",
+      })),
+      truncated: commits.length >= PR_COMMIT_LIMIT,
+    }
+  }
+
+  // §10: the three-dot compare. Three dots is the ONLY form the endpoint documents, and it is
+  // also the semantics a PR diff already has (changes on head since it diverged), so a range
+  // diff and the whole-PR diff mean the same kind of thing.
+  async function compareRange(
+    target: PrTarget,
+    baseSha: string,
+    headSha: string
+  ): Promise<RangeDiff> {
+    const { owner, repo } = target
+
+    const comparison = await octokit.repos.compareCommitsWithBasehead({
+      owner,
+      repo,
+      basehead: `${baseSha}...${headSha}`,
+    })
+
+    const files: RangeDiffFile[] = (comparison.data.files ?? []).map((file) => ({
+      path: file.filename,
+      status: toChangedFileStatus(file.status),
+      additions: file.additions,
+      deletions: file.deletions,
+      patch: file.patch ?? null,
+      previousPath: file.previous_filename ?? null,
+    }))
+
+    return { baseSha, headSha, files, truncated: files.length >= COMPARE_FILE_LIMIT }
   }
 
   async function submitReview(input: SubmitReviewInput): Promise<SubmitReviewResult> {
@@ -273,6 +348,8 @@ export function createOctokitGateway(
     getPullRequest,
     listOpenPullRequests,
     getFileContent,
+    listPrCommits,
+    compareRange,
     submitReview,
     addReviewComment,
     listViewedFiles,

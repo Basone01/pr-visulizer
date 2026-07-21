@@ -82,6 +82,16 @@
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+/* Not changed by the selected commit range (§10). A MARKER, not a disabled state: the row is
+   still clickable and still tickable, because the queue and GitHub's "Viewed" checkboxes are
+   whole-PR concepts. Kept subtle deliberately — a range can leave most of a PR unmarked, and a
+   loud treatment would drown out `next` and `active`, which matter more. Muting the PATH alone
+   (not the row) keeps the checkbox and the readiness chip at full contrast. */
+.row.outsideRange .path {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
 .check {
   cursor: pointer;
 }

@@ -8,4 +8,6 @@ export const IDLE_SUBMIT_PROPS = {
   submitError: null,
   onResetSubmit: () => {},
   viewedSyncError: null,
+  // No commit range selected — every row renders normally (§10).
+  rangeTouchedPaths: null,
 } as const

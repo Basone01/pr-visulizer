@@ -1,6 +1,9 @@
 import {
+  type CommitRange,
+  type PrCommitList,
   type PrOverview,
   type PrSummary,
+  type RangeDiff,
   type ReviewProgress,
   type Viewer,
   mergeViewedFiles,
@@ -18,6 +21,7 @@ import {
   bigPatch,
   buildBigAnalysis,
 } from "./bigFixture"
+import { pr42Commits, pr42RangeDiff } from "./commits"
 import { pr42HeadFile } from "./headFiles"
 import { pr42Patches } from "./patches"
 import { pr42Analysis } from "./pr42"
@@ -143,6 +147,22 @@ export function createFixturePrClient(): PrClient {
       if (target.number === BIG_FIXTURE_NUMBER) return delay(bigPatch(path))
 
       return delay(pr42Patches[path] ?? "")
+    },
+
+    // §10 commit-range picker. The big fixture has no commit history behind it, so it offers no
+    // range — the picker hides itself rather than showing an empty list.
+    listCommits(target: PrTarget): Promise<PrCommitList> {
+      if (target.number === BIG_FIXTURE_NUMBER) return delay({ commits: [], truncated: false })
+
+      return delay({ commits: pr42Commits(), truncated: false })
+    },
+
+    getRangeDiff(target: PrTarget, range: CommitRange): Promise<RangeDiff> {
+      if (target.number === BIG_FIXTURE_NUMBER) {
+        return delay({ ...range, files: [], truncated: false })
+      }
+
+      return delay(pr42RangeDiff(range.baseSha, range.headSha))
     },
 
     // The big fixture is synthetic patches with no head file behind them — it answers "no head

@@ -1,4 +1,13 @@
-import type { ChangedFile, DraftComment, PrMeta, PrSummary } from "@pr-visulizer/shared"
+import type {
+  ChangedFile,
+  DraftComment,
+  PrCommit,
+  PrCommitList,
+  PrMeta,
+  PrSummary,
+  RangeDiff,
+  RangeDiffFile,
+} from "@pr-visulizer/shared"
 
 import type { SessionUser } from "../../entities/index.js"
 
@@ -29,6 +38,14 @@ export type GatewayChangedFile = ChangedFile & {
 export type PullRequestData = {
   pr: PrMeta
   files: GatewayChangedFile[]
+}
+
+// One commit of a FIXTURE PR (§10): the picker row's data plus the per-file changes that commit
+// contributed. The fake gateway unions the files of the commits inside a range to answer a
+// compare, so a fixture range diff is derived the way a real one is rather than hard-coded per
+// range — which keeps the fixture honest as commits are added to it.
+export type GatewayFixtureCommit = PrCommit & {
+  files: RangeDiffFile[]
 }
 
 // GitHub review verdicts (§11). Mapped from the app-side `verdict` in the review service.
@@ -76,6 +93,16 @@ export interface GithubGateway {
 
   // §5 step 3: full file content at a SHA (head or base) for parsing + the diff view.
   getFileContent(target: PrTarget, path: string, sha: string): Promise<string>
+
+  // §10 commit-range selection: the PR's commits, for the diff pane's range picker. GitHub
+  // caps this at 250 commits, so the result carries a `truncated` flag rather than pretending
+  // the list is complete.
+  listPrCommits(target: PrTarget): Promise<PrCommitList>
+
+  // §10: the diff restricted to one commit range — the three-dot compare of baseSha...headSha.
+  // The caller derives `baseSha` from the first selected commit's first parent (see
+  // `commitRange` in the shared contract), never from git rev syntax like `sha^`.
+  compareRange(target: PrTarget, baseSha: string, headSha: string): Promise<RangeDiff>
 
   // §11: the real GitHub review (approve / request-changes / comment).
   submitReview(input: SubmitReviewInput): Promise<SubmitReviewResult>

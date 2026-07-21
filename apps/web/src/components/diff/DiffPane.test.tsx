@@ -12,6 +12,7 @@ import type { PrTarget } from "@/entity/pr"
 import { usePeekNavigation } from "@/hooks/usePeekNavigation"
 
 import { DiffPane } from "./DiffPane"
+import { NO_COMMIT_RANGE } from "./diffPaneTestProps"
 
 // A patch whose one change is indentation-only: base "  changed = 2" vs head "    changed = 2".
 // With hide-WS off it shows a del row and an add row; on, the pair collapses to one context line.
@@ -73,6 +74,7 @@ function DiffPaneHarness() {
       onAddDraft={() => {}}
       onUpdateDraft={() => {}}
       onDeleteDraft={() => {}}
+      commitRange={NO_COMMIT_RANGE}
     />
   )
 }

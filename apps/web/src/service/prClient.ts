@@ -1,8 +1,11 @@
 import type {
   AnalysisResult,
+  CommitRange,
   DraftComment,
+  PrCommitList,
   PrOverview,
   PrSummary,
+  RangeDiff,
   ReviewProgress,
   Viewer,
 } from "@pr-visulizer/shared"
@@ -36,6 +39,12 @@ export interface PrClient {
   // implementation is a no-op. Returns an unsubscribe.
   subscribeAnalysisProgress(target: PrTarget, listener: AnalysisProgressListener): () => void
   getPatch(target: PrTarget, path: string): Promise<string>
+  // The PR's commits, for the diff pane's commit-range picker (§10). Whole-PR and read-only —
+  // picking a range narrows the DIFF only; ranking, the graph and the queue stay whole-PR.
+  listCommits(target: PrTarget): Promise<PrCommitList>
+  // The diff restricted to one commit range. ONE call carries every file in the range, so the
+  // open file's patch and the set of touched paths both come from this single result.
+  getRangeDiff(target: PrTarget, range: CommitRange): Promise<RangeDiff>
   // One file's WHOLE content at the PR's head revision — the full-file diff view (§10). null
   // means "no head content for this file here" (a deleted file, a binary blob, or a client that
   // can't reconstruct it); the toolbar falls back to the hunks-only view and says so.

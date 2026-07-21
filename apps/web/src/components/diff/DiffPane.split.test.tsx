@@ -16,6 +16,7 @@ import { getAppStorage } from "@/service/clientFactory"
 import { usePeekNavigation } from "@/hooks/usePeekNavigation"
 
 import { DiffPane } from "./DiffPane"
+import { NO_COMMIT_RANGE } from "./diffPaneTestProps"
 
 // The side-by-side view toggle (§10). A mixed hunk — one context line, then 2 removed against 1
 // added — proves both halves of the pairing: the balanced pair shares a row (removed LEFT, added
@@ -71,6 +72,7 @@ function DiffPaneHarness() {
       onAddDraft={() => {}}
       onUpdateDraft={() => {}}
       onDeleteDraft={() => {}}
+      commitRange={NO_COMMIT_RANGE}
     />
   )
 }

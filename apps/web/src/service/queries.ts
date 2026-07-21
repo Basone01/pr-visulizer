@@ -1,4 +1,5 @@
-import { queryOptions } from "@tanstack/react-query"
+import type { CommitRange } from "@pr-visulizer/shared"
+import { queryOptions, skipToken } from "@tanstack/react-query"
 
 import type { Engine, PrTarget, RepoRef } from "@/entity/pr"
 import { prKey, repoKey } from "@/entity/pr"
@@ -69,6 +70,37 @@ export function patchQueryOptions(target: PrTarget, path: string) {
     // A file's patch is immutable per headSha — never stale within a session.
     staleTime: Infinity,
     enabled: path.length > 0,
+  })
+}
+
+// The PR's commits, behind the diff pane's range picker (§10). The list is immutable per
+// headSha like the overview, and it is only fetched once the reviewer actually opens the picker
+// — `enabled` is that first open, so a reviewer who never ranges never pays for the call.
+export function commitsQueryOptions(target: PrTarget, enabled: boolean) {
+  return queryOptions({
+    queryKey: ["commits", prKey(target)] as const,
+    queryFn: () => getPrClient().listCommits(target),
+    staleTime: Infinity,
+    enabled,
+  })
+}
+
+// One selected range's diff. Keyed by the RANGE, not by (range, path): the compare endpoint
+// answers with every file in the range in a single response, so a per-path key would repeat the
+// same upstream call once per file and throw most of each answer away. The open file's patch and
+// the set of touched paths are both derived from this one cached result — which is also what
+// makes re-selecting a range the reviewer already looked at instant.
+//
+// `range` is null when nothing is selected. That case is `skipToken` rather than `enabled:
+// false` so the queryFn never has to accept a null range and cast it back — the query is
+// disabled AND the fetcher's type stays honest. Clearing a range refetches NOTHING: the
+// whole-PR patch query never left the cache.
+export function rangeDiffQueryOptions(target: PrTarget, range: CommitRange | null) {
+  return queryOptions({
+    queryKey: ["rangeDiff", prKey(target), range?.baseSha ?? "", range?.headSha ?? ""] as const,
+    queryFn: range ? () => getPrClient().getRangeDiff(target, range) : skipToken,
+    // A compare between two fixed SHAs can never change — the strongest immutability in the app.
+    staleTime: Infinity,
   })
 }
 

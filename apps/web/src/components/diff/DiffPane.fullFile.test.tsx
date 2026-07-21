@@ -12,6 +12,7 @@ import type { PrTarget } from "@/entity/pr"
 import { usePeekNavigation } from "@/hooks/usePeekNavigation"
 
 import { DiffPane } from "./DiffPane"
+import { NO_COMMIT_RANGE } from "./diffPaneTestProps"
 
 // A patch that touches only the middle of the file, so the head file has unchanged lines the
 // hunks-only view cannot show — `const tail = 4` is the proof the full-file view rendered.
@@ -80,6 +81,7 @@ function DiffPaneHarness({ file }: { file: ChangedFile }) {
       onAddDraft={() => {}}
       onUpdateDraft={() => {}}
       onDeleteDraft={() => {}}
+      commitRange={NO_COMMIT_RANGE}
     />
   )
 }

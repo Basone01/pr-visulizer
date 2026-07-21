@@ -15,6 +15,7 @@ import { pr42Analysis, pr42Paths } from "@/service/fixture/pr42"
 import { usePeekNavigation } from "@/hooks/usePeekNavigation"
 
 import { DiffPane } from "./DiffPane"
+import { NO_COMMIT_RANGE } from "./diffPaneTestProps"
 
 // The diff header's "open next" button follows the live suggestion (docs/architecture.md §8.2,
 // task 1): with nothing reviewed it points at the first foundation (limits.ts); after that file
@@ -65,6 +66,7 @@ function NextButtonHarness() {
       onAddDraft={() => {}}
       onUpdateDraft={() => {}}
       onDeleteDraft={() => {}}
+      commitRange={NO_COMMIT_RANGE}
     />
   )
 }

@@ -1,10 +1,17 @@
-import type { PrMeta, PrSummary } from "@pr-visulizer/shared"
+import type {
+  PrCommitList,
+  PrMeta,
+  PrSummary,
+  RangeDiff,
+  RangeDiffFile,
+} from "@pr-visulizer/shared"
 
 import type { SessionUser } from "../../entities/index.js"
-import { PR42_CONTENTS, PR42_FILES, PR42_META } from "./fixtures/pr42.js"
+import { PR42_COMMITS, PR42_CONTENTS, PR42_FILES, PR42_META } from "./fixtures/pr42.js"
 import type {
   AddReviewCommentInput,
   GatewayChangedFile,
+  GatewayFixtureCommit,
   GithubGateway,
   PrTarget,
   PullRequestData,
@@ -14,11 +21,13 @@ import type {
   ViewedFileState,
 } from "./gateway.js"
 
-// A complete fixture PR: meta + changed files + head-version contents.
+// A complete fixture PR: meta + changed files + head-version contents. `commits` is optional —
+// a fixture without them simply has no commit-range selection to offer (§10).
 export type GatewayFixture = {
   meta: PrMeta
   files: GatewayChangedFile[]
   contents: Record<string, string>
+  commits?: GatewayFixtureCommit[]
 }
 
 // The fixture-backed gateway (docs/architecture.md §5 step-by-step, testable
@@ -52,7 +61,54 @@ function fixtureKey(owner: string, repo: string, prNumber: number): string {
 }
 
 export function pr42Fixture(): GatewayFixture {
-  return { meta: PR42_META, files: PR42_FILES, contents: PR42_CONTENTS }
+  return {
+    meta: PR42_META,
+    files: PR42_FILES,
+    contents: PR42_CONTENTS,
+    commits: PR42_COMMITS,
+  }
+}
+
+// Which fixture commits fall inside `baseSha...headSha`. The base is EXCLUSIVE — it is the
+// parent of the first commit in the range — so the run starts at the commit whose first parent
+// IS the base, and ends at the commit named by head.
+function commitsInRange(
+  commits: GatewayFixtureCommit[],
+  baseSha: string,
+  headSha: string
+): GatewayFixtureCommit[] {
+  const startIndex = commits.findIndex((commit) => commit.parents[0] === baseSha)
+  const endIndex = commits.findIndex((commit) => commit.sha === headSha)
+  // An unknown boundary would silently produce a wrong slice; an empty range is the honest
+  // answer, and the caller renders it as "no changes in the selected commits".
+  if (startIndex < 0 || endIndex < 0 || endIndex < startIndex) return []
+
+  return commits.slice(startIndex, endIndex + 1)
+}
+
+// Union the per-commit file slices into one compare payload. A file touched by several commits
+// in the range is reported ONCE with its churn summed and the latest commit's patch — the same
+// "one row per file for the whole comparison" shape the compare endpoint returns.
+function unionRangeFiles(commits: GatewayFixtureCommit[]): RangeDiffFile[] {
+  const byPath = new Map<string, RangeDiffFile>()
+
+  for (const commit of commits) {
+    for (const file of commit.files) {
+      const existing = byPath.get(file.path)
+      if (!existing) {
+        byPath.set(file.path, { ...file })
+        continue
+      }
+
+      byPath.set(file.path, {
+        ...file,
+        additions: existing.additions + file.additions,
+        deletions: existing.deletions + file.deletions,
+      })
+    }
+  }
+
+  return [...byPath.values()]
 }
 
 // Defaults to the PR #42 fixture; extra fixtures (e.g. an unknown-language PR for the
@@ -133,6 +189,24 @@ export function createFakeGithubGateway(
       if (content === undefined) throw new Error(`No fixture content for ${path}`)
 
       return content
+    },
+
+    async listPrCommits(target: PrTarget): Promise<PrCommitList> {
+      const { commits = [] } = lookupFixture(target)
+
+      // Strip the per-commit file slices — those are the fake's own machinery for deriving a
+      // compare, not part of the contract the picker reads.
+      return {
+        commits: commits.map(({ files: _files, ...commit }) => commit),
+        truncated: false,
+      }
+    },
+
+    async compareRange(target: PrTarget, baseSha: string, headSha: string): Promise<RangeDiff> {
+      const { commits = [] } = lookupFixture(target)
+      const selected = commitsInRange(commits, baseSha, headSha)
+
+      return { baseSha, headSha, files: unionRangeFiles(selected), truncated: false }
     },
 
     async submitReview(input: SubmitReviewInput): Promise<SubmitReviewResult> {

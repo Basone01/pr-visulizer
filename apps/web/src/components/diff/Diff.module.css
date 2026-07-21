@@ -146,6 +146,59 @@
   font-weight: 600;
 }
 
+/* The commit-range picker hangs off its toolbar button, so the popover positions against the
+   button rather than the whole header row. */
+.pickerAnchor {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The active-range indicator (§10). Deliberately loud enough that a reviewer can never forget
+   they are looking at a SUBSET of the PR, but built only from existing accent tokens. */
+.rangeChip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  padding: 3px 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  align-self: flex-start;
+}
+
+.rangeLabel {
+  font-weight: 600;
+}
+
+.rangeReset {
+  font-size: 11px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* A file the selected commits never touched — quiet, centered, and never an error. */
+.rangeEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 32px 16px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.rangeEmpty p {
+  margin: 0;
+}
+
 /* Small icon-only "open next suggested file" button (task 1): sits beside Mark viewed,
    follows the live suggestion, dims when nothing is left to review. */
 .nextButton {
