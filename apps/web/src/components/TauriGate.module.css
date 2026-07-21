@@ -47,7 +47,8 @@
   font-weight: 600;
   border: 1px solid var(--accent);
   background: var(--accent);
-  color: #fff;
+  /* On-accent text tracks --panel so it stays readable on the light Dracula-purple dark accent. */
+  color: var(--panel);
 }
 
 .retry:hover {

@@ -12,9 +12,10 @@ import {
 } from "@pr-visulizer/shared"
 
 import { headHunkRanges, rangesIntersect } from "../../utils/diffHunks.js"
-import { languageForPath } from "../../utils/language.js"
+import { familyOfGrammar, languageForPath } from "../../utils/language.js"
 import { resolveToKnownPath } from "../../utils/modulePath.js"
 import type { GatewayChangedFile } from "../githubGateway/index.js"
+import { type ParsedSource, type ResolvedReference, resolveRepo } from "./deepResolve.js"
 import type { AnalysisProgressFn } from "./engine.js"
 import { heuristicImports } from "./heuristic.js"
 import {
@@ -248,6 +249,119 @@ function buildSymbolEdges(
   return { edges: [...edges.values()], occurrences: [...occurrences.values()] }
 }
 
+// Map a resolved reference's kind to the edge kind (§3) — a value use → "uses", distinct from a
+// call ("calls") and a type use ("uses-type"). Mirrors the deep engine's mapping.
+function edgeKindForReference(kind: ResolvedReference["kind"]): Edge["kind"] {
+  if (kind === "call") return "calls"
+  if (kind === "use") return "uses"
+
+  return "uses-type"
+}
+
+// The PHP/Python file + symbol edges (docs/architecture.md §5, "More languages"). TS relative
+// resolution (step 6) is `.ts/.js`-shaped and Go is directory-based, so PHP `use`/`require` and
+// Python dotted/relative imports need their OWN specifier resolution — which is exactly what the
+// per-family resolvers in `deepResolve` already do. We reuse `resolveRepo` over just the CHANGED
+// PHP/Python files, resolving against the CHANGED-file set only.
+//
+// Same honesty and known misses as deep mode, tightened by the fast engine's horizon: it holds
+// only the changed files, so — exactly like TS aliased specifiers here — a PHP namespace-suffix
+// or Python dotted import resolves ONLY when its target is itself a changed file; a dependency on
+// an unchanged file is invisible until deep mode reads the whole checkout.
+function buildForeignEdges(
+  parsed: ParsedFile[],
+  changedPaths: ReadonlySet<string>,
+  symbolsByPath: Map<string, ChangedSymbol[]>,
+  symbolById: Map<string, ChangedSymbol>
+): {
+  fileEdges: Edge[]
+  symbolEdges: Edge[]
+  depEdges: DependencyEdge[]
+  occurrences: SymbolOccurrence[]
+} {
+  const foreignSources: ParsedSource[] = []
+  for (const { file, syntax, heuristic } of parsed) {
+    if (heuristic) continue
+
+    const grammarId = languageForPath(file.path)
+    if (!grammarId) continue
+
+    const family = familyOfGrammar(grammarId)
+    if (family === "php" || family === "python") {
+      foreignSources.push({ path: file.path, grammarId, syntax })
+    }
+  }
+
+  if (foreignSources.length === 0) {
+    return { fileEdges: [], symbolEdges: [], depEdges: [], occurrences: [] }
+  }
+
+  // Resolve against the changed files only — no go.mod, no tsconfig aliases in fast mode.
+  const resolution = resolveRepo(foreignSources, changedPaths, null)
+
+  const fileEdges = new Map<string, Edge>()
+  const depEdges: DependencyEdge[] = []
+  for (const { from, to } of resolution.fileImports) {
+    if (from === to || !changedPaths.has(from) || !changedPaths.has(to)) continue
+
+    const key = `${from} ${to}`
+    if (fileEdges.has(key)) continue
+
+    fileEdges.set(key, { from, to, kind: "imports", level: "file", source: "ast" })
+    depEdges.push({ from, to })
+  }
+
+  const symbolEdges = new Map<string, Edge>()
+  const occurrences = new Map<string, SymbolOccurrence>()
+  const recordOccurrence = (occurrence: SymbolOccurrence): void => {
+    const key = `${occurrence.symbolId} ${occurrence.path} ${occurrence.line} ${occurrence.role}`
+    if (!occurrences.has(key)) occurrences.set(key, occurrence)
+  }
+
+  for (const reference of resolution.references) {
+    // The index holds only changed symbols, so every resolved target is a changed symbol.
+    if (!symbolById.has(reference.target.id)) continue
+
+    recordOccurrence({
+      symbolId: reference.target.id,
+      path: reference.fromPath,
+      line: reference.line,
+      role: "usage",
+    })
+    recordOccurrence({
+      symbolId: reference.target.id,
+      path: reference.target.path,
+      line: reference.target.startLine,
+      role: "definition",
+    })
+
+    const containers = symbolsByPath.get(reference.fromPath)
+    if (!containers) continue
+
+    const container = innermostContaining(containers, reference.line)
+    if (!container || container.id === reference.target.id) continue
+
+    const kind = edgeKindForReference(reference.kind)
+    const edgeKey = `${container.id} ${reference.target.id} ${kind}`
+    if (!symbolEdges.has(edgeKey)) {
+      symbolEdges.set(edgeKey, {
+        from: container.id,
+        to: reference.target.id,
+        kind,
+        level: "symbol",
+        source: "ast",
+      })
+    }
+  }
+
+  return {
+    fileEdges: [...fileEdges.values()],
+    symbolEdges: [...symbolEdges.values()],
+    depEdges,
+    occurrences: [...occurrences.values()],
+  }
+}
+
 // Inputs the pure fast core needs — everything already read (no gateway, no fetch).
 // `contents` is aligned index-for-index with `files`; a deleted file's slot is undefined.
 export type FastSourcesInput = {
@@ -278,18 +392,20 @@ export async function analyzeFastFromSources(input: FastSourcesInput): Promise<A
     report ? (done, total) => report({ step: "parsing", done, total }) : undefined
   )
 
-  // Steps 5: changed symbols; 6: file edges + bindings; 7: symbol edges + occurrences.
+  // Steps 5: changed symbols; 6: file edges + bindings; 7: symbol edges + occurrences. TS/JS and
+  // Go flow through the original path; PHP/Python resolve through their own per-family resolvers.
   report?.({ step: "resolving" })
   const { symbols, byId, byPath } = buildSymbols(parsed)
   const { edges: fileEdges, depEdges, bindingsByPath } = buildFileEdges(parsed, changedPaths)
   const { edges: symbolEdges, occurrences } = buildSymbolEdges(parsed, bindingsByPath, byPath, byId)
+  const foreign = buildForeignEdges(parsed, changedPaths, byPath, byId)
 
   // Step 8: ranking from the shared core (§8) — foundations-first by default.
   report?.({ step: "ranking" })
   const ranking = rankFiles(
     {
       files: files.map((file) => ({ path: file.path, churn: file.additions + file.deletions })),
-      edges: depEdges,
+      edges: [...depEdges, ...foreign.depEdges],
     },
     policy
   )
@@ -306,9 +422,9 @@ export async function analyzeFastFromSources(input: FastSourcesInput): Promise<A
       language: file.language,
     })),
     symbols,
-    edges: [...fileEdges, ...symbolEdges],
+    edges: [...fileEdges, ...symbolEdges, ...foreign.fileEdges, ...foreign.symbolEdges],
     ranking,
     ghosts: [],
-    occurrences,
+    occurrences: [...occurrences, ...foreign.occurrences],
   })
 }

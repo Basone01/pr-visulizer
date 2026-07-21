@@ -1,7 +1,7 @@
 import { Handle, type Node, type NodeProps, Position } from "@xyflow/react"
 import { memo } from "react"
 
-import type { FileNodeVM } from "@/entity/viewModels"
+import { type FileNodeVM, fileNodeVariant } from "@/entity/viewModels"
 
 import styles from "./FileNode.module.css"
 import { isNodeDimmed, useGraphFocus } from "./graphFocus"
@@ -34,6 +34,10 @@ function churnLabel(additions: number, deletions: number): string {
 export const FileNode = memo(function FileNode({ data }: NodeProps<FileNodeType>) {
   const focus = useGraphFocus()
 
+  // Same predicate the layout reserves height from (fileNodeVariant), so what draws here and the
+  // box elk lays out against can never disagree — the whole point of the node-overlap fix.
+  const { hasSymbols, hasBlast } = fileNodeVariant(data)
+
   const className = [
     styles.node,
     STATUS_CLASS[data.status],
@@ -58,17 +62,13 @@ export const FileNode = memo(function FileNode({ data }: NodeProps<FileNodeType>
         <span className={styles.order}>#{data.order}</span>
       </div>
 
-      {data.symbols.length > 0 && (
-        <div className={`${styles.chips} mono`}>{data.symbols.join(" · ")}</div>
-      )}
+      {hasSymbols && <div className={`${styles.chips} mono`}>{data.symbols.join(" · ")}</div>}
 
       <div className={`${styles.meta} mono`}>{churnLabel(data.additions, data.deletions)}</div>
 
       {/* Deep-only risk badge — shown only when something unchanged actually depends on this
           file (blastRadius > 0); a deep result with no dependents stays clean (§6). */}
-      {data.blastRadius !== null && data.blastRadius > 0 && (
-        <div className={styles.blast}>blast radius {data.blastRadius} ⚠️</div>
-      )}
+      {hasBlast && <div className={styles.blast}>blast radius {data.blastRadius} ⚠️</div>}
 
       {data.reviewed && <span className={styles.tick}>✓</span>}
     </div>

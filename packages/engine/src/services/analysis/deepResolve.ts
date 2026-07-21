@@ -1,7 +1,10 @@
 import type { ChangedSymbol } from "@pr-visulizer/shared"
 
+import { type GrammarFamily, familyOfGrammar } from "../../utils/language.js"
 import { resolveToKnownPath } from "../../utils/modulePath.js"
+import { resolvePhpImport } from "../../utils/phpPath.js"
 import { dirname } from "../../utils/posixPath.js"
+import { resolvePythonModule, resolvePythonSubmodule } from "../../utils/pythonPath.js"
 import { type AliasTable, EMPTY_ALIAS_TABLE } from "../../utils/tsconfigPaths.js"
 import type { ModuleSyntax, Reference } from "./treeSitter.js"
 
@@ -15,14 +18,9 @@ import type { ModuleSyntax, Reference } from "./treeSitter.js"
 //
 // This is NAME resolution, not type inference (same honesty as §5 step 7). Known misses
 // are documented at the bottom of this file.
-
-// A resolution family — the two grammars deep v1 ships. Derived from the grammar id so
-// the resolver never re-parses paths.
-type Family = "go" | "ts"
-
-function familyFor(grammarId: string): Family {
-  return grammarId === "go" ? "go" : "ts"
-}
+//
+// The resolution FAMILY (go / ts / php / python) comes from `familyOfGrammar` — the single
+// definition of the split, shared with the parse-scoping cuts — never re-derived here.
 
 // A parsed source file the resolver indexes and resolves against.
 export type ParsedSource = {
@@ -77,7 +75,7 @@ function buildDefinitionIndex(sources: ParsedSource[]): {
 
   for (const source of sources) {
     const dir = dirname(source.path)
-    const isGo = familyFor(source.grammarId) === "go"
+    const isGo = familyOfGrammar(source.grammarId) === "go"
     if (isGo) goDirs.add(dir)
 
     for (const symbol of source.syntax.symbols) {
@@ -125,14 +123,14 @@ function resolveGoImportDir(
   return best
 }
 
-// Resolve one TS/JS file's references through its (repo-wide) relative-import bindings —
-// the fast engine's step 7, but the specifier resolves against the FULL repo file set,
-// not just the changed files. Also emits the file-level import dependencies.
-type TsBinding = { targetPath: string; importedName: string; namespace?: true }
+// A local name bound to a symbol in another file. `namespace` marks a whole-module binding
+// (`import * as ns` / Python `import a.b as ns`) whose references are always qualified.
+type BoundImport = { targetPath: string; importedName: string; namespace?: true }
 
-// A reference's target definition id. A namespace-qualified reference (`ns.helper()`) names
+// A reference's target definition id, for the import models that resolve a plain name straight
+// to its symbol (TS/JS and Python). A namespace-qualified reference (`ns.helper()`) names
 // `helper` inside the module `ns` points at; a plain one uses the binding's imported name.
-function tsTargetId(reference: Reference, bindings: Map<string, TsBinding>): string | null {
+function boundTargetId(reference: Reference, bindings: Map<string, BoundImport>): string | null {
   if (reference.qualifier !== undefined) {
     const namespaceBinding = bindings.get(reference.qualifier)
     if (!namespaceBinding?.namespace) return null
@@ -146,6 +144,34 @@ function tsTargetId(reference: Reference, bindings: Map<string, TsBinding>): str
   return `${binding.targetPath}#${binding.importedName}`
 }
 
+// Resolve one file's references through an already-built binding table, appending each hit to
+// `out`. Shared by every family: only the way the bindings are BUILT differs per language.
+function resolveBoundReferences(
+  source: ParsedSource,
+  bindings: Map<string, BoundImport>,
+  byId: Map<string, Definition>,
+  targetIdOf: (reference: Reference, bindings: Map<string, BoundImport>) => string | null,
+  out: DeepResolution
+): void {
+  for (const reference of source.syntax.references) {
+    const targetId = targetIdOf(reference, bindings)
+    if (!targetId) continue
+
+    const target = byId.get(targetId)
+    if (!target) continue
+
+    out.references.push({
+      fromPath: source.path,
+      line: reference.line,
+      kind: reference.kind,
+      target,
+    })
+  }
+}
+
+// Resolve one TS/JS file's references through its (repo-wide) relative-import bindings —
+// the fast engine's step 7, but the specifier resolves against the FULL repo file set,
+// not just the changed files. Also emits the file-level import dependencies.
 function resolveTsFile(
   source: ParsedSource,
   allPaths: ReadonlySet<string>,
@@ -153,7 +179,7 @@ function resolveTsFile(
   aliases: AliasTable,
   out: DeepResolution
 ): void {
-  const bindings = new Map<string, TsBinding>()
+  const bindings = new Map<string, BoundImport>()
 
   for (const moduleImport of source.syntax.imports) {
     const targetPath = resolveToKnownPath(source.path, moduleImport.specifier, allPaths, aliases)
@@ -169,20 +195,110 @@ function resolveTsFile(
     }
   }
 
-  for (const reference of source.syntax.references) {
-    const targetId = tsTargetId(reference, bindings)
-    if (!targetId) continue
+  resolveBoundReferences(source, bindings, byId, boundTargetId, out)
+}
 
-    const target = byId.get(targetId)
-    if (!target) continue
+// Resolve one Python file's references. A dotted or relative import resolves to a repo `.py`
+// file; `from a.b import c` binds `c` to `a/b.py#c`, `import a.b as m` is a namespace binding
+// (`m.f()` → `a/b.py#f`), and `from . import sub` where `sub` is a SUBMODULE binds it namespace-
+// style to `sub.py` so `sub.f()` still resolves. Same reference resolution as TS.
+function resolvePythonFile(
+  source: ParsedSource,
+  allPaths: ReadonlySet<string>,
+  byId: Map<string, Definition>,
+  out: DeepResolution
+): void {
+  const bindings = new Map<string, BoundImport>()
 
-    out.references.push({
-      fromPath: source.path,
-      line: reference.line,
-      kind: reference.kind,
-      target,
-    })
+  for (const moduleImport of source.syntax.imports) {
+    const moduleTarget = resolvePythonModule(source.path, moduleImport.specifier, allPaths)
+    const importFile = (to: string): void => {
+      if (to !== source.path) out.fileImports.push({ from: source.path, to })
+    }
+
+    for (const binding of moduleImport.bindings) {
+      if (binding.namespace) {
+        if (!moduleTarget) continue
+
+        importFile(moduleTarget)
+        bindings.set(binding.localName, {
+          targetPath: moduleTarget,
+          importedName: "",
+          namespace: true,
+        })
+        continue
+      }
+
+      // A named import is a symbol in the module file — unless the name is itself a submodule,
+      // in which case it binds namespace-style to that submodule's file.
+      const submodule = resolvePythonSubmodule(
+        source.path,
+        moduleImport.specifier,
+        binding.importedName,
+        allPaths
+      )
+      if (submodule) {
+        importFile(submodule)
+        bindings.set(binding.localName, {
+          targetPath: submodule,
+          importedName: "",
+          namespace: true,
+        })
+        continue
+      }
+
+      if (!moduleTarget) continue
+
+      importFile(moduleTarget)
+      bindings.set(binding.localName, {
+        targetPath: moduleTarget,
+        importedName: binding.importedName,
+      })
+    }
   }
+
+  resolveBoundReferences(source, bindings, byId, boundTargetId, out)
+}
+
+// A PHP reference's target id. A `use`-bound name resolves straight to its symbol; a static
+// `Class::method` reads the METHOD off the class binding (qualifier = the class's local name),
+// mirroring how Go reads a member off a package qualifier.
+function phpTargetId(reference: Reference, bindings: Map<string, BoundImport>): string | null {
+  if (reference.qualifier !== undefined) {
+    const classBinding = bindings.get(reference.qualifier)
+    if (!classBinding) return null
+
+    return `${classBinding.targetPath}#${reference.name}`
+  }
+
+  const binding = bindings.get(reference.name)
+  if (!binding) return null
+
+  return `${binding.targetPath}#${binding.importedName}`
+}
+
+// Resolve one PHP file's references. A `use App\Sub\Class` binds `Class` to the repo file matched
+// by namespace suffix; a relative `require`/`include` becomes a file-level dependency only. Same
+// reference loop as the others, with the PHP class-qualifier target id.
+function resolvePhpFile(
+  source: ParsedSource,
+  allPaths: ReadonlySet<string>,
+  byId: Map<string, Definition>,
+  out: DeepResolution
+): void {
+  const bindings = new Map<string, BoundImport>()
+
+  for (const moduleImport of source.syntax.imports) {
+    const targetPath = resolvePhpImport(source.path, moduleImport.specifier, allPaths)
+    if (!targetPath || targetPath === source.path) continue
+
+    out.fileImports.push({ from: source.path, to: targetPath })
+    for (const binding of moduleImport.bindings) {
+      bindings.set(binding.localName, { targetPath, importedName: binding.importedName })
+    }
+  }
+
+  resolveBoundReferences(source, bindings, byId, phpTargetId, out)
 }
 
 type GoIndex = { goByDirName: Map<string, Definition>; goDirs: Set<string> }
@@ -256,13 +372,15 @@ export function resolveRepo(
   const { byId, goByDirName, goDirs } = buildDefinitionIndex(sources)
   const out: DeepResolution = { references: [], fileImports: [] }
 
-  for (const source of sources) {
-    if (familyFor(source.grammarId) === "go") {
-      resolveGoFile(source, goModulePath, { goByDirName, goDirs }, out)
-      continue
-    }
+  const resolveByFamily: Record<GrammarFamily, (source: ParsedSource) => void> = {
+    go: (source) => resolveGoFile(source, goModulePath, { goByDirName, goDirs }, out),
+    ts: (source) => resolveTsFile(source, allPaths, byId, aliases, out),
+    php: (source) => resolvePhpFile(source, allPaths, byId, out),
+    python: (source) => resolvePythonFile(source, allPaths, byId, out),
+  }
 
-    resolveTsFile(source, allPaths, byId, aliases, out)
+  for (const source of sources) {
+    resolveByFamily[familyOfGrammar(source.grammarId)](source)
   }
 
   return out

@@ -78,7 +78,9 @@
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  /* On-accent text = the panel color (near-white in light, dark ink in dark) — stays readable
+     when the dark accent is a light Dracula purple. Same trick as the diff composer's Add. */
+  color: var(--panel);
 }
 
 .btn:disabled {

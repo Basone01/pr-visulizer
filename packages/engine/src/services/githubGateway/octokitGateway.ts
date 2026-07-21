@@ -5,6 +5,7 @@ import type { SessionUser } from "../../entities/index.js"
 import { decodeBase64Utf8 } from "../../utils/base64.js"
 import { languageForPath } from "../../utils/language.js"
 import type {
+  AddReviewCommentInput,
   GatewayChangedFile,
   GithubGateway,
   PrTarget,
@@ -136,6 +137,26 @@ export function createOctokitGateway(
     return { reviewId: review.data.id }
   }
 
+  async function addReviewComment(input: AddReviewCommentInput): Promise<void> {
+    const { owner, repo, number: pull_number } = input.target
+    const { comment } = input
+
+    await octokit.pulls.createReviewComment({
+      owner,
+      repo,
+      pull_number,
+      commit_id: input.commitId,
+      path: comment.path,
+      line: comment.line,
+      side: comment.side,
+      body: comment.body,
+      // Same range rule as submitReview: start_line only for a real multi-line range (§11).
+      ...(comment.startLine !== undefined && comment.startLine < comment.line
+        ? { start_line: comment.startLine, start_side: comment.side }
+        : {}),
+    })
+  }
+
   async function markFileAsViewed(target: PrTarget, path: string): Promise<void> {
     // The "Viewed" checkbox lives only in GraphQL (§11); it needs the PR node id.
     const details = await octokit.pulls.get({
@@ -170,6 +191,7 @@ export function createOctokitGateway(
     listOpenPullRequests,
     getFileContent,
     submitReview,
+    addReviewComment,
     markFileAsViewed,
     getViewer,
   }

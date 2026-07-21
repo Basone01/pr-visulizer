@@ -36,12 +36,18 @@ export type DiffViewSettings = {
   // Needs the head content, so it can't apply to a deleted file — the patch is already
   // that file in full.
   fullFile: boolean
+
+  // Pair the diff into two columns — removed lines on the base (left) side, added lines on the
+  // head (right) side — instead of stacking them inline. A pure render-shape choice: it layers
+  // over whatever the other three produced, so it composes with all of them.
+  splitView: boolean
 }
 
 export const DEFAULT_DIFF_VIEW_SETTINGS: DiffViewSettings = {
   wrap: false,
   hideWhitespace: false,
   fullFile: false,
+  splitView: false,
 }
 
 // Deep-v2 precision tier preset for the desktop shell (docs/architecture.md §6.2).

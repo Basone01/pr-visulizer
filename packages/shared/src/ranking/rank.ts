@@ -53,6 +53,13 @@ function buildGraph(input: RankingInput): DependencyGraph {
 // visited in policy order, so the tie-breakers still decide branch order and the result is
 // deterministic. Cyclic back-edges are broken by an on-stack guard; anything unreached (an
 // isolated file, or a node only inside a cycle) is appended in policy order so the order is total.
+//
+// Entry points are grouped by CHAIN (weakly-connected component) before the walk: a chain with
+// several tops — every Go _test.go is its own fanIn-0 top — would otherwise be resumed each time
+// a later top of it surfaced between other chains' entries in the policy order, because the
+// policy ranks tops by their own depth, not by the chain they cap (the analytics-suite#1241
+// report: 3 mid-review chain re-entries). The first top a chain places in policy order decides
+// where the WHOLE chain goes; its remaining tops follow immediately.
 function orderByBranch(
   metrics: FileMetric[],
   edges: DependencyEdge[],
@@ -72,7 +79,10 @@ function orderByBranch(
   }
 
   const roots = inPolicyOrder.filter((metric) => metric.fanIn === 0)
-  const entryPoints = roots.length > 0 ? roots : inPolicyOrder
+  const entryPoints = groupEntriesByChain(
+    roots.length > 0 ? roots : inPolicyOrder,
+    chainIds(metrics, edges)
+  )
 
   const ordered: FileMetric[] = []
   const emitted = new Set<string>()
@@ -95,6 +105,70 @@ function orderByBranch(
   }
 
   return ordered
+}
+
+// Weakly-connected component id per file — the "chain" a reviewer sees as one connected
+// subgraph in the graph pane. Edge direction is irrelevant for membership, so a plain BFS
+// over the undirected adjacency suffices (≤ 300 files, §5).
+function chainIds(metrics: FileMetric[], edges: DependencyEdge[]): Map<string, number> {
+  const neighbours = new Map<string, string[]>(metrics.map((metric) => [metric.path, []]))
+  for (const edge of edges) {
+    if (edge.from === edge.to) continue
+    if (!neighbours.has(edge.from) || !neighbours.has(edge.to)) continue
+
+    neighbours.get(edge.from)!.push(edge.to)
+    neighbours.get(edge.to)!.push(edge.from)
+  }
+
+  const chainOf = new Map<string, number>()
+  let nextChain = 0
+
+  for (const metric of metrics) {
+    if (chainOf.has(metric.path)) continue
+
+    const queue = [metric.path]
+    chainOf.set(metric.path, nextChain)
+    while (queue.length > 0) {
+      const path = queue.pop()!
+      for (const neighbour of neighbours.get(path) ?? []) {
+        if (chainOf.has(neighbour)) continue
+
+        chainOf.set(neighbour, nextChain)
+        queue.push(neighbour)
+      }
+    }
+
+    nextChain++
+  }
+
+  return chainOf
+}
+
+// Reorder policy-ranked entry points so all tops of one chain sit together, at the position
+// of that chain's best-ranked top. Stable within a chain: the policy order of its tops is kept.
+function groupEntriesByChain(
+  entries: FileMetric[],
+  chainOf: Map<string, number>
+): FileMetric[] {
+  const byChain = new Map<number, FileMetric[]>()
+  for (const entry of entries) {
+    const chain = chainOf.get(entry.path)!
+    const group = byChain.get(chain)
+    if (group) group.push(entry)
+    else byChain.set(chain, [entry])
+  }
+
+  const grouped: FileMetric[] = []
+  const emittedChains = new Set<number>()
+  for (const entry of entries) {
+    const chain = chainOf.get(entry.path)!
+    if (emittedChains.has(chain)) continue
+
+    emittedChains.add(chain)
+    grouped.push(...byChain.get(chain)!)
+  }
+
+  return grouped
 }
 
 function sortByPolicy(metrics: FileMetric[], policy: RankingPolicy): FileMetric[] {

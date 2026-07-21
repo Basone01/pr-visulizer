@@ -267,6 +267,47 @@ describe("branch-first order — walk each branch start→end (§8.4)", () => {
     expect(ranked.map((file) => file.path)).toEqual(expectedOrder)
     expect(ranked.map((file) => file.order)).toEqual([1, 2, 3, 4, 5])
   })
+
+  // The analytics-suite#1241 shape, minimised: a chain with SEVERAL fanIn-0 tops at different
+  // depths (Go: every _test.go is a top). The policy ranks tops by their own depth, so the
+  // deep chain's later top (helperTest, depth 2) sorted AFTER the shallow pair chain's top —
+  // and the walk resumed the auth chain mid-review: entity, entityTest, b, bTest, module,
+  // helper, helperTest. Grouping tops by chain keeps the whole chain together.
+  it("keeps a chain with several tops contiguous instead of resuming it later (#1241)", () => {
+    // Arrange
+    const entity = "auth/entity/product.go"
+    const entityTest = "auth/entity/product_test.go"
+    const module = "auth/entity/module.go"
+    const helper = "auth/usecase/helper.go"
+    const helperTest = "auth/usecase/helper_test.go"
+    const pair = "user/repo/member.go"
+    const pairTest = "user/repo/member_test.go"
+
+    const multiTopInput: RankingInput = {
+      files: [entity, entityTest, module, helper, helperTest, pair, pairTest].map((path) => ({
+        path,
+        churn: 10,
+      })),
+      edges: [
+        { from: entityTest, to: entity },
+        { from: helper, to: entity },
+        { from: helper, to: module },
+        { from: helperTest, to: helper },
+        { from: pairTest, to: pair },
+      ],
+    }
+    const policy = RANKING_PRESETS["dependency-branch"]
+
+    // The auth chain (both its tops, entityTest depth 1 and helperTest depth 2) completes
+    // before the user pair chain begins.
+    const expectedOrder = [entity, entityTest, module, helper, helperTest, pair, pairTest]
+
+    // Act
+    const ranked = rankFiles(multiTopInput, policy)
+
+    // Assert
+    expect(ranked.map((file) => file.path)).toEqual(expectedOrder)
+  })
 })
 
 // Branch-mode "best next" (§8.4). The bug (PR #1087): the tray walked one dependency chain

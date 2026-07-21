@@ -10,9 +10,9 @@ import {
 import "@xyflow/react/dist/style.css"
 import { useEffect, useMemo } from "react"
 
-import { GHOST_NODE_HEIGHT, NODE_HEIGHT, NODE_WIDTH } from "@/utils/graph/elkLayout"
+import { NODE_HEIGHT, NODE_WIDTH, nodeSize } from "@/utils/graph/elkLayout"
 
-import type { FileNodeVM, GhostNodeVM } from "@/entity/viewModels"
+import { type FileNodeVM, type GhostNodeVM, fileNodeVariant } from "@/entity/viewModels"
 
 import { useElkLayout } from "@/hooks/useElkLayout"
 
@@ -86,7 +86,7 @@ export function GraphPane({
 
   const layoutNodes = useMemo(
     () => [
-      ...fileNodes.map((n) => ({ path: n.path })),
+      ...fileNodes.map((n) => ({ path: n.path, ...fileNodeVariant(n) })),
       ...ghostNodes.map((n) => ({ path: n.path, ghost: true })),
     ],
     [fileNodes, ghostNodes]
@@ -120,8 +120,7 @@ export function GraphPane({
       id: node.path,
       type: "file",
       position: positions.get(node.path) ?? { x: 0, y: 0 },
-      width: NODE_WIDTH,
-      height: NODE_HEIGHT,
+      ...nodeSize(fileNodeVariant(node)),
       data: node,
     }))
 
@@ -129,8 +128,7 @@ export function GraphPane({
       id: node.path,
       type: "ghost",
       position: positions.get(node.path) ?? { x: 0, y: 0 },
-      width: NODE_WIDTH,
-      height: GHOST_NODE_HEIGHT,
+      ...nodeSize({ ghost: true }),
       data: node,
     }))
 

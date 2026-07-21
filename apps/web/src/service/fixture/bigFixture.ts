@@ -79,6 +79,43 @@ function bigSymbolsAndOccurrences(files: ChangedFile[]): {
   return { symbols, occurrences }
 }
 
+// One ghost (§6: unchanged file referencing changed code) so the ghost-view path is exercisable
+// in fixture mode: it uses two of file0's changed symbols at three known lines of GHOST_HEAD.
+export const GHOST_PATH = "src/module0/ghostConsumer.ts"
+const GHOST_SYMBOLS = ["src/module0/file0.ts#Symbol0", "src/module0/file0.ts#Symbol1"]
+const GHOST_REF_LINES = [4, 9, 17]
+
+export const GHOST_HEAD = [
+  'import { Symbol0_0, Symbol0_1 } from "./file0"',
+  "",
+  "export function consumeChanged(): number {",
+  "  const first = Symbol0_0()",
+  "  return first + 1",
+  "}",
+  "",
+  "export function consumeAgain(): number {",
+  "  return Symbol0_0() * 2",
+  "}",
+  "",
+  "// A block of untouched lines so the ghost view has room to scroll.",
+  "export const GHOST_CONSTANT = 42",
+  "",
+  "export function tail(): number {",
+  "  // the last reference sits down here",
+  "  return Symbol0_1(GHOST_CONSTANT)",
+  "}",
+  "",
+].join("\n")
+
+function ghostOccurrences(): SymbolOccurrence[] {
+  return GHOST_REF_LINES.map((line, index) => ({
+    symbolId: GHOST_SYMBOLS[index % GHOST_SYMBOLS.length]!,
+    path: GHOST_PATH,
+    line,
+    role: "usage" as const,
+  }))
+}
+
 export function buildBigAnalysis(owner: string, repo: string): AnalysisResult {
   const files = bigFiles()
   const edges = bigEdges(files)
@@ -105,8 +142,8 @@ export function buildBigAnalysis(owner: string, repo: string): AnalysisResult {
     symbols,
     edges,
     ranking,
-    ghosts: [],
-    occurrences,
+    ghosts: [{ path: GHOST_PATH, usedChangedSymbols: GHOST_SYMBOLS }],
+    occurrences: [...occurrences, ...ghostOccurrences()],
   })
 }
 

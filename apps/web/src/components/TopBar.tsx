@@ -1,5 +1,6 @@
 import type { Engine, PrMeta } from "@pr-visulizer/shared"
 
+import { ThemeSwitch } from "./ThemeSwitch"
 import styles from "./TopBar.module.css"
 
 // Engine label mirrors the design badge: "FAST · AST" (fast) / "DEEP · REPO" (deep — repo-wide
@@ -45,6 +46,7 @@ export function TopBar({ pr, engine, onBack, showSettings, onOpenCloneSettings }
       <span className={`${styles.meta} mono`}>
         {pr.owner}/{pr.repo} · headSha {pr.headSha.slice(0, 7)}
       </span>
+      <ThemeSwitch />
     </div>
   )
 }

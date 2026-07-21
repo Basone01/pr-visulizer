@@ -27,14 +27,20 @@ describe("useDiffViewSettings", () => {
   it("persists a toggle and restores it on a fresh mount", async () => {
     // Arrange
     const store = createMemoryKeyValueStore()
-    const expected: DiffViewSettings = { wrap: true, hideWhitespace: true, fullFile: true }
+    const expected: DiffViewSettings = {
+      wrap: true,
+      hideWhitespace: true,
+      fullFile: true,
+      splitView: true,
+    }
 
-    // Act — toggle all three on, then mount a second hook against the same store.
+    // Act — toggle all four on, then mount a second hook against the same store.
     const first = renderHook(() => useDiffViewSettings(store))
     await waitFor(() => expect(first.result.current.isLoaded).toBe(true))
     await act(async () => first.result.current.toggleWrap())
     await act(async () => first.result.current.toggleHideWhitespace())
     await act(async () => first.result.current.toggleFullFile())
+    await act(async () => first.result.current.toggleSplitView())
 
     const second = renderHook(() => useDiffViewSettings(store))
     await waitFor(() => expect(second.result.current.isLoaded).toBe(true))
@@ -43,12 +49,17 @@ describe("useDiffViewSettings", () => {
     expect(second.result.current.settings).toEqual(expected)
   })
 
-  it("keeps the older toggles of a record persisted before full-file existed", async () => {
+  it("keeps the older toggles of a record persisted before full-file and split-view existed", async () => {
     // Arrange — what a reviewer who used wrap/hide-whitespace already has on disk.
     const store = createMemoryKeyValueStore()
     const legacyRecord = JSON.stringify({ wrap: true, hideWhitespace: true })
     await store.set("diffViewSettings", legacyRecord)
-    const expected: DiffViewSettings = { wrap: true, hideWhitespace: true, fullFile: false }
+    const expected: DiffViewSettings = {
+      wrap: true,
+      hideWhitespace: true,
+      fullFile: false,
+      splitView: false,
+    }
 
     // Act
     const { result } = renderHook(() => useDiffViewSettings(store))

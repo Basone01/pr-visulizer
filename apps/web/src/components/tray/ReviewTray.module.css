@@ -186,7 +186,8 @@
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  /* On-accent text tracks --panel so it stays readable on the light Dracula-purple dark accent. */
+  color: var(--panel);
 }
 
 .btn:disabled {

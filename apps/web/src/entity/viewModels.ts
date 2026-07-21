@@ -40,6 +40,16 @@ export type GhostNodeVM = {
   usedChangedSymbols: string[]
 }
 
+// Which optional rows a FileNode renders. The single predicate shared by the node itself (what it
+// draws) and by the graph layout (the height it reserves), so the reserved box and the rendered
+// box always agree — a blast-radius badge only shows when something unchanged depends on the file.
+export function fileNodeVariant(vm: FileNodeVM): { hasSymbols: boolean; hasBlast: boolean } {
+  return {
+    hasSymbols: vm.symbols.length > 0,
+    hasBlast: vm.blastRadius !== null && vm.blastRadius > 0,
+  }
+}
+
 export type PrView = {
   trayRows: TrayRow[]
   fileNodes: FileNodeVM[]

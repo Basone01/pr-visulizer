@@ -17,9 +17,14 @@ export function useElkLayout(
   // (checking a file off rebuilds the view models but moves no node).
   const signature = useMemo(
     () =>
-      `${nodes.map((node) => `${node.path}${node.ghost ? "+g" : ""}`).join(",")}|${edges
-        .map((edge) => `${edge.from}->${edge.to}`)
-        .join(",")}`,
+      `${nodes
+        .map(
+          (node) =>
+            // Height-affecting flags are part of the key: the reserved box changes with them, so a
+            // change must re-run the layout (§2.1), not just when a node is added or removed.
+            `${node.path}${node.ghost ? "+g" : ""}${node.hasSymbols ? "+s" : ""}${node.hasBlast ? "+b" : ""}`
+        )
+        .join(",")}|${edges.map((edge) => `${edge.from}->${edge.to}`).join(",")}`,
     [nodes, edges]
   )
 

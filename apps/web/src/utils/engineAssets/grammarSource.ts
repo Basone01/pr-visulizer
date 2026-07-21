@@ -4,6 +4,8 @@
 import { CORE_GRAMMAR_ID, type GrammarSource } from "@pr-visulizer/engine/parser"
 import goWasmUrl from "tree-sitter-wasms/out/tree-sitter-go.wasm?url"
 import javascriptWasmUrl from "tree-sitter-wasms/out/tree-sitter-javascript.wasm?url"
+import phpWasmUrl from "tree-sitter-wasms/out/tree-sitter-php.wasm?url"
+import pythonWasmUrl from "tree-sitter-wasms/out/tree-sitter-python.wasm?url"
 import tsxWasmUrl from "tree-sitter-wasms/out/tree-sitter-tsx.wasm?url"
 import typescriptWasmUrl from "tree-sitter-wasms/out/tree-sitter-typescript.wasm?url"
 // The WEBVIEW platform's wasm loader (docs/tauri-architecture.md §3 seam 3). The engine
@@ -27,6 +29,8 @@ export const BUNDLED_WASM_URLS: Readonly<Record<string, string>> = {
   tsx: tsxWasmUrl,
   javascript: javascriptWasmUrl,
   go: goWasmUrl,
+  php: phpWasmUrl,
+  python: pythonWasmUrl,
 }
 
 export function createBrowserGrammarSource(): GrammarSource {

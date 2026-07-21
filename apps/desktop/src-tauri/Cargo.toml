@@ -1,6 +1,6 @@
 [package]
 name = "pr-visualizer"
-version = "0.1.0"
+version = "0.3.0"
 description = "PR Visualizer desktop shell"
 authors = ["basone01"]
 edition = "2021"

@@ -50,6 +50,7 @@ function NextButtonHarness() {
 
   return (
     <DiffPane
+      changedPaths={new Set<string>()}
       target={target}
       file={limitsFile}
       symbols={[]}
@@ -84,13 +85,13 @@ describe("DiffPane next button follows the suggestion", () => {
     const user = userEvent.setup()
     renderWithQuery()
     const nextButton = screen.getByLabelText("Open next suggested file")
-    expect(nextButton).toHaveAttribute("title", "next: limits.ts (Ctrl+2)")
+    expect(nextButton).toHaveAttribute("title", "next: limits.ts (⌥2)")
 
     // Act
     await user.click(screen.getByRole("button", { name: "Mark viewed" }))
 
     // Assert
-    const expectedTitle = "next: http.ts (Ctrl+2)"
+    const expectedTitle = "next: http.ts (⌥2)"
     expect(nextButton).toHaveAttribute("title", expectedTitle)
   })
 })

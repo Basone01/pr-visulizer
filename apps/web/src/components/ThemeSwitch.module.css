@@ -1,0 +1,44 @@
+/* Segmented control matching the app's chip vocabulary (var(--border) hairline, accent-soft
+   active fill — same on-state as the diff toolbar toggles). Tokens only, no one-off colors. */
+.group {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.segment {
+  /* ≥24px hit target per WCAG 2.5.8; the 44px top bar leaves room to sit comfortably. */
+  min-width: 28px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.segment:last-child {
+  border-right: 0;
+}
+
+.segment:hover {
+  color: var(--text);
+}
+
+.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Keep a visible focus ring (SC 2.4.11) — accent outline reads on either surface. */
+.segment:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

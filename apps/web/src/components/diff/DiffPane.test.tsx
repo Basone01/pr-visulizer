@@ -58,6 +58,7 @@ function DiffPaneHarness() {
 
   return (
     <DiffPane
+      changedPaths={new Set<string>()}
       target={target}
       file={file}
       symbols={[]}

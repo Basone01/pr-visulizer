@@ -4,7 +4,7 @@ import type { AnalysisProgress, AnalysisProgressListener } from "@/entity/analys
 import type { PrTarget, RepoRef } from "@/entity/pr"
 
 import type { AnalysisResponse, PrClient, ReviewSubmission } from "../prClient"
-import { BIG_FIXTURE_NUMBER, bigPatch, buildBigAnalysis } from "./bigFixture"
+import { BIG_FIXTURE_NUMBER, GHOST_HEAD, GHOST_PATH, bigPatch, buildBigAnalysis } from "./bigFixture"
 import { pr42HeadFile } from "./headFiles"
 import { pr42Patches } from "./patches"
 import { pr42Analysis } from "./pr42"
@@ -111,8 +111,17 @@ export function createFixturePrClient(): PrClient {
 
     // The big fixture is synthetic patches with no head file behind them — it answers "no head
     // content", which is exactly the unavailable path the toolbar has to handle.
+    addCommentNow(): Promise<void> {
+      // Recorded nowhere visible — fixture mode has no GitHub; the composer's success path
+      // is what's being exercised.
+      return delay(undefined)
+    },
+
     getFileAtHead(target: PrTarget, path: string): Promise<string | null> {
-      if (target.number === BIG_FIXTURE_NUMBER) return delay(null)
+      // The big fixture serves only its ghost's head text — every other path stays null so
+      // the "content unavailable" state remains reachable in fixture mode.
+      if (target.number === BIG_FIXTURE_NUMBER)
+        return delay(path === GHOST_PATH ? GHOST_HEAD : null)
 
       return delay(pr42HeadFile(path))
     },

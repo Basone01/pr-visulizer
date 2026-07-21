@@ -14,13 +14,14 @@ import { getAppStorage } from "@/service/clientFactory"
 
 const DIFF_VIEW_SETTINGS_KEY = "diffViewSettings"
 
-// `fullFile` defaults IN THE SCHEMA, not just in the constant: a record persisted before the
-// toggle existed carries only wrap + hideWhitespace, and a required field would fail the parse
-// and silently reset the reviewer's other two toggles to their defaults.
+// `fullFile` and `splitView` default IN THE SCHEMA, not just in the constant: a record persisted
+// before either toggle existed carries only the fields of its day, and a required field would fail
+// the parse and silently reset the reviewer's other toggles to their defaults.
 const diffViewSettingsSchema = z.object({
   wrap: z.boolean(),
   hideWhitespace: z.boolean(),
   fullFile: z.boolean().default(false),
+  splitView: z.boolean().default(false),
 })
 
 export type DiffViewSettingsApi = {
@@ -29,6 +30,7 @@ export type DiffViewSettingsApi = {
   toggleWrap: () => void
   toggleHideWhitespace: () => void
   toggleFullFile: () => void
+  toggleSplitView: () => void
 }
 
 export function useDiffViewSettings(store: KeyValueStore = getAppStorage()): DiffViewSettingsApi {
@@ -81,5 +83,10 @@ export function useDiffViewSettings(store: KeyValueStore = getAppStorage()): Dif
     [commit]
   )
 
-  return { settings, isLoaded, toggleWrap, toggleHideWhitespace, toggleFullFile }
+  const toggleSplitView = useCallback(
+    () => commit({ ...settingsRef.current, splitView: !settingsRef.current.splitView }),
+    [commit]
+  )
+
+  return { settings, isLoaded, toggleWrap, toggleHideWhitespace, toggleFullFile, toggleSplitView }
 }

@@ -41,6 +41,7 @@ import { LocateRepoPrompt } from "./LocateRepoPrompt"
 import { PaneDivider } from "./PaneDivider"
 import { TopBar } from "./TopBar"
 import { DiffPane } from "./diff/DiffPane"
+import { GhostFilePane } from "./diff/GhostFilePane"
 import { GraphPane } from "./graph/GraphPane"
 import { ReviewTray } from "./tray/ReviewTray"
 
@@ -183,6 +184,19 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
         : null,
     [view, progress]
   )
+  // Paths of the PR's changed files — the usages popover splits targets into in-PR vs ghost.
+  const changedPaths = useMemo(
+    () => new Set((analysis?.files ?? overview?.files ?? []).map((file) => file.path)),
+    [analysis, overview]
+  )
+
+  // Occurrences of changed symbols in the OPEN path — the ghost pane's highlight lines. Cheap
+  // for changed files too (unused there), which keeps the hook above the early returns.
+  const ghostRefs = useMemo(
+    () => (analysis?.occurrences ?? []).filter((occ) => occ.path === current.path),
+    [analysis, current.path]
+  )
+
   // Auto-open the suggested file ONCE, when the analysis first lands. Guarded so a later manual
   // blur (Esc clearing the focus) stays blurred instead of snapping straight back to the
   // suggestion the moment current.path goes empty.
@@ -252,6 +266,12 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   const shownEngine = analysis?.engine ?? engine
   const files = analysis?.files ?? overview.files
   const currentFile = files.find((file) => file.path === current.path) ?? null
+
+  // The open path can be a GHOST node (unchanged file referencing changed code) — those aren't
+  // in `files`, so they render the read-only GhostFilePane instead of the diff.
+  const currentGhost = currentFile
+    ? null
+    : (fullView?.ghostNodes.find((ghost) => ghost.path === current.path) ?? null)
 
   // http mode has no step events (202-poll) — the progress panel renders its indeterminate
   // state instead of highlighting a step it can't observe.
@@ -394,22 +414,35 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
                 </div>
               )}
             >
-              <DiffPane
-                target={target}
-                file={currentFile}
-                symbols={analysis?.symbols ?? []}
-                anchorIndex={anchorIndex}
-                nav={nav}
-                reviewed={progress.reviewedFiles.includes(current.path)}
-                onToggleReviewed={toggleReviewed}
-                suggestedNextPath={nextFilePath}
-                onOpenFile={selectFile}
-                onHide={() => collapse.toggle("diff")}
-                drafts={progress.drafts}
-                onAddDraft={saveDraft}
-                onUpdateDraft={editDraft}
-                onDeleteDraft={removeDraft}
-              />
+              {currentGhost ? (
+                <GhostFilePane
+                  target={target}
+                  path={currentGhost.path}
+                  headSha={pr.headSha}
+                  refs={ghostRefs}
+                  suggestedNextPath={nextFilePath}
+                  onOpenFile={selectFile}
+                  onHide={() => collapse.toggle("diff")}
+                />
+              ) : (
+                <DiffPane
+                  target={target}
+                  file={currentFile}
+                  symbols={analysis?.symbols ?? []}
+                  anchorIndex={anchorIndex}
+                  nav={nav}
+                  reviewed={progress.reviewedFiles.includes(current.path)}
+                  onToggleReviewed={toggleReviewed}
+                  suggestedNextPath={nextFilePath}
+                  changedPaths={changedPaths}
+                  onOpenFile={selectFile}
+                  onHide={() => collapse.toggle("diff")}
+                  drafts={progress.drafts}
+                  onAddDraft={saveDraft}
+                  onUpdateDraft={editDraft}
+                  onDeleteDraft={removeDraft}
+                />
+              )}
             </ErrorBoundary>
           </div>
         )}

@@ -43,6 +43,8 @@ export interface PrClient {
   getProgress(target: PrTarget): Promise<ReviewProgress>
   putProgress(target: PrTarget, progress: ReviewProgress): Promise<ReviewProgress>
   submitReview(target: PrTarget, submission: ReviewSubmission): Promise<void>
+  // §11: publish one inline comment immediately — no pending review, visible at once.
+  addCommentNow(target: PrTarget, comment: DraftComment): Promise<void>
   // The authenticated viewer identity (§9 /api/me): http → the BFF route, tauri → the
   // gateway, fixture → a dev viewer. Powers the own-PR Approve guard (task 4, §11).
   getViewer(): Promise<Viewer>

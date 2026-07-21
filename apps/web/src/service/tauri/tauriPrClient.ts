@@ -16,6 +16,7 @@ import {
 import {
   type AnalysisResult,
   type ChangedFile,
+  type DraftComment,
   type PrMeta,
   type PrOverview,
   type PrSummary,
@@ -421,6 +422,12 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
 
       await storage.set(progressKey(target, pr.headSha), JSON.stringify(saved))
       return saved
+    },
+
+    async addCommentNow(target: PrTarget, comment: DraftComment): Promise<void> {
+      // Same anchor as a review submit: the PR's head commit (§11).
+      const pr = await pullMeta(target)
+      await gateway.addReviewComment({ target, commitId: pr.headSha, comment })
     },
 
     async submitReview(target: PrTarget, submission: ReviewSubmission): Promise<void> {

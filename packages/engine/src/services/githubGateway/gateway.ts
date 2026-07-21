@@ -48,6 +48,14 @@ export type SubmitReviewResult = {
   reviewId: number
 }
 
+// §11: one comment published immediately (not part of a pending review). Same shape as a
+// review's inline comment, anchored to the reviewed commit.
+export type AddReviewCommentInput = {
+  target: PrTarget
+  commitId: string // headSha
+  comment: ReviewCommentInput
+}
+
 export interface GithubGateway {
   // PR meta ONLY — one light `GET /pulls/:n` (no file pagination). The desktop deep path
   // (docs/tauri-architecture.md §6) uses this instead of getPullRequest: file list + patches
@@ -66,6 +74,10 @@ export interface GithubGateway {
 
   // §11: the real GitHub review (approve / request-changes / comment).
   submitReview(input: SubmitReviewInput): Promise<SubmitReviewResult>
+
+  // §11: publish ONE inline comment immediately — POST /pulls/:n/comments, visible at once,
+  // no pending review involved.
+  addReviewComment(input: AddReviewCommentInput): Promise<void>
 
   // §11: GitHub's native "Viewed" checkbox (GraphQL markFileAsViewed), synced on
   // every progress write so app checkmarks show up in the GitHub UI too.

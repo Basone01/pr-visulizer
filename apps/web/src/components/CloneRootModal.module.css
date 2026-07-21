@@ -78,7 +78,8 @@
 }
 
 .primary {
-  color: #fff;
+  /* On-accent text tracks --panel so it stays readable on the light Dracula-purple dark accent. */
+  color: var(--panel);
   background: var(--accent);
   border: 1px solid var(--accent);
 }

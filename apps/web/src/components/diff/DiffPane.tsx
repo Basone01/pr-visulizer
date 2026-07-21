@@ -1,7 +1,8 @@
 import type { ChangedFile, ChangedSymbol, DraftComment } from "@pr-visulizer/shared"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import {
   Fragment,
+  type ReactNode,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -15,6 +16,11 @@ import { anchorsForLine } from "@/utils/diff/anchors"
 import { buildFullFileView } from "@/utils/diff/fullFileView"
 import { hideWhitespaceOnly } from "@/utils/diff/hideWhitespaceOnly"
 import { parseUnifiedDiff } from "@/utils/diff/parseUnifiedDiff"
+import {
+  type SideBySideCell,
+  buildSideBySideRows,
+  findRowForLineIndex,
+} from "@/utils/diff/sideBySideRows"
 import { openExternalUrl } from "@/utils/externalLink/openExternal"
 import { githubPrFileUrl } from "@/utils/prUrl/githubFileUrl"
 import { draftKey } from "@/utils/review/progress"
@@ -23,6 +29,7 @@ import type { AnchorIndex, SymbolAnchor } from "@/entity/anchor"
 import type { DiffLine as DiffLineVM } from "@/entity/diff"
 import type { PrTarget } from "@/entity/pr"
 
+import { getPrClient } from "@/service/clientFactory"
 import { fileAtHeadQueryOptions, patchQueryOptions } from "@/service/queries"
 
 import { useDiffFind } from "@/hooks/useDiffFind"
@@ -68,6 +75,8 @@ type DiffPaneProps = {
   // The live "review next" suggestion (same suggestNext the tray highlights, §8.2). null
   // when nothing is left unreviewed — the header's next button is disabled then (task 1).
   suggestedNextPath: string | null
+  // Paths of the PR's changed files — the usages popover groups targets by membership.
+  changedPaths: Set<string>
   onOpenFile: (path: string) => void
   onHide: () => void
   // Inline draft comments for THIS file and the write path back to progress (task 5). The
@@ -121,6 +130,7 @@ export function DiffPane({
   reviewed,
   onToggleReviewed,
   suggestedNextPath,
+  changedPaths,
   onOpenFile,
   onHide,
   drafts,
@@ -131,7 +141,8 @@ export function DiffPane({
   const path = file?.path ?? ""
   const patchQuery = useQuery(patchQueryOptions(target, path))
   const tokenizer = useLineTokenizer(file?.language ?? null)
-  const { settings, toggleWrap, toggleHideWhitespace, toggleFullFile } = useDiffViewSettings()
+  const { settings, toggleWrap, toggleHideWhitespace, toggleFullFile, toggleSplitView } =
+    useDiffViewSettings()
 
   // A deleted file has no head revision, and its patch already IS the whole file — the toggle
   // is disabled there rather than fetching content that cannot exist.
@@ -238,10 +249,27 @@ export function DiffPane({
   // the same `requiredRow` seam the peek/flash overlays already use (whichever row is deeper).
   const requiredRow = Math.max(overlayRequiredRow, find.open ? find.currentRowIndex : -1)
 
+  // The last transform in the chain, and the only one that changes the render SHAPE rather than
+  // the line list: base-left / head-right pairs over whatever full-file and hide-whitespace
+  // produced. null in inline mode, so the flat line list stays the thing being rendered.
+  const splitRows = useMemo(
+    () =>
+      settings.splitView && shownDiff ? buildSideBySideRows({ lines: shownDiff.lines }) : null,
+    [settings.splitView, shownDiff]
+  )
+
+  // Everything above addresses rows by FLAT line index; pairing breaks that correspondence (an
+  // added line can share a row with a deletion three lines earlier), so the mount budget — which
+  // counts rendered rows — gets the translated index.
+  const renderRowCount = splitRows ? splitRows.length : (shownDiff?.lines.length ?? 0)
+  const requiredRenderRow = splitRows ? findRowForLineIndex(splitRows, requiredRow) : requiredRow
+
+  // The mode rides in the key: switching it changes what a row IS, so growth restarts rather than
+  // carrying a flat-line budget over to a shorter paired list.
   const mountedRows = useProgressiveRows(
-    shownDiff?.path ?? "",
-    shownDiff?.lines.length ?? 0,
-    requiredRow
+    `${shownDiff?.path ?? ""}${settings.splitView ? ":split" : ""}`,
+    renderRowCount,
+    requiredRenderRow
   )
 
   // Scroll the current match into view once its row is mounted (requiredRow forces the mount in
@@ -280,13 +308,33 @@ export function DiffPane({
     [jumpToDefinition, peekUsage, spanById]
   )
 
+  // True between a gutter mousedown and the next mouseup anywhere — rows entered while it
+  // holds extend the selection (GitHub-style drag). A ref, not state: rows read it inside a
+  // stable callback and a drag must not re-render the pane per row crossed.
+  const draggingRef = useRef(false)
+  useEffect(() => {
+    const stopDrag = (): void => {
+      draggingRef.current = false
+    }
+    window.addEventListener("mouseup", stopDrag)
+    return () => window.removeEventListener("mouseup", stopDrag)
+  }, [])
+
   const handleSelectLine = useCallback(
     (headLine: number, extendRange: boolean): void => {
       setEditingKey(null)
+      draggingRef.current = true
       if (extendRange) extend(headLine)
       else begin(headLine)
     },
     [begin, extend]
+  )
+
+  const handleLineDragEnter = useCallback(
+    (headLine: number): void => {
+      if (draggingRef.current) extend(headLine)
+    },
+    [extend]
   )
 
   const openEdit = useCallback(
@@ -363,6 +411,27 @@ export function DiffPane({
   function closeComposer(): void {
     selection.clear()
     setEditingKey(null)
+    commentNow.reset()
+  }
+
+  // "Comment now" (§11): publish immediately instead of drafting. Success closes the
+  // composer like a save; failure keeps it open with the error inline, text intact.
+  const commentNow = useMutation({
+    mutationFn: (draft: DraftComment) => getPrClient().addCommentNow(target, draft),
+    onSuccess: () => {
+      selection.clear()
+      setEditingKey(null)
+    },
+  })
+
+  function publishComposerNow(composer: ActiveComposer, body: string): void {
+    commentNow.mutate({
+      path: activeFile.path,
+      line: composer.endLine,
+      side: "RIGHT",
+      body,
+      ...(composer.startLine !== composer.endLine ? { startLine: composer.startLine } : {}),
+    })
   }
 
   function saveComposer(composer: ActiveComposer, body: string): void {
@@ -390,6 +459,86 @@ export function DiffPane({
 
   const peek = nav.state.peek
   const peekSpan = peek ? spanById.get(peek.anchor.symbolId) : undefined
+
+  // One code line, one rendering: the inline row and BOTH side-by-side columns come through here,
+  // so a line never has a second copy of its markup to keep in sync. `gutterSide` is the only
+  // difference — the base column shows the base number and drops the head-anchored annotations.
+  function renderLine(cell: SideBySideCell, path: string, gutterSide: "head" | "base"): ReactNode {
+    const headLine = cell.line.newLine
+    const anchors = headLine !== null ? anchorsForLine(anchorIndex, path, headLine) : NO_ANCHORS
+    const isFlash = flash !== null && flash.path === path && flash.line === headLine
+    const selected = headLine !== null && isLineInSelection(selection.selection, headLine)
+    const draftsOnLine = headLine !== null ? (draftsByLine.get(headLine) ?? NO_DRAFTS) : NO_DRAFTS
+
+    return (
+      <DiffLine
+        line={cell.line}
+        tokenizer={tokenizer}
+        anchors={anchors}
+        isFlash={isFlash}
+        selected={selected}
+        isFindCurrent={find.open && cell.index === find.currentRowIndex}
+        gutterSide={gutterSide}
+        onAnchorClick={handleAnchorClick}
+        onShowUsages={setUsagesAnchor}
+        onSelectLine={handleSelectLine}
+        onLineDragEnter={handleLineDragEnter}
+        draftsOnLine={draftsOnLine}
+        onEditDraft={openEdit}
+        onDeleteDraft={removeDraft}
+      />
+    )
+  }
+
+  // The three things that open UNDER a row — composer, peek, usages — all anchor to a head line,
+  // so both modes place them by that line and split mode simply spans them across both columns.
+  // Returns null when the row has none, so split mode adds no empty table rows.
+  function renderRowOverlays(headLine: number | null): ReactNode {
+    if (headLine === null) return null
+
+    const showComposer = activeComposer !== null && headLine === activeComposer.endLine
+    const showPeek = peek !== null && peekSpan !== undefined && headLine === peek.anchor.line
+    const showUsages = usagesAnchor !== null && headLine === usagesAnchor.line
+    if (!showComposer && !showPeek && !showUsages) return null
+
+    return (
+      <>
+        {showComposer && activeComposer && (
+          <CommentComposer
+            key={`${activeComposer.mode}-${activeComposer.startLine}-${activeComposer.endLine}`}
+            startLine={activeComposer.startLine}
+            endLine={activeComposer.endLine}
+            initialBody={activeComposer.initialBody}
+            onSave={(body) => saveComposer(activeComposer, body)}
+            onSaveNow={
+              activeComposer.mode === "new"
+                ? (body) => publishComposerNow(activeComposer, body)
+                : undefined
+            }
+            savingNow={commentNow.isPending}
+            saveNowError={commentNow.error ? String(commentNow.error) : null}
+            onCancel={closeComposer}
+          />
+        )}
+
+        {showPeek && peek && peekSpan && (
+          <PeekPopup
+            target={target}
+            definition={peek.target}
+            span={peekSpan}
+            truncated={peek.truncated}
+            expanded={peek.expanded}
+            onExpand={nav.expandPeek}
+            onJump={() => nav.jumpToDefinition(peek.anchor)}
+          />
+        )}
+
+        {showUsages && usagesAnchor && (
+          <UsagesPopover anchor={usagesAnchor} changedPaths={changedPaths} onJumpTo={nav.jumpTo} />
+        )}
+      </>
+    )
+  }
 
   return (
     <div className={styles.pane}>
@@ -436,6 +585,16 @@ export function DiffPane({
             </button>
             <button
               type="button"
+              className={`${styles.iconToggle} ${settings.splitView ? styles.toggleOn : ""}`}
+              aria-pressed={settings.splitView}
+              aria-label="Side-by-side view"
+              title="Compare side by side — removed on the left, added on the right"
+              onClick={toggleSplitView}
+            >
+              ◫
+            </button>
+            <button
+              type="button"
               className={styles.nextButton}
               aria-label="Open file on GitHub"
               title="Open this file on GitHub"
@@ -452,7 +611,7 @@ export function DiffPane({
               className={`${styles.iconToggle} ${reviewed ? styles.toggleOn : ""}`}
               aria-pressed={reviewed}
               aria-label="Mark viewed"
-              title={`${reviewed ? "Mark not viewed" : "Mark viewed"} (Ctrl+1)`}
+              title={`${reviewed ? "Mark not viewed" : "Mark viewed"} (⌥1)`}
               onClick={() => onToggleReviewed(file.path)}
             >
               ✓
@@ -463,7 +622,7 @@ export function DiffPane({
               aria-label="Open next suggested file"
               title={
                 suggestedNextPath
-                  ? `next: ${baseName(suggestedNextPath)} (Ctrl+2)`
+                  ? `next: ${baseName(suggestedNextPath)} (⌥2)`
                   : "No unreviewed files left"
               }
               disabled={suggestedNextPath === null}
@@ -510,69 +669,57 @@ export function DiffPane({
         >
           {!shownDiff && <div className={styles.empty}>Loading diff…</div>}
 
-          {shownDiff?.lines.slice(0, mountedRows).map((line, index) => {
-            const headLine = line.newLine
-            const anchors =
-              headLine !== null ? anchorsForLine(anchorIndex, shownDiff.path, headLine) : NO_ANCHORS
-            const isFlash =
-              flash !== null && flash.path === shownDiff.path && flash.line === headLine
-
-            const showPeek =
-              peek !== null && peekSpan !== undefined && headLine === peek.anchor.line
-            const showUsages = usagesAnchor !== null && headLine === usagesAnchor.line
-
-            const selected = headLine !== null && isLineInSelection(selection.selection, headLine)
-            const draftsOnLine =
-              headLine !== null ? (draftsByLine.get(headLine) ?? NO_DRAFTS) : NO_DRAFTS
-            const showComposer =
-              activeComposer !== null && headLine !== null && headLine === activeComposer.endLine
-
-            return (
+          {shownDiff &&
+            !splitRows &&
+            shownDiff.lines.slice(0, mountedRows).map((line, index) => (
               <Fragment key={index}>
-                <DiffLine
-                  line={line}
-                  tokenizer={tokenizer}
-                  anchors={anchors}
-                  isFlash={isFlash}
-                  selected={selected}
-                  isFindCurrent={find.open && index === find.currentRowIndex}
-                  onAnchorClick={handleAnchorClick}
-                  onShowUsages={setUsagesAnchor}
-                  onSelectLine={handleSelectLine}
-                  draftsOnLine={draftsOnLine}
-                  onEditDraft={openEdit}
-                  onDeleteDraft={removeDraft}
-                />
-
-                {showComposer && activeComposer && (
-                  <CommentComposer
-                    key={`${activeComposer.mode}-${activeComposer.startLine}-${activeComposer.endLine}`}
-                    startLine={activeComposer.startLine}
-                    endLine={activeComposer.endLine}
-                    initialBody={activeComposer.initialBody}
-                    onSave={(body) => saveComposer(activeComposer, body)}
-                    onCancel={closeComposer}
-                  />
-                )}
-
-                {showPeek && peek && peekSpan && (
-                  <PeekPopup
-                    target={target}
-                    definition={peek.target}
-                    span={peekSpan}
-                    truncated={peek.truncated}
-                    expanded={peek.expanded}
-                    onExpand={nav.expandPeek}
-                    onJump={() => nav.jumpToDefinition(peek.anchor)}
-                  />
-                )}
-
-                {showUsages && usagesAnchor && (
-                  <UsagesPopover anchor={usagesAnchor} onJumpTo={nav.jumpTo} />
-                )}
+                {renderLine({ line, index }, shownDiff.path, "head")}
+                {renderRowOverlays(line.newLine)}
               </Fragment>
-            )
-          })}
+            ))}
+
+          {shownDiff && splitRows && (
+            <table className={styles.split}>
+              <tbody>
+                {splitRows.slice(0, mountedRows).map((row, rowIndex) => {
+                  // A hunk header belongs to neither side — it spans the table like the separator
+                  // it is, and keeps the head gutter so find still resolves it.
+                  if (row.kind === "hunk") {
+                    return (
+                      <tr key={rowIndex}>
+                        <td className={styles.splitCell} colSpan={2}>
+                          {renderLine(row.header, shownDiff.path, "head")}
+                        </td>
+                      </tr>
+                    )
+                  }
+
+                  const overlays = renderRowOverlays(row.right?.line.newLine ?? null)
+
+                  return (
+                    <Fragment key={rowIndex}>
+                      <tr>
+                        <td className={`${styles.splitCell} ${row.left ? "" : styles.splitFiller}`}>
+                          {row.left && renderLine(row.left, shownDiff.path, "base")}
+                        </td>
+                        <td
+                          className={`${styles.splitCell} ${row.right ? "" : styles.splitFiller}`}
+                        >
+                          {row.right && renderLine(row.right, shownDiff.path, "head")}
+                        </td>
+                      </tr>
+
+                      {overlays && (
+                        <tr>
+                          <td colSpan={2}>{overlays}</td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>

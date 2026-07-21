@@ -1,321 +1,161 @@
 <!-- @dsCard group="Screens" name="Home — My repos" subtitle="linked local repos · open-PR picker · URL paste on top" viewport="720x780" -->
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Home — My repos</title>
-    <style>
-      :root {
-        --bg: #f6f7f9;
-        --panel: #ffffff;
-        --text: #1c2430;
-        --muted: #66707d;
-        --border: #dde2e8;
-        --code-bg: #eef1f5;
-        --accent: #2563eb;
-        --accent-soft: #dbeafe;
-        --added: #16a34a;
-        --added-soft: #dcfce7;
-        --modified: #d97706;
-        --modified-soft: #fef3c7;
-        --deleted: #dc2626;
-        --deleted-soft: #fee2e2;
-        --reviewed: #9aa4b0;
-        --syn-keyword: #cf222e;
-        --syn-string: #0a3069;
-        --syn-func: #8250df;
-        --syn-type: #953800;
-        --syn-const: #0550ae;
-        --syn-comment: #6e7781;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #12161c;
-          --panel: #1a2029;
-          --text: #e5eaf0;
-          --muted: #8b96a5;
-          --border: #2a323d;
-          --code-bg: #232b36;
-          --accent: #60a5fa;
-          --accent-soft: #1e3a5f;
-          --added: #4ade80;
-          --added-soft: #14351f;
-          --modified: #fbbf24;
-          --modified-soft: #3a2e0e;
-          --deleted: #f87171;
-          --deleted-soft: #3b1a1a;
-          --reviewed: #566172;
-          --syn-keyword: #ff7b72;
-          --syn-string: #a5d6ff;
-          --syn-func: #d2a8ff;
-          --syn-type: #ffa657;
-          --syn-const: #79c0ff;
-          --syn-comment: #8b949e;
-        }
-      }
-      :root[data-theme="light"] {
-        --bg: #f6f7f9;
-        --panel: #ffffff;
-        --text: #1c2430;
-        --muted: #66707d;
-        --border: #dde2e8;
-        --code-bg: #eef1f5;
-        --accent: #2563eb;
-        --accent-soft: #dbeafe;
-        --added: #16a34a;
-        --added-soft: #dcfce7;
-        --modified: #d97706;
-        --modified-soft: #fef3c7;
-        --deleted: #dc2626;
-        --deleted-soft: #fee2e2;
-        --reviewed: #9aa4b0;
-        --syn-keyword: #cf222e;
-        --syn-string: #0a3069;
-        --syn-func: #8250df;
-        --syn-type: #953800;
-        --syn-const: #0550ae;
-        --syn-comment: #6e7781;
-      }
-      :root[data-theme="dark"] {
-        --bg: #12161c;
-        --panel: #1a2029;
-        --text: #e5eaf0;
-        --muted: #8b96a5;
-        --border: #2a323d;
-        --code-bg: #232b36;
-        --accent: #60a5fa;
-        --accent-soft: #1e3a5f;
-        --added: #4ade80;
-        --added-soft: #14351f;
-        --modified: #fbbf24;
-        --modified-soft: #3a2e0e;
-        --deleted: #f87171;
-        --deleted-soft: #3b1a1a;
-        --reviewed: #566172;
-        --syn-keyword: #ff7b72;
-        --syn-string: #a5d6ff;
-        --syn-func: #d2a8ff;
-        --syn-type: #ffa657;
-        --syn-const: #79c0ff;
-        --syn-comment: #8b949e;
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        padding: 20px;
-        background: var(--bg);
-        color: var(--text);
-        font:
-          14px/1.5 -apple-system,
-          "SF Pro Text",
-          "Segoe UI",
-          Roboto,
-          sans-serif;
-      }
-      .mono {
-        font-family: ui-monospace, "SF Mono", Menlo, monospace;
-      }
-      h4 {
-        margin: 0 0 10px;
-        font-size: 13px;
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-      .symlink {
-        text-decoration: underline dotted;
-        text-underline-offset: 3px;
-        cursor: pointer;
-      }
+<html lang="en"><head><meta charset="utf-8"><title>Home — My repos</title>
+<style>
+:root {
+  --bg: #f6f8fa;
+  --panel: #ffffff;
+  --text: #1f2328;
+  --muted: #656d76;
+  --border: #d0d7de;
+  --code-bg: #eaeef2;
+  --accent: #0969da;
+  --accent-soft: #ddf4ff;
+  --added: #1a7f37;
+  --added-soft: #e6ffec;
+  --modified: #9a6700;
+  --modified-soft: #fff8c5;
+  --deleted: #cf222e;
+  --deleted-soft: #ffebe9;
+  --reviewed: #8c959f;
+  --syn-keyword: #cf222e;
+  --syn-string: #0a3069;
+  --syn-func: #8250df;
+  --syn-type: #953800;
+  --syn-const: #0550ae;
+  --syn-comment: #6e7781;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #21222c;
+  --panel: #282a36;
+  --text: #f8f8f2;
+  --muted: #96a0c6;
+  --border: #44475a;
+  --code-bg: #343746;
+  --accent: #bd93f9;
+  --accent-soft: #322c4a;
+  --added: #50fa7b;
+  --added-soft: #1b3326;
+  --modified: #ffb86c;
+  --modified-soft: #3a2c1a;
+  --deleted: #ff5555;
+  --deleted-soft: #3b1d22;
+  --reviewed: #565f7d;
+  --syn-keyword: #ff79c6;
+  --syn-string: #f1fa8c;
+  --syn-func: #50fa7b;
+  --syn-type: #8be9fd;
+  --syn-const: #bd93f9;
+  --syn-comment: #6272a4;
+} }
+:root[data-theme="light"] {
+  --bg: #f6f8fa;
+  --panel: #ffffff;
+  --text: #1f2328;
+  --muted: #656d76;
+  --border: #d0d7de;
+  --code-bg: #eaeef2;
+  --accent: #0969da;
+  --accent-soft: #ddf4ff;
+  --added: #1a7f37;
+  --added-soft: #e6ffec;
+  --modified: #9a6700;
+  --modified-soft: #fff8c5;
+  --deleted: #cf222e;
+  --deleted-soft: #ffebe9;
+  --reviewed: #8c959f;
+  --syn-keyword: #cf222e;
+  --syn-string: #0a3069;
+  --syn-func: #8250df;
+  --syn-type: #953800;
+  --syn-const: #0550ae;
+  --syn-comment: #6e7781;
+}
+:root[data-theme="dark"] {
+  --bg: #21222c;
+  --panel: #282a36;
+  --text: #f8f8f2;
+  --muted: #96a0c6;
+  --border: #44475a;
+  --code-bg: #343746;
+  --accent: #bd93f9;
+  --accent-soft: #322c4a;
+  --added: #50fa7b;
+  --added-soft: #1b3326;
+  --modified: #ffb86c;
+  --modified-soft: #3a2c1a;
+  --deleted: #ff5555;
+  --deleted-soft: #3b1d22;
+  --reviewed: #565f7d;
+  --syn-keyword: #ff79c6;
+  --syn-string: #f1fa8c;
+  --syn-func: #50fa7b;
+  --syn-type: #8be9fd;
+  --syn-const: #bd93f9;
+  --syn-comment: #6272a4;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 20px; background: var(--bg); color: var(--text);
+  font: 14px/1.5 -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+h4 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.symlink { text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
 
-      .wrap {
-        max-width: 640px;
-        margin: 0 auto;
-        padding: 28px 4px 40px;
-      }
-      h1 {
-        font-size: 22px;
-        margin: 0 0 4px;
-      }
-      .sub {
-        color: var(--muted);
-        font-size: 13px;
-        margin: 0 0 28px;
-      }
-      .sh {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin: 0 0 10px;
-      }
-      .st {
-        font-size: 12px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--muted);
-      }
-      .row {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 32px;
-      }
-      .in {
-        flex: 1;
-        padding: 9px 12px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: var(--panel);
-        color: var(--muted);
-        font-size: 13px;
-      }
-      .btn {
-        padding: 9px 16px;
-        border-radius: 8px;
-        font-size: 13px;
-        font-weight: 600;
-        border: 1px solid var(--border);
-        background: var(--panel);
-        color: var(--text);
-      }
-      .btn.primary {
-        background: var(--accent);
-        border-color: var(--accent);
-        color: #fff;
-      }
-      .btn.sm {
-        padding: 6px 12px;
-        font-size: 12px;
-      }
-      .repo {
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        background: var(--panel);
-        margin-bottom: 12px;
-        overflow: hidden;
-      }
-      .rh {
-        display: flex;
-        align-items: baseline;
-        gap: 8px;
-        padding: 10px 14px;
-        border-bottom: 1px solid var(--border);
-      }
-      .rn {
-        font-weight: 600;
-      }
-      .rs {
-        font-size: 11px;
-        color: var(--muted);
-        flex: 1;
-      }
-      .rc {
-        font-size: 12px;
-        color: var(--muted);
-      }
-      .ic {
-        color: var(--muted);
-        font-size: 13px;
-        padding: 0 4px;
-        cursor: pointer;
-      }
-      .rp {
-        padding: 6px 14px;
-        font-size: 11px;
-        color: var(--muted);
-        border-bottom: 1px solid var(--border);
-      }
-      .pr {
-        display: flex;
-        align-items: baseline;
-        gap: 10px;
-        padding: 10px 14px;
-        border-top: 1px solid var(--border);
-        font-size: 13px;
-      }
-      .pr:first-of-type {
-        border-top: 0;
-      }
-      .pr:hover {
-        background: var(--accent-soft);
-      }
-      .pr .n {
-        color: var(--muted);
-        font-size: 12px;
-      }
-      .pr .t {
-        flex: 1;
-      }
-      .pr .m {
-        font-size: 11px;
-        color: var(--muted);
-        white-space: nowrap;
-      }
-      .empty-pr {
-        padding: 12px 14px;
-        font-size: 12px;
-        color: var(--muted);
-      }
-    </style>
-  </head>
-  <body>
-    <div class="wrap">
-      <h1>PR Review Visualizer</h1>
-      <p class="sub">Open a pull request by URL, or pick one from your linked repos.</p>
+.wrap { max-width: 640px; margin: 0 auto; padding: 28px 4px 40px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.sub { color: var(--muted); font-size: 13px; margin: 0 0 28px; }
+.sh { display: flex; align-items: center; justify-content: space-between; margin: 0 0 10px; }
+.st { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.row { display: flex; gap: 8px; margin-bottom: 32px; }
+.in { flex: 1; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--muted); font-size: 13px; }
+.btn { padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.sm { padding: 6px 12px; font-size: 12px; }
+.repo { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); margin-bottom: 12px; overflow: hidden; }
+.rh { display: flex; align-items: baseline; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.rn { font-weight: 600; }
+.rs { font-size: 11px; color: var(--muted); flex: 1; }
+.rc { font-size: 12px; color: var(--muted); }
+.ic { color: var(--muted); font-size: 13px; padding: 0 4px; cursor: pointer; }
+.rp { padding: 6px 14px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border); }
+.pr { display: flex; align-items: baseline; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--border); font-size: 13px; }
+.pr:first-of-type { border-top: 0; }
+.pr:hover { background: var(--accent-soft); }
+.pr .n { color: var(--muted); font-size: 12px; }
+.pr .t { flex: 1; }
+.pr .m { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.empty-pr { padding: 12px 14px; font-size: 12px; color: var(--muted); }</style></head>
+<body>
 
-      <div class="sh"><span class="st">Open a PR</span></div>
-      <div class="row">
-        <span class="in">Paste a GitHub PR URL…</span><span class="btn primary">Go</span>
-      </div>
+<div class="wrap">
+  <h1>PR Review Visualizer</h1>
+  <p class="sub">Open a pull request by URL, or pick one from your linked repos.</p>
 
-      <div class="sh">
-        <span class="st">My repos</span><span class="btn sm">+ Add local repo</span>
-      </div>
+  <div class="sh"><span class="st">Open a PR</span></div>
+  <div class="row"><span class="in">Paste a GitHub PR URL…</span><span class="btn primary">Go</span></div>
 
-      <div class="repo">
-        <div class="rh">
-          <span class="rn">webapp</span><span class="rs mono">acme/webapp</span
-          ><span class="rc">3 open PRs</span><span class="ic">↻</span><span class="ic">✕</span>
-        </div>
-        <div class="rp mono">/Users/dev/src/webapp</div>
-
-        <div class="pr">
-          <span class="mono n">#42</span><span class="t">Add login rate limiting</span
-          ><span class="m">octocat · 2h ago</span>
-        </div>
-        <div class="pr">
-          <span class="mono n">#40</span><span class="t">Fix session refresh</span
-          ><span class="m">hubber · 1d ago</span>
-        </div>
-        <div class="pr">
-          <span class="mono n">#38</span><span class="t">Retry queue for webhooks</span
-          ><span class="m">octocat · 3d ago</span>
-        </div>
-      </div>
-
-      <div class="repo">
-        <div class="rh">
-          <span class="rn">mobile</span><span class="rs mono">acme/mobile</span
-          ><span class="rc">1 open PR</span><span class="ic">↻</span><span class="ic">✕</span>
-        </div>
-        <div class="rp mono">/Users/dev/src/mobile</div>
-
-        <div class="pr">
-          <span class="mono n">#7</span><span class="t">Bump RN to 0.81</span
-          ><span class="m">appdev · 5h ago</span>
-        </div>
-      </div>
-
-      <div class="repo">
-        <div class="rh">
-          <span class="rn">infra</span><span class="rs mono">acme/infra</span
-          ><span class="rc">0 open PRs</span><span class="ic">↻</span><span class="ic">✕</span>
-        </div>
-        <div class="rp mono">/Users/dev/src/infra</div>
-        <div class="empty-pr">No open PRs.</div>
-      </div>
-    </div>
-  </body>
-</html>
+  <div class="sh"><span class="st">My repos</span><span class="btn sm">+ Add local repo</span></div>
+  
+<div class="repo">
+  <div class="rh"><span class="rn">webapp</span><span class="rs mono">acme/webapp</span><span class="rc">3 open PRs</span><span class="ic">↻</span><span class="ic">✕</span></div>
+  <div class="rp mono">/Users/dev/src/webapp</div>
+  
+<div class="pr"><span class="mono n">#42</span><span class="t">Add login rate limiting</span><span class="m">octocat · 2h ago</span></div>
+<div class="pr"><span class="mono n">#40</span><span class="t">Fix session refresh</span><span class="m">hubber · 1d ago</span></div>
+<div class="pr"><span class="mono n">#38</span><span class="t">Retry queue for webhooks</span><span class="m">octocat · 3d ago</span></div>
+</div>
+  
+<div class="repo">
+  <div class="rh"><span class="rn">mobile</span><span class="rs mono">acme/mobile</span><span class="rc">1 open PR</span><span class="ic">↻</span><span class="ic">✕</span></div>
+  <div class="rp mono">/Users/dev/src/mobile</div>
+  
+<div class="pr"><span class="mono n">#7</span><span class="t">Bump RN to 0.81</span><span class="m">appdev · 5h ago</span></div>
+</div>
+  
+<div class="repo">
+  <div class="rh"><span class="rn">infra</span><span class="rs mono">acme/infra</span><span class="rc">0 open PRs</span><span class="ic">↻</span><span class="ic">✕</span></div>
+  <div class="rp mono">/Users/dev/src/infra</div>
+  <div class="empty-pr">No open PRs.</div>
+</div>
+</div>
+</body></html>

@@ -8,6 +8,7 @@ import type {
   PrTarget,
   PullRequestData,
   RepoRef,
+  AddReviewCommentInput,
   SubmitReviewInput,
   SubmitReviewResult,
 } from "./gateway.js"
@@ -25,6 +26,7 @@ export type GatewayFixture = {
 // (reviews, viewed-file syncs) so tests can assert what was forwarded to GitHub.
 export type FakeGithubGateway = GithubGateway & {
   submittedReviews: SubmitReviewInput[]
+  addedComments: AddReviewCommentInput[]
   viewedFiles: Array<{ target: PrTarget; path: string }>
 }
 
@@ -58,6 +60,7 @@ export function createFakeGithubGateway(
   }
 
   const submittedReviews: SubmitReviewInput[] = []
+  const addedComments: AddReviewCommentInput[] = []
   const viewedFiles: Array<{ target: PrTarget; path: string }> = []
 
   function lookupFixture(target: PrTarget): GatewayFixture {
@@ -70,6 +73,7 @@ export function createFakeGithubGateway(
 
   return {
     submittedReviews,
+    addedComments,
     viewedFiles,
 
     async getPullMeta(target: PrTarget): Promise<PrMeta> {
@@ -109,6 +113,10 @@ export function createFakeGithubGateway(
     async submitReview(input: SubmitReviewInput): Promise<SubmitReviewResult> {
       submittedReviews.push(input)
       return { reviewId: submittedReviews.length }
+    },
+
+    async addReviewComment(input: AddReviewCommentInput): Promise<void> {
+      addedComments.push(input)
     },
 
     async markFileAsViewed(target: PrTarget, path: string): Promise<void> {

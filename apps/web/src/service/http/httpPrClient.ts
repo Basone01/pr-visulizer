@@ -1,4 +1,5 @@
 import {
+  type DraftComment,
   type PrOverview,
   type PrSummary,
   type ReviewProgress,
@@ -67,6 +68,13 @@ export function createHttpPrClient(): PrClient {
     },
 
     // The same files route already serves the head content beside the patch — no new endpoint.
+    async addCommentNow(target: PrTarget, comment: DraftComment): Promise<void> {
+      await requestJson(`${base(target)}/comments`, {
+        method: "POST",
+        body: JSON.stringify(comment),
+      })
+    },
+
     async getFileAtHead(target: PrTarget, path: string): Promise<string | null> {
       const url = `${base(target)}/files/${encodeURI(path)}`
       const parsed = await parseJson(url, contentResponseSchema)

@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PR Review Visualizer</title>
+    <!-- Apply the saved theme before first paint so an explicit light/dark choice never flashes
+         the other theme. "system" leaves no attribute — tokens.css resolves the OS preference.
+         Kept in sync with utils/theme/theme.ts (THEME_STORAGE_KEY / valid values). -->
+    <script>
+      try {
+        var p = localStorage.getItem("prv-theme")
+        if (p === "light" || p === "dark") document.documentElement.setAttribute("data-theme", p)
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

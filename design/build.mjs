@@ -8,52 +8,61 @@ import { fileURLToPath } from "node:url"
 const OUT = dirname(fileURLToPath(import.meta.url))
 
 // ── tokens: single source of truth ─────────────────────────
+// Light theme is referenced from GitHub's pull-request styling: surfaces + diff colors from
+// Primer color primitives (@primer/primitives light, canvas/fg/border/diff), syntax from
+// GitHub's prettylights.syntax roles (the exact palette github.com renders diffs in).
+// Dark theme is referenced from the official Dracula spec (draculatheme.com / dracula.yml):
+// surfaces from Dracula's published UI variants, syntax mapped per the Dracula spec's role
+// table (keyword=pink, string=yellow, function=green, type=cyan, constant=purple, comment).
+// Every foreground/background pair was contrast-checked (WCAG 2.2 AA + APCA) — see the theme
+// task report. A few dark surface tints are derived (OKLCH) from the Dracula hues to seat the
+// bright syntax colors on diff rows; the syntax colors themselves are verbatim Dracula.
 const TOKENS = {
   light: {
-    bg: "#f6f7f9",
-    panel: "#ffffff",
-    text: "#1c2430",
-    muted: "#66707d",
-    border: "#dde2e8",
-    codeBg: "#eef1f5",
-    accent: "#2563eb",
-    accentSoft: "#dbeafe",
-    added: "#16a34a",
-    addedSoft: "#dcfce7",
-    modified: "#d97706",
-    modifiedSoft: "#fef3c7",
-    deleted: "#dc2626",
-    deletedSoft: "#fee2e2",
-    reviewed: "#9aa4b0",
-    synKeyword: "#cf222e",
-    synString: "#0a3069",
-    synFunc: "#8250df",
-    synType: "#953800",
-    synConst: "#0550ae",
-    synComment: "#6e7781",
+    bg: "#f6f8fa", // canvas.subtle
+    panel: "#ffffff", // canvas.default
+    text: "#1f2328", // fg.default
+    muted: "#656d76", // fg.muted
+    border: "#d0d7de", // border.default
+    codeBg: "#eaeef2", // scale.gray[1]
+    accent: "#0969da", // accent.emphasis
+    accentSoft: "#ddf4ff", // accent.subtle
+    added: "#1a7f37", // success.fg
+    addedSoft: "#e6ffec", // diffBlob addition line
+    modified: "#9a6700", // attention.fg
+    modifiedSoft: "#fff8c5", // attention.subtle
+    deleted: "#cf222e", // danger.emphasis
+    deletedSoft: "#ffebe9", // diffBlob deletion line
+    reviewed: "#8c959f", // scale.gray[5]
+    synKeyword: "#cf222e", // prettylights keyword
+    synString: "#0a3069", // prettylights string
+    synFunc: "#8250df", // prettylights entity (functions)
+    synType: "#953800", // prettylights variable (types)
+    synConst: "#0550ae", // prettylights constant
+    synComment: "#6e7781", // prettylights comment
   },
   dark: {
-    bg: "#12161c",
-    panel: "#1a2029",
-    text: "#e5eaf0",
-    muted: "#8b96a5",
-    border: "#2a323d",
-    codeBg: "#232b36",
-    accent: "#60a5fa",
-    accentSoft: "#1e3a5f",
-    added: "#4ade80",
-    addedSoft: "#14351f",
-    modified: "#fbbf24",
-    modifiedSoft: "#3a2e0e",
-    deleted: "#f87171",
-    deletedSoft: "#3b1a1a",
-    reviewed: "#566172",
-    synKeyword: "#ff7b72",
-    synString: "#a5d6ff",
-    synFunc: "#d2a8ff",
-    synType: "#ffa657",
-    synConst: "#79c0ff",
-    synComment: "#8b949e",
+    bg: "#21222c", // Dracula BG (darker) — app frame
+    panel: "#282a36", // Dracula Background — editor/cards
+    text: "#f8f8f2", // Dracula Foreground
+    muted: "#96a0c6", // Dracula Comment, lightened to clear AA on every surface
+    border: "#44475a", // Dracula Selection
+    codeBg: "#343746", // Dracula BG (lighter) — gutter/hunk/inline code
+    accent: "#bd93f9", // Dracula Purple — the signature interactive hue
+    accentSoft: "#322c4a", // derived: dark purple tint of the panel
+    added: "#50fa7b", // Dracula Green
+    addedSoft: "#1b3326", // derived: dark green diff-add ground
+    modified: "#ffb86c", // Dracula Orange
+    modifiedSoft: "#3a2c1a", // derived: dark orange ground
+    deleted: "#ff5555", // Dracula Red
+    deletedSoft: "#3b1d22", // derived: dark red diff-del ground
+    reviewed: "#565f7d", // derived: dimmed slate for checked-off files
+    synKeyword: "#ff79c6", // Dracula Pink
+    synString: "#f1fa8c", // Dracula Yellow
+    synFunc: "#50fa7b", // Dracula Green
+    synType: "#8be9fd", // Dracula Cyan
+    synConst: "#bd93f9", // Dracula Purple
+    synComment: "#6272a4", // Dracula Comment (verbatim — deliberately recessive)
   },
 }
 

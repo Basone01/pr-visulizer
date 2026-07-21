@@ -2,6 +2,8 @@ import type { ChangedSymbol } from "@pr-visulizer/shared"
 import { Language, type Node, Parser } from "web-tree-sitter"
 
 import { goAdapter } from "./goExtract.js"
+import { phpAdapter } from "./phpExtract.js"
+import { pythonAdapter } from "./pythonExtract.js"
 
 // The ONLY module that touches web-tree-sitter (docs/architecture.md §5 steps 4–7).
 // It parses a source file and returns PLAIN DATA — top-level symbols, imports, and
@@ -383,6 +385,8 @@ const ADAPTERS: Record<string, LanguageAdapter> = {
   tsx: typescriptAdapter,
   javascript: typescriptAdapter,
   go: goAdapter,
+  php: phpAdapter,
+  python: pythonAdapter,
 }
 
 // A parser bound to a platform's wasm loader. `analyzeSyntax` parses one file and

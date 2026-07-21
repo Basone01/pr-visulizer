@@ -1,448 +1,192 @@
 <!-- @dsCard group="Components" name="Symbol navigation" subtitle="ladder: peek → show-more expand → jump" viewport="860x900" -->
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Symbol navigation</title>
-    <style>
-      :root {
-        --bg: #f6f7f9;
-        --panel: #ffffff;
-        --text: #1c2430;
-        --muted: #66707d;
-        --border: #dde2e8;
-        --code-bg: #eef1f5;
-        --accent: #2563eb;
-        --accent-soft: #dbeafe;
-        --added: #16a34a;
-        --added-soft: #dcfce7;
-        --modified: #d97706;
-        --modified-soft: #fef3c7;
-        --deleted: #dc2626;
-        --deleted-soft: #fee2e2;
-        --reviewed: #9aa4b0;
-        --syn-keyword: #cf222e;
-        --syn-string: #0a3069;
-        --syn-func: #8250df;
-        --syn-type: #953800;
-        --syn-const: #0550ae;
-        --syn-comment: #6e7781;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #12161c;
-          --panel: #1a2029;
-          --text: #e5eaf0;
-          --muted: #8b96a5;
-          --border: #2a323d;
-          --code-bg: #232b36;
-          --accent: #60a5fa;
-          --accent-soft: #1e3a5f;
-          --added: #4ade80;
-          --added-soft: #14351f;
-          --modified: #fbbf24;
-          --modified-soft: #3a2e0e;
-          --deleted: #f87171;
-          --deleted-soft: #3b1a1a;
-          --reviewed: #566172;
-          --syn-keyword: #ff7b72;
-          --syn-string: #a5d6ff;
-          --syn-func: #d2a8ff;
-          --syn-type: #ffa657;
-          --syn-const: #79c0ff;
-          --syn-comment: #8b949e;
-        }
-      }
-      :root[data-theme="light"] {
-        --bg: #f6f7f9;
-        --panel: #ffffff;
-        --text: #1c2430;
-        --muted: #66707d;
-        --border: #dde2e8;
-        --code-bg: #eef1f5;
-        --accent: #2563eb;
-        --accent-soft: #dbeafe;
-        --added: #16a34a;
-        --added-soft: #dcfce7;
-        --modified: #d97706;
-        --modified-soft: #fef3c7;
-        --deleted: #dc2626;
-        --deleted-soft: #fee2e2;
-        --reviewed: #9aa4b0;
-        --syn-keyword: #cf222e;
-        --syn-string: #0a3069;
-        --syn-func: #8250df;
-        --syn-type: #953800;
-        --syn-const: #0550ae;
-        --syn-comment: #6e7781;
-      }
-      :root[data-theme="dark"] {
-        --bg: #12161c;
-        --panel: #1a2029;
-        --text: #e5eaf0;
-        --muted: #8b96a5;
-        --border: #2a323d;
-        --code-bg: #232b36;
-        --accent: #60a5fa;
-        --accent-soft: #1e3a5f;
-        --added: #4ade80;
-        --added-soft: #14351f;
-        --modified: #fbbf24;
-        --modified-soft: #3a2e0e;
-        --deleted: #f87171;
-        --deleted-soft: #3b1a1a;
-        --reviewed: #566172;
-        --syn-keyword: #ff7b72;
-        --syn-string: #a5d6ff;
-        --syn-func: #d2a8ff;
-        --syn-type: #ffa657;
-        --syn-const: #79c0ff;
-        --syn-comment: #8b949e;
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        padding: 20px;
-        background: var(--bg);
-        color: var(--text);
-        font:
-          14px/1.5 -apple-system,
-          "SF Pro Text",
-          "Segoe UI",
-          Roboto,
-          sans-serif;
-      }
-      .mono {
-        font-family: ui-monospace, "SF Mono", Menlo, monospace;
-      }
-      h4 {
-        margin: 0 0 10px;
-        font-size: 13px;
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-      .symlink {
-        text-decoration: underline dotted;
-        text-underline-offset: 3px;
-        cursor: pointer;
-      }
+<html lang="en"><head><meta charset="utf-8"><title>Symbol navigation</title>
+<style>
+:root {
+  --bg: #f6f8fa;
+  --panel: #ffffff;
+  --text: #1f2328;
+  --muted: #656d76;
+  --border: #d0d7de;
+  --code-bg: #eaeef2;
+  --accent: #0969da;
+  --accent-soft: #ddf4ff;
+  --added: #1a7f37;
+  --added-soft: #e6ffec;
+  --modified: #9a6700;
+  --modified-soft: #fff8c5;
+  --deleted: #cf222e;
+  --deleted-soft: #ffebe9;
+  --reviewed: #8c959f;
+  --syn-keyword: #cf222e;
+  --syn-string: #0a3069;
+  --syn-func: #8250df;
+  --syn-type: #953800;
+  --syn-const: #0550ae;
+  --syn-comment: #6e7781;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #21222c;
+  --panel: #282a36;
+  --text: #f8f8f2;
+  --muted: #96a0c6;
+  --border: #44475a;
+  --code-bg: #343746;
+  --accent: #bd93f9;
+  --accent-soft: #322c4a;
+  --added: #50fa7b;
+  --added-soft: #1b3326;
+  --modified: #ffb86c;
+  --modified-soft: #3a2c1a;
+  --deleted: #ff5555;
+  --deleted-soft: #3b1d22;
+  --reviewed: #565f7d;
+  --syn-keyword: #ff79c6;
+  --syn-string: #f1fa8c;
+  --syn-func: #50fa7b;
+  --syn-type: #8be9fd;
+  --syn-const: #bd93f9;
+  --syn-comment: #6272a4;
+} }
+:root[data-theme="light"] {
+  --bg: #f6f8fa;
+  --panel: #ffffff;
+  --text: #1f2328;
+  --muted: #656d76;
+  --border: #d0d7de;
+  --code-bg: #eaeef2;
+  --accent: #0969da;
+  --accent-soft: #ddf4ff;
+  --added: #1a7f37;
+  --added-soft: #e6ffec;
+  --modified: #9a6700;
+  --modified-soft: #fff8c5;
+  --deleted: #cf222e;
+  --deleted-soft: #ffebe9;
+  --reviewed: #8c959f;
+  --syn-keyword: #cf222e;
+  --syn-string: #0a3069;
+  --syn-func: #8250df;
+  --syn-type: #953800;
+  --syn-const: #0550ae;
+  --syn-comment: #6e7781;
+}
+:root[data-theme="dark"] {
+  --bg: #21222c;
+  --panel: #282a36;
+  --text: #f8f8f2;
+  --muted: #96a0c6;
+  --border: #44475a;
+  --code-bg: #343746;
+  --accent: #bd93f9;
+  --accent-soft: #322c4a;
+  --added: #50fa7b;
+  --added-soft: #1b3326;
+  --modified: #ffb86c;
+  --modified-soft: #3a2c1a;
+  --deleted: #ff5555;
+  --deleted-soft: #3b1d22;
+  --reviewed: #565f7d;
+  --syn-keyword: #ff79c6;
+  --syn-string: #f1fa8c;
+  --syn-func: #50fa7b;
+  --syn-type: #8be9fd;
+  --syn-const: #bd93f9;
+  --syn-comment: #6272a4;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 20px; background: var(--bg); color: var(--text);
+  font: 14px/1.5 -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+h4 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.symlink { text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
 
-      .snip {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        overflow: hidden;
-        max-width: 660px;
-        margin-bottom: 16px;
-      }
-      .sh {
-        padding: 7px 12px;
-        border-bottom: 1px solid var(--border);
-        font-size: 12px;
-        display: flex;
-        gap: 8px;
-        align-items: center;
-      }
-      .code {
-        font:
-          12px/1.8 ui-monospace,
-          Menlo,
-          monospace;
-        padding: 6px 0;
-      }
-      .cl {
-        padding: 0 12px;
-        white-space: pre;
-      }
-      .cl.add {
-        background: var(--added-soft);
-      }
-      .cl .ln {
-        display: inline-block;
-        width: 26px;
-        color: var(--muted);
-      }
-      .peek {
-        margin: 6px 12px 10px 46px;
-        max-width: 560px;
-        background: var(--panel);
-        border: 1px solid var(--accent);
-        border-radius: 9px;
-        overflow: hidden;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
-      }
-      .peek .ph {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        padding: 6px 10px;
-        border-bottom: 1px solid var(--border);
-        font-size: 11px;
-      }
-      .peek .pf {
-        display: flex;
-        gap: 12px;
-        align-items: center;
-        padding: 6px 10px;
-        border-top: 1px solid var(--border);
-        font-size: 11px;
-        color: var(--muted);
-      }
-      .peek .pf b {
-        color: var(--accent);
-        cursor: pointer;
-      }
-      .peek .code {
-        font-size: 11px;
-      }
-      .trunc {
-        position: relative;
-      }
-      .trunc::after {
-        content: "";
-        position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        height: 26px;
-        background: linear-gradient(transparent, var(--panel));
-      }
-      .duo {
-        display: flex;
-        gap: 14px;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        margin: 6px 12px 10px 46px;
-      }
-      .duo .peek {
-        margin: 0;
-        flex: 1;
-        min-width: 280px;
-      }
-      .scrolly {
-        max-height: 130px;
-        overflow-y: auto;
-      }
-      .tag {
-        font-size: 10px;
-        font-weight: 600;
-        border-radius: 4px;
-        padding: 0 6px;
-        background: var(--added-soft);
-        color: var(--added);
-      }
-      .pill {
-        display: inline-block;
-        font-size: 11px;
-        font-weight: 600;
-        border-radius: 10px;
-        padding: 1px 9px;
-        background: var(--accent-soft);
-        color: var(--accent);
-        cursor: pointer;
-      }
-      .pop {
-        position: relative;
-        margin: 4px 12px 8px 46px;
-        display: inline-block;
-        background: var(--panel);
-        border: 1px solid var(--accent);
-        border-radius: 8px;
-        padding: 8px 12px;
-        font-size: 12px;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
-      }
-      .back {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 12px;
-        border: 1px solid var(--border);
-        border-radius: 14px;
-        padding: 3px 12px;
-        background: var(--panel);
-        cursor: pointer;
-      }
-      .uses {
-        margin: 6px 0 0;
-        padding-left: 16px;
-        font-size: 12px;
-      }
-      .uses li {
-        margin: 2px 0;
-      }
-      .cap {
-        color: var(--muted);
-        font-size: 12px;
-        max-width: 660px;
-      }
-    </style>
-  </head>
-  <body>
-    <h4>Click a usage → peek (default) — short definitions never need a jump</h4>
-    <div class="snip">
-      <div class="sh"><span class="mono">withRateLimit.ts</span></div>
-      <div class="code">
-        <div class="cl add">
-          <span class="ln">9</span>+
-          <span style="color: var(--syn-keyword)">if</span> (!limiter.<span class="symlink"
-            ><span style="color: var(--syn-func)">checkLimit</span></span
-          >(req.ip)) {
-        </div>
-      </div>
-      <div class="peek">
-        <div class="ph">
-          <span class="mono">rateLimiter.ts:12</span><span class="tag">added in this PR</span
-          ><span style="flex: 1"></span><span style="color: var(--muted)">esc</span>
-        </div>
-        <div class="code">
-          <div class="cl add">
-            <span class="ln">12</span>+ <span style="color: var(--syn-func)">checkLimit</span>(key:
-            <span style="color: var(--syn-type)">string</span>):
-            <span style="color: var(--syn-type)">boolean</span> {
-          </div>
-          <div class="cl add">
-            <span class="ln">13</span>+ <span style="color: var(--syn-keyword)">const</span> now =
-            Date.<span style="color: var(--syn-func)">now</span>();
-          </div>
-          <div class="cl add">
-            <span class="ln">14</span>+
-            <span style="color: var(--syn-func)">pruneOldHits</span>(key, now);
-          </div>
-          <div class="cl add">
-            <span class="ln">15</span>+
-            <span style="color: var(--syn-keyword)">return</span> hits.<span
-              style="color: var(--syn-func)"
-              >get</span
-            >(key)!.length &lt; config.max;
-          </div>
-          <div class="cl add"><span class="ln">16</span>+ }</div>
-        </div>
-        <div class="pf">
-          whole definition (5 lines) · <b>Jump ⏎</b> · <span>⌘-click jumps directly</span>
-        </div>
-      </div>
+.snip { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; max-width: 660px; margin-bottom: 16px; }
+.sh { padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 12px; display: flex; gap: 8px; align-items: center; }
+.code { font: 12px/1.8 ui-monospace, Menlo, monospace; padding: 6px 0; }
+.cl { padding: 0 12px; white-space: pre; }
+.cl.add { background: var(--added-soft); }
+.cl .ln { display: inline-block; width: 26px; color: var(--muted); }
+.peek { margin: 6px 12px 10px 46px; max-width: 560px; background: var(--panel); border: 1px solid var(--accent); border-radius: 9px; overflow: hidden; box-shadow: 0 6px 18px rgba(0,0,0,.14); }
+.peek .ph { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 11px; }
+.peek .pf { display: flex; gap: 12px; align-items: center; padding: 6px 10px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); }
+.peek .pf b { color: var(--accent); cursor: pointer; }
+.peek .code { font-size: 11px; }
+.trunc { position: relative; }
+.trunc::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 26px; background: linear-gradient(transparent, var(--panel)); }
+.duo { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; margin: 6px 12px 10px 46px; }
+.duo .peek { margin: 0; flex: 1; min-width: 280px; }
+.scrolly { max-height: 130px; overflow-y: auto; }
+.tag { font-size: 10px; font-weight: 600; border-radius: 4px; padding: 0 6px; background: var(--added-soft); color: var(--added); }
+.pill { display: inline-block; font-size: 11px; font-weight: 600; border-radius: 10px; padding: 1px 9px; background: var(--accent-soft); color: var(--accent); cursor: pointer; }
+.pop { position: relative; margin: 4px 12px 8px 46px; display: inline-block; background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; padding: 8px 12px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.12); }
+.back { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; border: 1px solid var(--border); border-radius: 14px; padding: 3px 12px; background: var(--panel); cursor: pointer; }
+.uses { margin: 6px 0 0; padding-left: 16px; font-size: 12px; }
+.uses li { margin: 2px 0; }
+.cap { color: var(--muted); font-size: 12px; max-width: 660px; }</style></head>
+<body>
+
+<h4>Click a usage → peek (default) — short definitions never need a jump</h4>
+<div class="snip">
+  <div class="sh"><span class="mono">withRateLimit.ts</span></div>
+  <div class="code">
+<div class="cl add"><span class="ln">9</span>+     <span style="color:var(--syn-keyword)">if</span> (!limiter.<span class="symlink"><span style="color:var(--syn-func)">checkLimit</span></span>(req.ip)) {</div>
+  </div>
+  <div class="peek">
+    <div class="ph"><span class="mono">rateLimiter.ts:12</span><span class="tag">added in this PR</span><span style="flex:1"></span><span style="color:var(--muted)">esc</span></div>
+    <div class="code">
+<div class="cl add"><span class="ln">12</span>+   <span style="color:var(--syn-func)">checkLimit</span>(key: <span style="color:var(--syn-type)">string</span>): <span style="color:var(--syn-type)">boolean</span> {</div>
+<div class="cl add"><span class="ln">13</span>+     <span style="color:var(--syn-keyword)">const</span> now = Date.<span style="color:var(--syn-func)">now</span>();</div>
+<div class="cl add"><span class="ln">14</span>+     <span style="color:var(--syn-func)">pruneOldHits</span>(key, now);</div>
+<div class="cl add"><span class="ln">15</span>+     <span style="color:var(--syn-keyword)">return</span> hits.<span style="color:var(--syn-func)">get</span>(key)!.length &lt; config.max;</div>
+<div class="cl add"><span class="ln">16</span>+   }</div>
     </div>
-    <h4>Long definition → peek expands in place; jump only for full-width reading</h4>
-    <div class="snip">
-      <div class="sh"><span class="mono">login.ts</span></div>
-      <div class="code">
-        <div class="cl add">
-          <span class="ln">7</span>+
-          <span style="color: var(--syn-keyword)">export const</span> loginHandler =
-          <span class="symlink"><span style="color: var(--syn-func)">withRateLimit</span></span
-          >(<span style="color: var(--syn-keyword)">async</span> (req, res) => {
-        </div>
-      </div>
-      <div class="duo">
-        <div class="peek">
-          <div class="ph">
-            <span class="mono">withRateLimit.ts:7</span><span class="tag">added in this PR</span>
-          </div>
-          <div class="code trunc">
-            <div class="cl add">
-              <span class="ln">7</span>+
-              <span style="color: var(--syn-keyword)">export function</span>
-              <span style="color: var(--syn-func)">withRateLimit</span>(handler:
-              <span style="color: var(--syn-type)">Handler</span>) {
-            </div>
-            <div class="cl add">
-              <span class="ln">8</span>+ <span style="color: var(--syn-keyword)">return</span>
-              <span style="color: var(--syn-keyword)">async</span> (req, res) => {
-            </div>
-            <div class="cl add">
-              <span class="ln">9</span>+
-              <span style="color: var(--syn-keyword)">if</span> (!limiter.<span
-                style="color: var(--syn-func)"
-                >checkLimit</span
-              >(req.ip)) {
-            </div>
-          </div>
-          <div class="pf"><b>Show 16 more ↓</b> · <b>Jump ⏎</b></div>
-        </div>
-        <div class="peek">
-          <div class="ph">
-            <span class="mono">withRateLimit.ts:7</span><span class="tag">added in this PR</span
-            ><span style="flex: 1"></span><span style="color: var(--muted)">expanded</span>
-          </div>
-          <div class="code scrolly">
-            <div class="cl add">
-              <span class="ln">7</span>+
-              <span style="color: var(--syn-keyword)">export function</span>
-              <span style="color: var(--syn-func)">withRateLimit</span>(handler:
-              <span style="color: var(--syn-type)">Handler</span>) {
-            </div>
-            <div class="cl add">
-              <span class="ln">8</span>+ <span style="color: var(--syn-keyword)">return</span>
-              <span style="color: var(--syn-keyword)">async</span> (req, res) => {
-            </div>
-            <div class="cl add">
-              <span class="ln">9</span>+
-              <span style="color: var(--syn-keyword)">if</span> (!limiter.<span
-                style="color: var(--syn-func)"
-                >checkLimit</span
-              >(req.ip)) {
-            </div>
-            <div class="cl add">
-              <span class="ln">10</span>+ <span style="color: var(--syn-keyword)">const</span> err:
-              <span style="color: var(--syn-type)">ApiError</span> = {
-            </div>
-            <div class="cl add">
-              <span class="ln">11</span>+ code:
-              <span style="color: var(--syn-string)">'RATE_LIMITED'</span>,
-            </div>
-            <div class="cl add">
-              <span class="ln">12</span>+ message:
-              <span style="color: var(--syn-string)">'Too many attempts'</span>,
-            </div>
-            <div class="cl add">
-              <span class="ln">13</span>+ retryAfterSeconds:
-              <span style="color: var(--syn-const)">60</span>,
-            </div>
-            <div class="cl add"><span class="ln">14</span>+ };</div>
-            <div class="cl add">
-              <span class="ln">15</span>+
-              <span style="color: var(--syn-keyword)">return</span> res.status(<span
-                style="color: var(--syn-const)"
-                >429</span
-              >).json(err);
-            </div>
-          </div>
-          <div class="pf">23 lines · scrolls in place — main diff never moves · <b>Jump ⏎</b></div>
-        </div>
-      </div>
+    <div class="pf">whole definition (5 lines) · <b>Jump ⏎</b> · <span>⌘-click jumps directly</span></div>
+  </div>
+</div>
+<h4>Long definition → peek expands in place; jump only for full-width reading</h4>
+<div class="snip">
+  <div class="sh"><span class="mono">login.ts</span></div>
+  <div class="code">
+<div class="cl add"><span class="ln">7</span>+ <span style="color:var(--syn-keyword)">export const</span> loginHandler = <span class="symlink"><span style="color:var(--syn-func)">withRateLimit</span></span>(<span style="color:var(--syn-keyword)">async</span> (req, res) => {</div>
+  </div>
+  <div class="duo">
+  <div class="peek">
+    <div class="ph"><span class="mono">withRateLimit.ts:7</span><span class="tag">added in this PR</span></div>
+    <div class="code trunc">
+<div class="cl add"><span class="ln">7</span>+ <span style="color:var(--syn-keyword)">export function</span> <span style="color:var(--syn-func)">withRateLimit</span>(handler: <span style="color:var(--syn-type)">Handler</span>) {</div>
+<div class="cl add"><span class="ln">8</span>+   <span style="color:var(--syn-keyword)">return</span> <span style="color:var(--syn-keyword)">async</span> (req, res) => {</div>
+<div class="cl add"><span class="ln">9</span>+     <span style="color:var(--syn-keyword)">if</span> (!limiter.<span style="color:var(--syn-func)">checkLimit</span>(req.ip)) {</div>
     </div>
-    <h4>Definition → usages (each with its line inline — pre-peeked)</h4>
-    <div class="snip">
-      <div class="sh">
-        <span class="mono">rateLimiter.ts</span><span class="pill">2 usages in this PR</span>
-      </div>
-      <div class="pop">
-        <ul class="uses" style="margin-top: 0">
-          <li>
-            <span class="mono">withRateLimit.ts:9</span> —
-            <span class="mono">limiter.checkLimit(req.ip)</span>
-          </li>
-          <li>
-            <span class="mono">rateLimiter.test.ts:14</span> —
-            <span class="mono">expect(limiter.checkLimit('k'))</span>
-          </li>
-        </ul>
-      </div>
+    <div class="pf"><b>Show 16 more ↓</b> · <b>Jump ⏎</b></div>
+  </div>
+  <div class="peek">
+    <div class="ph"><span class="mono">withRateLimit.ts:7</span><span class="tag">added in this PR</span><span style="flex:1"></span><span style="color:var(--muted)">expanded</span></div>
+    <div class="code scrolly">
+<div class="cl add"><span class="ln">7</span>+ <span style="color:var(--syn-keyword)">export function</span> <span style="color:var(--syn-func)">withRateLimit</span>(handler: <span style="color:var(--syn-type)">Handler</span>) {</div>
+<div class="cl add"><span class="ln">8</span>+   <span style="color:var(--syn-keyword)">return</span> <span style="color:var(--syn-keyword)">async</span> (req, res) => {</div>
+<div class="cl add"><span class="ln">9</span>+     <span style="color:var(--syn-keyword)">if</span> (!limiter.<span style="color:var(--syn-func)">checkLimit</span>(req.ip)) {</div>
+<div class="cl add"><span class="ln">10</span>+       <span style="color:var(--syn-keyword)">const</span> err: <span style="color:var(--syn-type)">ApiError</span> = {</div>
+<div class="cl add"><span class="ln">11</span>+         code: <span style="color:var(--syn-string)">'RATE_LIMITED'</span>,</div>
+<div class="cl add"><span class="ln">12</span>+         message: <span style="color:var(--syn-string)">'Too many attempts'</span>,</div>
+<div class="cl add"><span class="ln">13</span>+         retryAfterSeconds: <span style="color:var(--syn-const)">60</span>,</div>
+<div class="cl add"><span class="ln">14</span>+       };</div>
+<div class="cl add"><span class="ln">15</span>+       <span style="color:var(--syn-keyword)">return</span> res.status(<span style="color:var(--syn-const)">429</span>).json(err);</div>
     </div>
-    <div class="back">↩ back to <span class="mono">withRateLimit.ts:9</span></div>
-    <p class="cap" style="margin-top: 12px">
-      The ladder is <b>peek → expand → jump</b>, each step heavier than the last. Definitions longer
-      than <span class="mono">peekMaxLines</span> (default 15, a controllable-core setting) truncate
-      with a fade; <b>Show more</b> grows the popup in place, and past ~60% viewport height the code
-      scrolls <i>inside</i> it — the main diff never moves. Only real jumps enter the jump stack
-      behind the ↩ chip. Underlines appear only when the counterpart is inside the PR (<span
-        class="mono"
-        >SymbolOccurrence[]</span
-      >); deep mode extends peeks to ghost files, read-only.
-    </p>
-  </body>
-</html>
+    <div class="pf">23 lines · scrolls in place — main diff never moves · <b>Jump ⏎</b></div>
+  </div>
+  </div>
+</div>
+<h4>Definition → usages (each with its line inline — pre-peeked)</h4>
+<div class="snip">
+  <div class="sh"><span class="mono">rateLimiter.ts</span><span class="pill">2 usages in this PR</span></div>
+  <div class="pop">
+    <ul class="uses" style="margin-top:0">
+      <li><span class="mono">withRateLimit.ts:9</span> — <span class="mono">limiter.checkLimit(req.ip)</span></li>
+      <li><span class="mono">rateLimiter.test.ts:14</span> — <span class="mono">expect(limiter.checkLimit('k'))</span></li>
+    </ul>
+  </div>
+</div>
+<div class="back">↩ back to <span class="mono">withRateLimit.ts:9</span></div>
+<p class="cap" style="margin-top:12px">The ladder is <b>peek → expand → jump</b>, each step heavier than the last. Definitions longer than <span class="mono">peekMaxLines</span> (default 15, a controllable-core setting) truncate with a fade; <b>Show more</b> grows the popup in place, and past ~60% viewport height the code scrolls <i>inside</i> it — the main diff never moves. Only real jumps enter the jump stack behind the ↩ chip. Underlines appear only when the counterpart is inside the PR (<span class="mono">SymbolOccurrence[]</span>); deep mode extends peeks to ghost files, read-only.</p>
+</body></html>

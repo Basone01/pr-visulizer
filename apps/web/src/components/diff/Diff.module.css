@@ -96,6 +96,18 @@
   color: var(--deleted);
 }
 
+/* Ghost-file header tag: dashed like the ghost node itself, so the vocabulary carries over. */
+.tagGhost {
+  background: transparent;
+  border: 1px dashed var(--muted);
+  color: var(--muted);
+}
+
+/* A ghost-file line that references changed code — the reason the file is on the graph. */
+.ghostRef {
+  background: var(--accent-soft);
+}
+
 .churn {
   font-size: 11px;
   color: var(--muted);
@@ -290,6 +302,42 @@
   overflow-wrap: anywhere;
 }
 
+/* Side-by-side (split) view (§10): a real table, so the two columns stay aligned across every row
+   AND size to their widest line. The alternative — a flex/grid row per line — would need one
+   horizontal scroll container per row (a scrollbar on every long line) or would clip the overflow;
+   the table keeps the SINGLE horizontal scrollbar `.diff` already provides for the inline view. */
+.split {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+
+/* 50% is a floor, not a cap: with auto table layout a column wider than half the pane pushes the
+   table past 100% and `.diff` scrolls, exactly as the inline view does for one long line. */
+.splitCell {
+  width: 50%;
+  vertical-align: top;
+  padding: 0;
+}
+
+/* `.content` carries `min-width: 0` so wrap mode can shrink it. Inside a table cell that also lets
+   it shrink BELOW a long line's width — the cell then clips instead of widening the table, and the
+   line becomes unreadable with no way to scroll to it. Re-assert max-content in split mode so the
+   line's true width reaches the table; `:not(.diffWrap)` keeps wrap mode free to shrink again. */
+.diff:not(.diffWrap) .splitCell .content {
+  min-width: max-content;
+}
+
+/* The gutter between base and head — without it the eye drifts across the two columns. */
+.splitCell + .splitCell {
+  border-left: 1px solid var(--border);
+}
+
+/* The empty half of an unpaired change (3 lines removed, 1 added): tinted as inert so it reads as
+   "nothing here", not as an unchanged blank line of code. */
+.splitFiller {
+  background: var(--code-bg);
+}
+
 .lineAdd {
   background: var(--added-soft);
 }
@@ -466,6 +514,13 @@
   color: var(--panel);
 }
 
+/* Inline failure line for the immediate publish — the composer stays open, text preserved. */
+.composerError {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--deleted);
+}
+
 .composerAdd:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -560,6 +615,25 @@
   font-size: 12px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
   max-width: 560px;
+}
+
+/* Group label inside the usages popover ("In this PR" / "Not in this PR"). */
+.usageGroupLabel {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 6px 0 2px;
+}
+
+.usageGroupLabel:first-child {
+  margin-top: 0;
+}
+
+/* A usage that lives OUTSIDE the PR (a ghost file) — muted, like the ghost vocabulary. */
+.usageGhost {
+  color: var(--muted);
 }
 
 .usageItem {

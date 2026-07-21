@@ -44,4 +44,27 @@ export function registerReviewRoutes(app: FastifyInstance, ctx: AppContext): voi
 
     return reply.code(201).send(result)
   })
+
+  // Publish ONE comment immediately (§11) — not a pending review; visible on GitHub at once.
+  app.post("/api/prs/:owner/:repo/:number/comments", async (req, reply) => {
+    const user = requireUser(req, reply, ctx)
+    if (!user) return reply
+
+    const params = parse(prParamsSchema, req.params)
+    if (!params.ok) return badRequest(reply, params.issues)
+
+    const body = parse(draftCommentSchema, req.body)
+    if (!body.ok) return badRequest(reply, body.issues)
+
+    const target = toTarget(params.value)
+    const meta = await ctx.gateway.getPullMeta(target)
+
+    await ctx.gateway.addReviewComment({
+      target,
+      commitId: meta.headSha,
+      comment: body.value,
+    })
+
+    return reply.code(201).send({ ok: true })
+  })
 }

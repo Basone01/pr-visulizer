@@ -20,15 +20,16 @@ function Harness({
 }
 
 describe("useDiffShortcuts", () => {
-  it("fires mark-viewed on Ctrl+1 and open-next on Ctrl+2", () => {
+  it("fires mark-viewed on Option+1 and open-next on Option+2", () => {
     // Arrange
     const onToggleViewed = vi.fn()
     const onOpenNext = vi.fn()
     render(<Harness onToggleViewed={onToggleViewed} onOpenNext={onOpenNext} />)
 
-    // Act
-    fireEvent.keyDown(document.body, { key: "1", ctrlKey: true })
-    fireEvent.keyDown(document.body, { key: "2", ctrlKey: true })
+    // Act — key carries the macOS Option-composed character ("¡"/"™"), never the digit;
+    // the hook must match on the physical code.
+    fireEvent.keyDown(document.body, { key: "¡", code: "Digit1", altKey: true })
+    fireEvent.keyDown(document.body, { key: "™", code: "Digit2", altKey: true })
 
     // Assert
     expect(onToggleViewed).toHaveBeenCalledTimes(1)
@@ -43,7 +44,7 @@ describe("useDiffShortcuts", () => {
     const composer = screen.getByLabelText("composer")
 
     // Act — the keystroke comes from the textarea itself.
-    fireEvent.keyDown(composer, { key: "1", ctrlKey: true })
+    fireEvent.keyDown(composer, { key: "¡", code: "Digit1", altKey: true })
 
     // Assert
     expect(onToggleViewed).not.toHaveBeenCalled()
@@ -56,7 +57,7 @@ describe("useDiffShortcuts", () => {
     render(<Harness enabled={false} onToggleViewed={onToggleViewed} onOpenNext={onOpenNext} />)
 
     // Act
-    fireEvent.keyDown(document.body, { key: "1", ctrlKey: true })
+    fireEvent.keyDown(document.body, { key: "¡", code: "Digit1", altKey: true })
 
     // Assert
     expect(onToggleViewed).not.toHaveBeenCalled()
