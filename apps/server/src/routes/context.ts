@@ -1,4 +1,4 @@
-import type { GithubGateway, PrTarget } from "@pr-visulizer/engine"
+import type { GithubGateway, PrTarget, ViewedSyncService } from "@pr-visulizer/engine"
 import type { FastifyReply, FastifyRequest } from "fastify"
 import { z } from "zod"
 
@@ -17,6 +17,8 @@ export type AppContext = {
   analysis: AnalysisService
   progress: ProgressStore
   review: ReviewSubmitService
+  // Two-way GitHub "Viewed" sync (§11) — the engine service, wrapping the same gateway.
+  viewedSync: ViewedSyncService
 }
 
 // The PR path params (docs/architecture.md §9). `number` arrives as a string in the URL.

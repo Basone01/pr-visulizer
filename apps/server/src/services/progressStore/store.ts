@@ -3,7 +3,12 @@ import Database from "better-sqlite3"
 import { eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 
-import { CREATE_PROGRESS_TABLE, type ProgressRow, reviewProgressTable } from "./schema.js"
+import {
+  ADD_SYNCED_VIEWED_FILES_COLUMN,
+  CREATE_PROGRESS_TABLE,
+  type ProgressRow,
+  reviewProgressTable,
+} from "./schema.js"
 
 // The progress repository — the ONLY module that touches SQLite/drizzle (node conv.:
 // IO lives behind the repository). Callers get plain `ReviewProgress` (the contract),
@@ -20,6 +25,13 @@ export type ProgressKey = {
 export interface ProgressStore {
   get(key: ProgressKey): ReviewProgress | null
   put(progress: ReviewProgress): ReviewProgress
+  // The two-way "Viewed" merge's common ancestor (§11) — GitHub's viewed set as of the last
+  // successful sync. Kept BESIDE the progress rather than inside ReviewProgress: it is sync
+  // bookkeeping, not the reviewer's state, and the SPA has no business seeing it.
+  getSyncedViewedFiles(key: ProgressKey): string[] | null
+  // Writes the ancestor onto an EXISTING row. Callers always `put` the merged progress first,
+  // which is what creates the row — so this is an update, never an upsert.
+  putSyncedViewedFiles(key: ProgressKey, paths: string[]): void
   close(): void
 }
 
@@ -47,6 +59,13 @@ function toProgress(row: ProgressRow): ReviewProgress {
 export function createProgressStore(databaseUrl = ":memory:"): ProgressStore {
   const sqlite = new Database(databaseUrl)
   sqlite.exec(CREATE_PROGRESS_TABLE)
+
+  // Bring a database created before the two-way viewed sync up to the current shape.
+  const columns = sqlite.pragma("table_info(review_progress)") as Array<{ name: string }>
+  if (!columns.some((column) => column.name === "synced_viewed_files")) {
+    sqlite.exec(ADD_SYNCED_VIEWED_FILES_COLUMN)
+  }
+
   const db = drizzle(sqlite)
 
   function get(key: ProgressKey): ReviewProgress | null {
@@ -88,9 +107,26 @@ export function createProgressStore(databaseUrl = ":memory:"): ProgressStore {
     return progress
   }
 
+  function getSyncedViewedFiles(key: ProgressKey): string[] | null {
+    const row = db
+      .select()
+      .from(reviewProgressTable)
+      .where(eq(reviewProgressTable.id, rowId(key)))
+      .get()
+
+    return row?.syncedViewedFiles ?? null
+  }
+
+  function putSyncedViewedFiles(key: ProgressKey, paths: string[]): void {
+    db.update(reviewProgressTable)
+      .set({ syncedViewedFiles: paths })
+      .where(eq(reviewProgressTable.id, rowId(key)))
+      .run()
+  }
+
   function close(): void {
     sqlite.close()
   }
 
-  return { get, put, close }
+  return { get, put, getSyncedViewedFiles, putSyncedViewedFiles, close }
 }

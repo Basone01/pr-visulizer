@@ -6,6 +6,7 @@ import type { PrView } from "@/entity/viewModels"
 import type { Verdict } from "@/hooks/useSubmitReview"
 
 import styles from "./ReviewTray.module.css"
+import { SubmitReviewDialog } from "./SubmitReviewDialog"
 import { TrayRow } from "./TrayRow"
 
 // The two queue orderings, with a short "why" for the title (§8.4).
@@ -39,6 +40,18 @@ type ReviewTrayProps = {
   onChooseQueueMode: (mode: QueueMode) => void
   onChooseVerdict: (verdict: Verdict) => void
   onSubmit: () => void
+  // How many drafted inline comments the submit will actually carry — read from the review
+  // progress, which is what useSubmitReview sends, not re-counted off the tray rows.
+  commentCount: number
+  // Submit is a real, non-undoable POST to GitHub, so the button reports the whole round trip
+  // rather than firing silently: confirm → pending → submitted, or the failure inline.
+  isSubmitting: boolean
+  isSubmitted: boolean
+  submitError: string | null
+  onResetSubmit: () => void
+  // Set when the app's checkmarks could not be mirrored into GitHub's "Viewed" state (§11).
+  // The checkmarks are still the reviewer's own — this only says the mirror is behind.
+  viewedSyncError: string | null
   onHide: () => void
 }
 
@@ -56,11 +69,27 @@ export function ReviewTray({
   onChooseQueueMode,
   onChooseVerdict,
   onSubmit,
+  commentCount,
+  isSubmitting,
+  isSubmitted,
+  submitError,
+  onResetSubmit,
+  viewedSyncError,
   onHide,
 }: ReviewTrayProps) {
   const [overridden, setOverridden] = useState(false)
+  const [confirming, setConfirming] = useState(false)
 
   const canSubmit = (view.allReviewed || overridden) && chosenVerdict !== null
+
+  // A submitted review is done: the button becomes a success state rather than an invitation
+  // to post a second review over the first.
+  const unreviewedCount = view.totalCount - view.reviewedCount
+
+  function closeConfirm(): void {
+    setConfirming(false)
+    onResetSubmit()
+  }
 
   // The mode toggle only makes sense once a real ranking exists (the provisional overview view
   // has no graph, so fileNodes is empty).
@@ -140,15 +169,40 @@ export function ReviewTray({
         </div>
       )}
 
+      {viewedSyncError && (
+        <div className={styles.syncWarning} role="status">
+          <span className={styles.syncDot}>●</span> Checkmarks saved here, but not synced to GitHub
+          — {viewedSyncError}
+        </div>
+      )}
+
       <div className={styles.footer}>
-        <button
-          className={`${styles.btn} ${styles.primary}`}
-          disabled={!canSubmit}
-          onClick={onSubmit}
-        >
-          Submit review
-        </button>
+        {isSubmitted ? (
+          <div className={styles.submitted} role="status">
+            ✓ Review submitted to GitHub
+          </div>
+        ) : (
+          <button
+            className={`${styles.btn} ${styles.primary}`}
+            disabled={!canSubmit || isSubmitting}
+            onClick={() => setConfirming(true)}
+          >
+            {isSubmitting ? "Submitting…" : "Submit review"}
+          </button>
+        )}
       </div>
+
+      {confirming && chosenVerdict && !isSubmitted && (
+        <SubmitReviewDialog
+          verdict={chosenVerdict}
+          commentCount={commentCount}
+          unreviewedCount={unreviewedCount}
+          submitting={isSubmitting}
+          error={submitError}
+          onConfirm={onSubmit}
+          onCancel={closeConfirm}
+        />
+      )}
     </div>
   )
 }

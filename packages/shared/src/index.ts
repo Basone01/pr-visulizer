@@ -2,3 +2,4 @@
 // ranking core, imported by BOTH apps/web and apps/server.
 export * from "./entities/index.js"
 export * from "./ranking/index.js"
+export * from "./review/viewedSync.js"

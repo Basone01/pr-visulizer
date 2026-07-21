@@ -36,7 +36,6 @@ export const DiffLine = memo(function DiffLine({
   onAnchorClick,
   onShowUsages,
   onSelectLine,
-  onLineDragEnter,
   draftsOnLine,
   onEditDraft,
   onDeleteDraft,
@@ -55,10 +54,9 @@ export const DiffLine = memo(function DiffLine({
   isFindCurrent: boolean
   onAnchorClick: (anchor: SymbolAnchor, withMeta: boolean) => void
   onShowUsages: (anchor: SymbolAnchor) => void
-  // Begin (mousedown) or extend (shift-mousedown) a comment selection on a head line (task 5).
+  // A gutter click on a head line (task 5). `extend` is the shift-click flavour, which always
+  // stretches from the existing anchor; a plain click runs the click-click range machine.
   onSelectLine: (headLine: number, extend: boolean) => void
-  // Extend the selection while a gutter drag is in progress (GitHub-style click-drag range).
-  onLineDragEnter: (headLine: number) => void
   draftsOnLine: DraftComment[]
   onEditDraft: (draft: DraftComment) => void
   onDeleteDraft: (draft: DraftComment) => void
@@ -104,14 +102,11 @@ export const DiffLine = memo(function DiffLine({
           type="button"
           className={styles.gutterButton}
           aria-label={`Comment on line ${headLine}`}
-          title="Comment — drag or shift-click to select a range"
-          // mousedown (not click) so a drag can begin the selection and grow it across rows;
-          // preventDefault stops the browser text-selection fighting the drag.
-          onMouseDown={(event) => {
-            event.preventDefault()
-            onSelectLine(headLine, event.shiftKey)
-          }}
-          onMouseEnter={() => onLineDragEnter(headLine)}
+          title="Comment — click a second line to select a range"
+          // A plain click, deliberately: the previous mousedown-and-drag never survived the
+          // composer opening under the pointer on the first row, which shifted every later
+          // row out from under the drag. Two clicks have nothing to fight.
+          onClick={(event) => onSelectLine(headLine, event.shiftKey)}
         >
           {headLine}
         </button>

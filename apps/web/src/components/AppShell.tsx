@@ -75,7 +75,15 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   const collapse = usePaneCollapse()
   const queueMode = useQueueMode()
   const nav = usePeekNavigation("", DEFAULT_SETTINGS.peekMaxLines)
-  const { chosenVerdict, setChosenVerdict, submit } = useSubmitReview(target, progress)
+  const {
+    chosenVerdict,
+    setChosenVerdict,
+    submit,
+    isSubmitting,
+    isSubmitted,
+    submitError,
+    resetSubmit,
+  } = useSubmitReview(target, progress)
 
   // Load the persisted clone folder once (desktop only) so the modal can show/change it.
   useEffect(() => {
@@ -476,6 +484,16 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
               onHide={() => collapse.toggle("tray")}
               onChooseVerdict={(verdict: Verdict) => setChosenVerdict(verdict)}
               onSubmit={submit}
+              commentCount={progress.drafts.length}
+              isSubmitting={isSubmitting}
+              isSubmitted={isSubmitted}
+              submitError={submitError}
+              onResetSubmit={resetSubmit}
+              viewedSyncError={
+                progress.viewedSync?.status === "degraded"
+                  ? (progress.viewedSync.reason ?? "GitHub sync failed")
+                  : null
+              }
             />
           </div>
         )}

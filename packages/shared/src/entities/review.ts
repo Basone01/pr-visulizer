@@ -16,6 +16,16 @@ export const draftCommentSchema = z.object({
 })
 export type DraftComment = z.infer<typeof draftCommentSchema>
 
+// Whether the checkmarks in `reviewedFiles` are actually mirrored in GitHub's own "Viewed"
+// state right now (§11). Server-DERIVED and transient — it is never persisted and never read
+// from a request body, so a GitHub write that fails can surface as degraded sync in the UI
+// instead of silently rolling the reviewer's checkmark back.
+export const viewedSyncSchema = z.object({
+  status: z.enum(["synced", "degraded"]),
+  reason: z.string().optional(),
+})
+export type ViewedSync = z.infer<typeof viewedSyncSchema>
+
 export const reviewProgressSchema = z.object({
   userId: z.string(),
   owner: z.string(),
@@ -25,5 +35,6 @@ export const reviewProgressSchema = z.object({
   reviewedFiles: z.array(z.string()), // the checkmarks
   drafts: z.array(draftCommentSchema),
   verdict: z.enum(["approve", "request_changes", "comment"]).optional(),
+  viewedSync: viewedSyncSchema.optional(),
 })
 export type ReviewProgress = z.infer<typeof reviewProgressSchema>

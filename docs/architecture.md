@@ -553,10 +553,10 @@ Deep mode adds `blastRadius` as a per-file **risk badge**; `blast-radius-first` 
 
 The tray toggles between two `QueueMode`s. They differ in **order** _and_ in what "next" means — a mode whose queue and whose suggestion disagreed would send the reviewer somewhere the queue never pointed.
 
-| Mode                              | Order                                                   | "Next" (the `isNext` highlight)                        |
-| --------------------------------- | ------------------------------------------------------- | ------------------------------------------------------ |
-| `foundations` (default)           | the §8.1 static sort (`foundations-first`)              | the §8.2 readiness pick                                |
-| `branch` — labelled **"Chain"** | post-order DFS, each dependency chain start→end          | the first unreviewed file **in that order**            |
+| Mode                            | Order                                           | "Next" (the `isNext` highlight)             |
+| ------------------------------- | ----------------------------------------------- | ------------------------------------------- |
+| `foundations` (default)         | the §8.1 static sort (`foundations-first`)      | the §8.2 readiness pick                     |
+| `branch` — labelled **"Chain"** | post-order DFS, each dependency chain start→end | the first unreviewed file **in that order** |
 
 **Branch order.** A post-order DFS from the entry points (files nothing else depends on, `fanIn = 0`) emits every dependency before the file that needs it, so within a chain you read start→end. Roots and each file's dependencies are visited in policy order, so the tie-breakers still decide which chain comes first and the result is deterministic. **A foundation shared by two chains is emitted once, with the first chain that reaches it.** Cyclic back-edges are broken by an on-stack guard; anything unreached (an isolated file, or a node only inside a cycle) is appended in policy order, so the order is total.
 
@@ -631,25 +631,71 @@ Two controllable-core toggles live in the diff-pane header (`DiffViewSettings`, 
 ```
 reviewer clicks ✓ on a file
   → SPA: optimistic update + PUT /progress
-  → BFF: save to SQLite
-  → BFF: GraphQL mutation markFileAsViewed(pullRequestId, path)   ← real GitHub "Viewed" sync
+  → BFF: reconcile with GitHub's "Viewed" state (below), save the merge to SQLite
+
+reviewer opens the PR (or the SPA refetches)
+  → GET /progress → the SAME reconcile, so a file ticked on github.com shows up here
 
 reviewer drafts inline comments
   → stored in ReviewProgress.drafts (app-side only, invisible to GitHub)
 
 reviewer picks verdict + clicks Submit
+  → SPA: confirm dialog (verdict + comment count) → pending → success state
   → POST /api/prs/.../review
   → BFF: POST /repos/{o}/{r}/pulls/{n}/reviews
          { commit_id: headSha,
            event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT',
-           body, comments: [{ path, line, side, body }] }
+           body, comments: [{ path, line, side, body }, …] }
+         a ranged comment also carries { start_line, start_side }
   → one real GitHub review appears on the PR, comments anchored to lines
 ```
 
-Two details a junior would miss:
+### Two-way "Viewed" sync
 
-- GitHub's own file-viewed checkbox is exposed **only in the GraphQL API** (`markFileAsViewed`) — using it means our checkmarks show up in the native GitHub UI too.
-- **Force-push while drafting:** the new headSha invalidates draft line anchors. On next load the BFF re-analyzes at the new SHA, remaps each draft by hunk proximity, and flags any comment it could not remap instead of silently dropping it.
+GitHub's per-file **Viewed** checkbox and our checkmarks are two independently writable copies
+of one fact — the reviewer can tick a file here or on github.com — so the sync is a **merge**,
+not a one-way push. It is GraphQL-only in both directions (verified 2026-07 against the live
+schema; the REST changed-files route carries no viewed state at all):
+
+| Need   | GraphQL                                                                                                                              |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| read   | `pullRequest.files` → `PullRequestChangedFile.viewerViewedState` (`VIEWED` / `UNVIEWED` / `DISMISSED`), a paginated Relay connection |
+| mark   | `markFileAsViewed(input: { pullRequestId: ID!, path: String! })`                                                                     |
+| unmark | `unmarkFileAsViewed(input: { pullRequestId: ID!, path: String! })`                                                                   |
+
+`DISMISSED` means "was viewed, then the file changed underneath" — GitHub wants another look,
+so it does **not** count as viewed for our checkmarks.
+
+**Merge semantics** — a 3-way merge against the GitHub set as of the last successful sync
+(`synced_viewed_files`, stored beside the progress row and never sent to the SPA):
+
+- **No ancestor** (first sync) → **union**. Nothing has been observed to change, so dropping
+  either side's checkmark would be inventing an un-view the reviewer never did.
+- **With an ancestor** → per path, the side that moved away from the ancestor wins. Membership
+  is binary, so when the two disagree exactly one of them differs from the ancestor; the
+  answer is simply the opposite of the ancestor. This is what lets an **un-view done on
+  github.com propagate back**, which a plain union can never do.
+
+Only the resulting **delta** is written to GitHub, so a checkmark costs one mutation, not one
+per reviewed file. Pure merge rules live in `packages/shared` (`mergeViewedFiles`,
+`viewedDelta`); the IO shell around them is `packages/engine`'s `viewedSync` service, driven by
+the BFF route **and**, with no server in the picture, by the desktop client.
+
+**Degraded sync:** a GitHub read or write failure never rolls back a local checkmark — the
+checkmarks are the reviewer's own state and GitHub is the mirror. The response carries
+`viewedSync: { status: "degraded", reason }` (server-derived, never persisted, never taken
+from a request body) and the tray says the mirror is behind. The ancestor is **not** advanced
+on a failure, so the next sync still sees the divergence.
+
+Two more details a junior would miss:
+
+- **Force-push while drafting:** the new headSha invalidates draft line anchors. On next load
+  the BFF re-analyzes at the new SHA, remaps each draft by hunk proximity, and flags any
+  comment it could not remap instead of silently dropping it.
+- **Multi-line comments** are picked with two gutter clicks (§10's diff pane), not a drag: the
+  first click anchors and opens the composer, the second completes the range, and a click
+  after that starts over. `start_line`/`start_side` are sent only for a real range — never for
+  a single-line comment, which GitHub rejects.
 
 ---
 

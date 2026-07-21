@@ -13,6 +13,7 @@ import type {
   RepoRef,
   SubmitReviewInput,
   SubmitReviewResult,
+  ViewedFileState,
 } from "./gateway.js"
 
 // The real gateway (docs/architecture.md §2): the ONLY module that imports Octokit,
@@ -22,6 +23,52 @@ import type {
 // webview passes Tauri's HTTP-plugin fetch so browser CORS rules don't apply.
 export type OctokitGatewayOptions = {
   fetch?: typeof globalThis.fetch
+}
+
+// The three GraphQL documents behind the "Viewed" sync (§11). Shapes verified 2026-07 against
+// the live schema: both mutations take `MarkFileAsViewedInput`/`UnmarkFileAsViewedInput` of
+// { pullRequestId: ID!, path: String! }, and `PullRequestChangedFile.viewerViewedState` is a
+// non-null `FileViewedState`. There is NO REST equivalent for any of it.
+const VIEWED_FILES_QUERY = `
+  query ($owner: String!, $repo: String!, $number: Int!, $after: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        files(first: 100, after: $after) {
+          pageInfo { hasNextPage endCursor }
+          nodes { path viewerViewedState }
+        }
+      }
+    }
+  }
+`
+
+const MARK_FILE_AS_VIEWED = `
+  mutation ($pullRequestId: ID!, $path: String!) {
+    markFileAsViewed(input: { pullRequestId: $pullRequestId, path: $path }) {
+      clientMutationId
+    }
+  }
+`
+
+const UNMARK_FILE_AS_VIEWED = `
+  mutation ($pullRequestId: ID!, $path: String!) {
+    unmarkFileAsViewed(input: { pullRequestId: $pullRequestId, path: $path }) {
+      clientMutationId
+    }
+  }
+`
+
+// The shape the query above returns. Every level is nullable because GraphQL answers a
+// missing repo/PR with nulls beside an error rather than a 404.
+type ViewedFilesPage = {
+  repository: {
+    pullRequest: {
+      files: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null }
+        nodes: Array<{ path: string; viewerViewedState: ViewedFileState } | null> | null
+      } | null
+    } | null
+  } | null
 }
 
 // GitHub's file status vocabulary is wider than our contract's — clamp it (§3).
@@ -157,22 +204,58 @@ export function createOctokitGateway(
     })
   }
 
-  async function markFileAsViewed(target: PrTarget, path: string): Promise<void> {
-    // The "Viewed" checkbox lives only in GraphQL (§11); it needs the PR node id.
-    const details = await octokit.pulls.get({
-      owner: target.owner,
-      repo: target.repo,
-      pull_number: target.number,
-    })
+  // Both viewed-state mutations key off the PR's GraphQL node id, and a sync writes several
+  // files at once — resolving it once per target turns what used to be one REST `pulls.get`
+  // PER FILE PER SAVE into a single call for the whole session.
+  const nodeIdByTarget = new Map<string, Promise<string>>()
 
-    await octokit.graphql(
-      `mutation ($pullRequestId: ID!, $path: String!) {
-        markFileAsViewed(input: { pullRequestId: $pullRequestId, path: $path }) {
-          clientMutationId
-        }
-      }`,
-      { pullRequestId: details.data.node_id, path }
-    )
+  function pullNodeId(target: PrTarget): Promise<string> {
+    const key = `${target.owner}/${target.repo}#${target.number}`
+    const cached = nodeIdByTarget.get(key)
+    if (cached) return cached
+
+    const loading = octokit.pulls
+      .get({ owner: target.owner, repo: target.repo, pull_number: target.number })
+      .then((details) => details.data.node_id)
+
+    nodeIdByTarget.set(key, loading)
+    return loading
+  }
+
+  async function listViewedFiles(target: PrTarget): Promise<Record<string, ViewedFileState>> {
+    const states: Record<string, ViewedFileState> = {}
+
+    // `pullRequest.files` is a Relay connection, so a 400-file PR needs the cursor loop —
+    // stopping at the first page would silently report every later file as unviewed.
+    let after: string | null = null
+    for (;;) {
+      const page: ViewedFilesPage = await octokit.graphql(VIEWED_FILES_QUERY, {
+        owner: target.owner,
+        repo: target.repo,
+        number: target.number,
+        after,
+      })
+
+      const files = page.repository?.pullRequest?.files
+      if (!files) break
+
+      for (const node of files.nodes ?? []) {
+        if (node) states[node.path] = node.viewerViewedState
+      }
+
+      if (!files.pageInfo.hasNextPage) break
+
+      after = files.pageInfo.endCursor
+    }
+
+    return states
+  }
+
+  async function setFileViewed(target: PrTarget, path: string, viewed: boolean): Promise<void> {
+    const pullRequestId = await pullNodeId(target)
+    const mutation = viewed ? MARK_FILE_AS_VIEWED : UNMARK_FILE_AS_VIEWED
+
+    await octokit.graphql(mutation, { pullRequestId, path })
   }
 
   async function getViewer(): Promise<SessionUser> {
@@ -192,7 +275,8 @@ export function createOctokitGateway(
     getFileContent,
     submitReview,
     addReviewComment,
-    markFileAsViewed,
+    listViewedFiles,
+    setFileViewed,
     getViewer,
   }
 }

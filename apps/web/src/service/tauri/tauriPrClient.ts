@@ -8,6 +8,7 @@ import {
   type SessionUser,
   createAnalysisCache,
   createOctokitGateway,
+  createViewedSyncService,
   mapWithConcurrency,
   resolvePrecisionPolicy,
   scanCandidatePaths,
@@ -24,6 +25,7 @@ import {
   type Viewer,
   reviewProgressSchema,
 } from "@pr-visulizer/shared"
+import { z } from "zod"
 
 import type { KeyValueStore } from "@/utils/storage/keyValueStore"
 
@@ -97,6 +99,16 @@ function progressKey(target: PrTarget, headSha: string): string {
   return `${target.owner}/${target.repo}#${target.number}@${headSha}`
 }
 
+// On-disk JSON is a boundary like any other, so the stored ancestor is parsed, not trusted.
+const viewedBaseSchema = z.array(z.string())
+
+// GitHub's Viewed set as of the last successful sync — the two-way merge's common ancestor
+// (§11). Stored under its OWN key rather than inside the progress JSON: it is sync
+// bookkeeping, not the reviewer's state, and it must not ride the contract.
+function viewedBaseKey(target: PrTarget, headSha: string): string {
+  return `viewedBase:${progressKey(target, headSha)}`
+}
+
 function resolveGateway(deps: TauriPrClientDeps): GithubGateway {
   if (deps.gateway) return deps.gateway
 
@@ -105,6 +117,7 @@ function resolveGateway(deps: TauriPrClientDeps): GithubGateway {
 
 export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
   const gateway = resolveGateway(deps)
+  const viewedSync = createViewedSyncService(gateway)
   const storage = deps.storage
   const cloneManager = deps.cloneManager ?? createTauriCloneManager()
   const runAnalysis: AnalysisRunner = deps.runAnalysis ?? runAnalysisInWorker
@@ -187,6 +200,36 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
       reviewedFiles: [],
       drafts: [],
     }
+  }
+
+  // Desktop has no BFF, so the SAME reconcile the server route runs happens here, against the
+  // same engine service and the same gateway (§11). Both reads and writes go through it: a
+  // reviewer who ticks files on github.com sees them here on open, and vice versa.
+  async function reconcileViewed(
+    target: PrTarget,
+    headSha: string,
+    progress: ReviewProgress
+  ): Promise<ReviewProgress> {
+    const baseKey = viewedBaseKey(target, headSha)
+    const storedBase = await storage.get(baseKey)
+    const base = storedBase === null ? null : viewedBaseSchema.parse(JSON.parse(storedBase))
+
+    const reconciled = await viewedSync.reconcile({
+      target,
+      local: progress.reviewedFiles,
+      base,
+    })
+
+    const saved: ReviewProgress = { ...progress, reviewedFiles: reconciled.reviewedFiles }
+    await storage.set(progressKey(target, headSha), JSON.stringify(saved))
+
+    // Only advance the ancestor once GitHub confirmed the write, so a failed sync cannot be
+    // mistaken for "GitHub agreed with us" on the next merge.
+    if (reconciled.syncedViewedFiles) {
+      await storage.set(baseKey, JSON.stringify(reconciled.syncedViewedFiles))
+    }
+
+    return { ...saved, viewedSync: reconciled.sync }
   }
 
   // Where to read the repo from: the user's linked clone if one is registered for this
@@ -399,16 +442,21 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
     async getProgress(target: PrTarget): Promise<ReviewProgress> {
       const [pr, user] = await Promise.all([pullMeta(target), currentViewer()])
       const stored = await storage.get(progressKey(target, pr.headSha))
-      if (stored === null) return emptyProgress(target, user.userId, pr.headSha)
 
       // Parse-don't-trust survives the platform change: on-disk JSON is a boundary too.
-      return reviewProgressSchema.parse(JSON.parse(stored))
+      const local =
+        stored === null
+          ? emptyProgress(target, user.userId, pr.headSha)
+          : reviewProgressSchema.parse(JSON.parse(stored))
+
+      return reconcileViewed(target, pr.headSha, local)
     },
 
     async putProgress(target: PrTarget, progress: ReviewProgress): Promise<ReviewProgress> {
       const [pr, user] = await Promise.all([pullMeta(target), currentViewer()])
 
       // Server-authoritative identity, locally: the caller only owns files/drafts/verdict.
+      // `viewedSync` is derived by the reconcile below, never taken from the caller.
       const saved: ReviewProgress = {
         userId: user.userId,
         owner: target.owner,
@@ -420,8 +468,7 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
         ...(progress.verdict ? { verdict: progress.verdict } : {}),
       }
 
-      await storage.set(progressKey(target, pr.headSha), JSON.stringify(saved))
-      return saved
+      return reconcileViewed(target, pr.headSha, saved)
     },
 
     async addCommentNow(target: PrTarget, comment: DraftComment): Promise<void> {

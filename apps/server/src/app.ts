@@ -5,6 +5,7 @@ import {
   createFakeGithubGateway,
   createFastAstEngine,
   createOctokitGateway,
+  createViewedSyncService,
 } from "@pr-visulizer/engine"
 import { createNodeGrammarSource } from "@pr-visulizer/engine/node"
 import Fastify, { type FastifyInstance } from "fastify"
@@ -42,11 +43,12 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   const analysis = createAnalysisService(engine)
   const progress = options.progress ?? createProgressStore(env.DATABASE_URL)
   const review = createReviewSubmitService(gateway)
+  const viewedSync = createViewedSyncService(gateway)
 
   // Local-dev bypass identity: DEV_USER, or a default when booting the fake gateway.
   const devUserId = env.DEV_USER ?? (env.GITHUB_FAKE ? "dev-user" : undefined)
 
-  const ctx: AppContext = { env, devUserId, gateway, analysis, progress, review }
+  const ctx: AppContext = { env, devUserId, gateway, analysis, progress, review, viewedSync }
 
   const app = Fastify({ logger: false })
   // httpOnly session cookie signing (§12).

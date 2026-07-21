@@ -286,7 +286,7 @@ export function DiffPane({
   // The row callbacks are hoisted and memoized: a fresh closure per render would defeat
   // DiffLine's memo and re-render (and re-tokenize) every row on any pane state change.
   const { jumpToDefinition, peekUsage } = nav
-  const { begin, extend, clear } = selection
+  const { select, extend, clear } = selection
 
   const handleAnchorClick = useCallback(
     (anchor: SymbolAnchor, withMeta: boolean): void => {
@@ -308,33 +308,16 @@ export function DiffPane({
     [jumpToDefinition, peekUsage, spanById]
   )
 
-  // True between a gutter mousedown and the next mouseup anywhere — rows entered while it
-  // holds extend the selection (GitHub-style drag). A ref, not state: rows read it inside a
-  // stable callback and a drag must not re-render the pane per row crossed.
-  const draggingRef = useRef(false)
-  useEffect(() => {
-    const stopDrag = (): void => {
-      draggingRef.current = false
-    }
-    window.addEventListener("mouseup", stopDrag)
-    return () => window.removeEventListener("mouseup", stopDrag)
-  }, [])
-
+  // A gutter click either runs the click-click range machine (plain click: anchor, then
+  // complete, then start over) or extends from the anchor (shift-click). Both live in the
+  // pure selection state machine — this only routes the modifier.
   const handleSelectLine = useCallback(
     (headLine: number, extendRange: boolean): void => {
       setEditingKey(null)
-      draggingRef.current = true
       if (extendRange) extend(headLine)
-      else begin(headLine)
+      else select(headLine)
     },
-    [begin, extend]
-  )
-
-  const handleLineDragEnter = useCallback(
-    (headLine: number): void => {
-      if (draggingRef.current) extend(headLine)
-    },
-    [extend]
+    [select, extend]
   )
 
   const openEdit = useCallback(
@@ -482,7 +465,6 @@ export function DiffPane({
         onAnchorClick={handleAnchorClick}
         onShowUsages={setUsagesAnchor}
         onSelectLine={handleSelectLine}
-        onLineDragEnter={handleLineDragEnter}
         draftsOnLine={draftsOnLine}
         onEditDraft={openEdit}
         onDeleteDraft={removeDraft}

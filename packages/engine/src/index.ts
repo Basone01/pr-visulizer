@@ -9,6 +9,10 @@ export * from "./services/githubGateway/fixtures/pr42.js"
 
 export * from "./services/repoFiles/index.js"
 
+// Two-way GitHub "Viewed" sync (§11) — driven by the BFF route AND, with no server in the
+// picture, by the desktop client, so it lives beside the gateway it wraps.
+export * from "./services/viewedSync/index.js"
+
 // The path→language map (pure util) — the desktop's local changed-file list tags each file's
 // language client-side, the same mapping the Octokit gateway applies (docs/tauri-architecture.md §6).
 export { languageForPath, SUPPORTED_GRAMMAR_IDS } from "./utils/language.js"

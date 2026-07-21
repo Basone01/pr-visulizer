@@ -2,8 +2,9 @@ import type { GithubGateway, PrTarget, ReviewEvent, SubmitReviewResult } from "@
 import type { DraftComment, ReviewProgress } from "@pr-visulizer/shared"
 
 // Review-submit flow (docs/architecture.md §11): map the app-side verdict to a GitHub
-// review event and post ONE real review, and sync the "Viewed" checkboxes on progress
-// writes. Both go through the gateway — the only thing that talks to GitHub.
+// review event and post ONE real review. Goes through the gateway — the only thing that
+// talks to GitHub. (The "Viewed" checkboxes are their own two-way concern; they live in the
+// engine's viewedSync service, which both this BFF and the desktop client drive.)
 
 export type Verdict = NonNullable<ReviewProgress["verdict"]>
 
@@ -23,7 +24,6 @@ const EVENT_BY_VERDICT: Record<Verdict, ReviewEvent> = {
 
 export type ReviewSubmitService = {
   submit(submission: ReviewSubmission): Promise<SubmitReviewResult>
-  syncViewedFiles(target: PrTarget, reviewedFiles: string[]): Promise<void>
 }
 
 export function createReviewSubmitService(gateway: GithubGateway): ReviewSubmitService {
@@ -45,13 +45,5 @@ export function createReviewSubmitService(gateway: GithubGateway): ReviewSubmitS
     })
   }
 
-  // Called on every progress sync (§11): mirror app checkmarks into GitHub's native
-  // "Viewed" state so they show up in the GitHub UI too.
-  async function syncViewedFiles(target: PrTarget, reviewedFiles: string[]): Promise<void> {
-    for (const path of reviewedFiles) {
-      await gateway.markFileAsViewed(target, path)
-    }
-  }
-
-  return { submit, syncViewedFiles }
+  return { submit }
 }

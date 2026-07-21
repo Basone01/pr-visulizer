@@ -48,6 +48,11 @@ export type SubmitReviewResult = {
   reviewId: number
 }
 
+// GitHub's own per-file "Viewed" checkbox (§11). Verified 2026-07 against the live GraphQL
+// schema: `FileViewedState` is exactly these three values, and DISMISSED means "was viewed,
+// then the file changed" — which is NOT viewed for our purposes.
+export type ViewedFileState = "VIEWED" | "UNVIEWED" | "DISMISSED"
+
 // §11: one comment published immediately (not part of a pending review). Same shape as a
 // review's inline comment, anchored to the reviewed commit.
 export type AddReviewCommentInput = {
@@ -79,9 +84,15 @@ export interface GithubGateway {
   // no pending review involved.
   addReviewComment(input: AddReviewCommentInput): Promise<void>
 
-  // §11: GitHub's native "Viewed" checkbox (GraphQL markFileAsViewed), synced on
-  // every progress write so app checkmarks show up in the GitHub UI too.
-  markFileAsViewed(target: PrTarget, path: string): Promise<void>
+  // §11: READ GitHub's native "Viewed" checkboxes for this reviewer, path → state. The
+  // sync is two-way — a file ticked on github.com has to show up here too — so the state
+  // has to be readable, not just writable. GraphQL only: the REST changed-files route
+  // carries no viewed state at all (verified against the live schema, 2026-07).
+  listViewedFiles(target: PrTarget): Promise<Record<string, ViewedFileState>>
+
+  // §11: WRITE one file's "Viewed" checkbox — GraphQL markFileAsViewed / unmarkFileAsViewed.
+  // Both directions, because un-ticking here must un-tick on GitHub as well.
+  setFileViewed(target: PrTarget, path: string, viewed: boolean): Promise<void>
 
   // Current authenticated user (powers /api/me).
   getViewer(): Promise<SessionUser>

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 import type { PrView } from "@/entity/viewModels"
 
 import { ReviewTray } from "./ReviewTray"
+import { IDLE_SUBMIT_PROPS } from "./reviewTrayTestProps"
 
 // The own-PR Approve guard (docs/architecture.md §11, task 4): GitHub rejects approving your
 // own PR, so when viewer === author the Approve verdict is disabled with a tooltip while the
@@ -43,6 +44,7 @@ describe("ReviewTray Approve guard (author === viewer)", () => {
         onHide={() => {}}
         onChooseVerdict={() => {}}
         onSubmit={() => {}}
+        {...IDLE_SUBMIT_PROPS}
       />
     )
 
@@ -73,6 +75,7 @@ describe("ReviewTray Approve guard (author === viewer)", () => {
         onHide={() => {}}
         onChooseVerdict={() => {}}
         onSubmit={() => {}}
+        {...IDLE_SUBMIT_PROPS}
       />
     )
 

@@ -190,7 +190,6 @@ export function GhostFilePane({
                 onAnchorClick={NO_OP}
                 onShowUsages={NO_OP}
                 onSelectLine={NO_OP}
-                onLineDragEnter={NO_OP}
                 draftsOnLine={NO_DRAFTS}
                 onEditDraft={NO_OP}
                 onDeleteDraft={NO_OP}

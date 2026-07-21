@@ -7,6 +7,7 @@ import { derivePrView } from "@/utils/graph/deriveView"
 import { pr42Analysis, pr42Paths } from "@/service/fixture/pr42"
 
 import { ReviewTray } from "./ReviewTray"
+import { IDLE_SUBMIT_PROPS } from "./reviewTrayTestProps"
 
 // A deep AnalysisResult (docs/architecture.md §6): PR #42 plus an unchanged ghost caller, with
 // blast radius 1 on the middleware it references. The tray shows the ⚠️ badge only where blast
@@ -43,6 +44,7 @@ function renderDeepTray() {
       onHide={() => {}}
       onChooseVerdict={() => {}}
       onSubmit={() => {}}
+      {...IDLE_SUBMIT_PROPS}
     />
   )
 

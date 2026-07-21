@@ -32,5 +32,10 @@ export function useSubmitReview(target: PrTarget, progress: ReviewProgress | und
     submit: () => mutation.mutate(),
     isSubmitting: mutation.isPending,
     isSubmitted: mutation.isSuccess,
+    // A failed submit posted nothing to GitHub, so the reason has to reach the reviewer —
+    // otherwise the button just goes quiet and the review looks sent.
+    submitError: mutation.error ? mutation.error.message : null,
+    // Clears a failed attempt, so closing and reopening the confirm dialog starts clean.
+    resetSubmit: mutation.reset,
   }
 }

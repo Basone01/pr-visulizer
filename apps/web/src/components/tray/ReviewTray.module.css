@@ -226,3 +226,30 @@
   color: var(--text);
   border-color: var(--muted);
 }
+
+/* Post-submit success state, in place of the button — a submitted review is done, and the
+   footer should not read as an invitation to post a second one over the first. */
+.submitted {
+  flex: 1;
+  text-align: center;
+  padding: 8px 0;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--added);
+  background: var(--added-soft);
+  color: var(--added);
+}
+
+/* Degraded GitHub "Viewed" sync (§11): the checkmarks are saved and kept, only the GitHub
+   mirror is behind — so this warns, it does not read as data loss. */
+.syncWarning {
+  padding: 0 14px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--modified);
+}
+
+.syncDot {
+  color: var(--modified);
+}

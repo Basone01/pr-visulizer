@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from "react"
 
-import { type LineSelection, beginSelection, extendSelection } from "@/utils/comments/lineSelection"
+import { type LineSelection, extendSelection, selectLine } from "@/utils/comments/lineSelection"
 
-// Owns the diff pane's live line-range selection (task 5): a click begins, a shift-click or
-// drag extends, and Esc clears. The transitions are the pure functions in lineSelection.ts;
-// this hook is only the React state + the Escape key binding.
+// Owns the diff pane's live line-range selection (task 5): a plain gutter click anchors and
+// a second one completes the range, a shift-click extends, and Esc clears. The transitions
+// are the pure functions in lineSelection.ts; this hook is only the React state + the Escape
+// key binding.
 export type LineSelectionApi = {
   selection: LineSelection | null
-  begin: (line: number) => void
+  // A plain gutter click. Anchors, completes a range, or starts over — see `selectLine`.
+  select: (line: number) => void
+  // A shift-click: always extends from the existing anchor.
   extend: (line: number) => void
   clear: () => void
 }
@@ -15,7 +18,10 @@ export type LineSelectionApi = {
 export function useLineSelection(): LineSelectionApi {
   const [selection, setSelection] = useState<LineSelection | null>(null)
 
-  const begin = useCallback((line: number) => setSelection(beginSelection(line)), [])
+  const select = useCallback(
+    (line: number) => setSelection((current) => selectLine(current, line)),
+    []
+  )
   const extend = useCallback(
     (line: number) => setSelection((current) => extendSelection(current, line)),
     []
@@ -37,5 +43,5 @@ export function useLineSelection(): LineSelectionApi {
     return () => window.removeEventListener("keydown", onKeyDown, true)
   }, [])
 
-  return { selection, begin, extend, clear }
+  return { selection, select, extend, clear }
 }

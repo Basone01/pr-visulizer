@@ -1,10 +1,23 @@
-import type { PrOverview, PrSummary, ReviewProgress, Viewer } from "@pr-visulizer/shared"
+import {
+  type PrOverview,
+  type PrSummary,
+  type ReviewProgress,
+  type Viewer,
+  mergeViewedFiles,
+  viewedDelta,
+} from "@pr-visulizer/shared"
 
 import type { AnalysisProgress, AnalysisProgressListener } from "@/entity/analysisProgress"
 import type { PrTarget, RepoRef } from "@/entity/pr"
 
 import type { AnalysisResponse, PrClient, ReviewSubmission } from "../prClient"
-import { BIG_FIXTURE_NUMBER, GHOST_HEAD, GHOST_PATH, bigPatch, buildBigAnalysis } from "./bigFixture"
+import {
+  BIG_FIXTURE_NUMBER,
+  GHOST_HEAD,
+  GHOST_PATH,
+  bigPatch,
+  buildBigAnalysis,
+} from "./bigFixture"
 import { pr42HeadFile } from "./headFiles"
 import { pr42Patches } from "./patches"
 import { pr42Analysis } from "./pr42"
@@ -42,6 +55,29 @@ export function createFixturePrClient(): PrClient {
     repo: pr42Analysis.pr.repo,
     number: pr42Analysis.pr.number,
   })
+
+  // Fixture mode has no GitHub, so it plays BOTH sides of the two-way "Viewed" sync (§11)
+  // in memory: `remoteViewed` stands in for github.com's checkboxes and `syncedBase` for the
+  // merge's ancestor. It runs the SAME pure merge the BFF and the desktop client run, so the
+  // fixture exercises the real reconciliation rather than a shortcut that always agrees.
+  let remoteViewed: string[] = []
+  let syncedBase: string[] | null = null
+
+  function syncViewed(current: ReviewProgress): ReviewProgress {
+    const merged = mergeViewedFiles({
+      local: current.reviewedFiles,
+      remote: remoteViewed,
+      base: syncedBase,
+    })
+
+    const { toMark, toUnmark } = viewedDelta(remoteViewed, merged)
+    const unmarked = new Set(toUnmark)
+    remoteViewed = [...remoteViewed.filter((path) => !unmarked.has(path)), ...toMark]
+    syncedBase = merged
+
+    progress = { ...current, reviewedFiles: merged }
+    return { ...progress, viewedSync: { status: "synced" } }
+  }
 
   return {
     getOverview(target: PrTarget): Promise<PrOverview> {
@@ -127,12 +163,12 @@ export function createFixturePrClient(): PrClient {
     },
 
     getProgress(): Promise<ReviewProgress> {
-      return delay(progress)
+      return delay(syncViewed(progress))
     },
 
     putProgress(_target: PrTarget, next: ReviewProgress): Promise<ReviewProgress> {
       progress = next
-      return delay(progress)
+      return delay(syncViewed(progress))
     },
 
     submitReview(_target: PrTarget, submission: ReviewSubmission): Promise<void> {
