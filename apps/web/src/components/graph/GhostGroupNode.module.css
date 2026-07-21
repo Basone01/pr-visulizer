@@ -1,0 +1,27 @@
+/* The ghost band's backdrop. Fills the box ghostGroupLayout reserved, so the padding below only
+   places the label inside room the layout already left empty — a few px of drift costs nothing. */
+.group {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 20px;
+  /* Dashed like the ghost nodes it holds, and a step off the canvas so the region reads as a
+     bounded aside rather than more graph. --code-bg is the recessed surface in both themes. */
+  background: var(--code-bg);
+  border: 1.5px dashed var(--border);
+  border-radius: 14px;
+  cursor: default;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Recedes with its own nodes whenever a file is open — the band is never part of a focus set. */
+.dimmed {
+  opacity: 0.3;
+}

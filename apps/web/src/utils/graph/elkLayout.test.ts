@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import {
-  GHOST_NODE_HEIGHT,
-  NODE_HEIGHT,
-  NODE_WIDTH,
-  buildElkGraph,
-  nodeSize,
-} from "./elkLayout"
+import { GHOST_NODE_HEIGHT, NODE_HEIGHT, NODE_WIDTH, buildElkGraph, nodeSize } from "./elkLayout"
 
 // The reserved node box must match what FileNode/GhostNode actually render, or a taller node
 // (symbols row, blast-radius badge) spills past its slot and its badge is covered by the node
@@ -73,29 +67,59 @@ describe("buildElkGraph", () => {
     // Arrange
     const plainPath = "src/plain.ts"
     const badgePath = "src/mapper.py"
-    const ghostPath = "src/ghost.ts"
-    const nodes = [
-      { path: plainPath },
-      { path: badgePath, hasSymbols: true, hasBlast: true },
-      { path: ghostPath, ghost: true },
-    ]
+    const nodes = [{ path: plainPath }, { path: badgePath, hasSymbols: true, hasBlast: true }]
     const edges = [{ from: badgePath, to: plainPath }]
 
     // Act
     const graph = buildElkGraph(nodes, edges)
 
-    // Assert — the badge node reserves more vertical room than the plain node; the ghost gets its
-    // own fixed box.
+    // Assert — the badge node reserves more vertical room than the plain node.
     const children = graph.children ?? []
     const plain = children.find((child) => child.id === plainPath)
     const badge = children.find((child) => child.id === badgePath)
-    const ghost = children.find((child) => child.id === ghostPath)
 
     const expectedPlainHeight = NODE_HEIGHT
-    const expectedGhostHeight = GHOST_NODE_HEIGHT
     expect(plain?.height).toBe(expectedPlainHeight)
     expect(badge?.height).toBeGreaterThan(expectedPlainHeight)
-    expect(ghost?.height).toBe(expectedGhostHeight)
     expect(plain?.width).toBe(NODE_WIDTH)
+  })
+
+  // Ghosts are placed by ghostGroupLayout in their own band. If one reached elk it would land in
+  // the first column among the isolated CHANGED files — the interleaving the band exists to fix.
+  it("keeps ghosts out of the layered layout entirely", () => {
+    // Arrange
+    const foundationPath = "src/plain.ts"
+    const dependentPath = "src/mapper.py"
+    const ghostPath = "src/ghost.ts"
+    const nodes = [
+      { path: foundationPath },
+      { path: dependentPath },
+      { path: ghostPath, ghost: true },
+    ]
+    const edges = [{ from: dependentPath, to: foundationPath }]
+
+    // Act
+    const graph = buildElkGraph(nodes, edges)
+
+    // Assert — only the changed files are handed to elk.
+    const expectedIds = [foundationPath, dependentPath]
+    expect((graph.children ?? []).map((child) => child.id)).toEqual(expectedIds)
+  })
+
+  // No engine emits a ghost edge today (a file edge needs BOTH endpoints changed), but an edge
+  // naming a node elk was never given makes elk throw — so the filter drops those too.
+  it("drops an edge whose endpoint is a ghost, so elk never sees an unknown node", () => {
+    // Arrange
+    const changedPath = "src/plain.ts"
+    const ghostPath = "src/ghost.ts"
+    const nodes = [{ path: changedPath }, { path: ghostPath, ghost: true }]
+    const ghostEdge = { from: ghostPath, to: changedPath }
+
+    // Act
+    const graph = buildElkGraph(nodes, [ghostEdge])
+
+    // Assert
+    const expectedEdgeCount = 0
+    expect(graph.edges ?? []).toHaveLength(expectedEdgeCount)
   })
 })

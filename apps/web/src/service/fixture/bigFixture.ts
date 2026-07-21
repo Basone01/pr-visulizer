@@ -3,6 +3,7 @@ import {
   type ChangedFile,
   type ChangedSymbol,
   type Edge,
+  type GhostFile,
   type SymbolOccurrence,
   analysisResultSchema,
   rankFiles,
@@ -116,6 +117,21 @@ function ghostOccurrences(): SymbolOccurrence[] {
   }))
 }
 
+// Extra ghosts with no head text behind them, so the fixture's ghost BAND wraps to a real grid
+// instead of a single node. They keep the "content unavailable" ghost view reachable too — only
+// GHOST_PATH above serves head content.
+const EXTRA_GHOST_COUNT = 7
+
+function ghostFiles(): GhostFile[] {
+  const extras = Array.from({ length: EXTRA_GHOST_COUNT }, (_unused, index) => ({
+    path: `src/module${index % 3}/ghostReader${index}.ts`,
+    // Varying reference counts, so the band shows the same "N refs" spread a real deep run does.
+    usedChangedSymbols: GHOST_SYMBOLS.slice(0, (index % GHOST_SYMBOLS.length) + 1),
+  }))
+
+  return [{ path: GHOST_PATH, usedChangedSymbols: GHOST_SYMBOLS }, ...extras]
+}
+
 export function buildBigAnalysis(owner: string, repo: string): AnalysisResult {
   const files = bigFiles()
   const edges = bigEdges(files)
@@ -142,7 +158,7 @@ export function buildBigAnalysis(owner: string, repo: string): AnalysisResult {
     symbols,
     edges,
     ranking,
-    ghosts: [{ path: GHOST_PATH, usedChangedSymbols: GHOST_SYMBOLS }],
+    ghosts: ghostFiles(),
     occurrences: [...occurrences, ...ghostOccurrences()],
   })
 }

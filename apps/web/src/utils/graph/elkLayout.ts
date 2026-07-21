@@ -57,7 +57,19 @@ export function nodeSize(variant: NodeSizeVariant): NodeSize {
 
 export type LayoutNode = { path: string } & NodeSizeVariant
 
+// Ghosts are laid out separately (ghostGroupLayout) and must never reach elk: they carry no edges,
+// so the layered algorithm scatters them through the first column among the isolated CHANGED files
+// and the two groups become impossible to tell apart. Filtering here — not just at the call site —
+// makes "elk never sees a ghost" an invariant of the layout module itself.
 export function buildElkGraph(nodes: LayoutNode[], edges: LayoutEdge[]): ElkNode {
+  const laidOut = nodes.filter((node) => !node.ghost)
+  const laidOutPaths = new Set(laidOut.map((node) => node.path))
+  // An edge pointing at a dropped node would make elk throw on an unknown endpoint. No engine
+  // emits one today (a file edge needs BOTH endpoints changed), so this only guards the future.
+  const laidOutEdges = edges.filter(
+    (edge) => laidOutPaths.has(edge.from) && laidOutPaths.has(edge.to)
+  )
+
   return {
     id: "root",
     layoutOptions: {
@@ -70,12 +82,12 @@ export function buildElkGraph(nodes: LayoutNode[], edges: LayoutEdge[]): ElkNode
       "elk.spacing.nodeNode": "40",
       "elk.spacing.edgeNode": "28",
     },
-    children: nodes.map((node) => ({
+    children: laidOut.map((node) => ({
       id: node.path,
       ...nodeSize(node),
     })),
     // Reverse direction: dependency (to) is the source so it sits in an earlier layer.
-    edges: edges.map((edge, index) => ({
+    edges: laidOutEdges.map((edge, index) => ({
       id: `e${index}`,
       sources: [edge.to],
       targets: [edge.from],
