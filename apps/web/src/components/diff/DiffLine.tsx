@@ -1,23 +1,42 @@
 import type { DraftComment } from "@pr-visulizer/shared"
 import { memo } from "react"
 
+import type { CommentThread } from "@/utils/comments/commentThreads"
+import type { CharRange } from "@/utils/diff/intraLineDiff"
 import type { LineTokenizer } from "@/utils/highlight/highlighter"
 
 import type { SymbolAnchor } from "@/entity/anchor"
 import type { DiffLine as DiffLineVM } from "@/entity/diff"
 
-import { CodeContent } from "./CodeContent"
+import { CodeContent, NO_CHAR_RANGES } from "./CodeContent"
 import styles from "./Diff.module.css"
 
 // Shared empties for the base column, which renders no annotations — a stable reference so the
 // memoized row is not re-rendered by a fresh literal.
 const NO_ANCHORS: SymbolAnchor[] = []
+// Stable empty thread list, so a line with no existing comments keeps the same prop reference
+// across renders and the memoized row skips re-rendering (same trick as NO_ANCHORS/NO_DRAFTS).
+const NO_THREADS: CommentThread[] = []
+
+// Total comments (roots + replies) across the threads on a line — the bubble's badge count.
+function commentCountOf(threads: CommentThread[]): number {
+  return threads.reduce((sum, thread) => sum + thread.comments.length, 0)
+}
 
 const ROW_CLASS: Record<DiffLineVM["kind"], string | undefined> = {
   add: styles.lineAdd,
   del: styles.lineDel,
   context: "",
   hunk: styles.lineHunk,
+}
+
+// The intra-line emphasis layer (§10) reads the same status the row background does, one shade
+// deeper — only a del/add line has a counterpart to differ from, so the other two have none.
+const CHAR_CLASS: Record<DiffLineVM["kind"], string | undefined> = {
+  add: styles.charAdd,
+  del: styles.charDel,
+  context: undefined,
+  hunk: undefined,
 }
 
 // One diff row: side gutters (base | head line numbers) + tokenized content with
@@ -39,6 +58,9 @@ export const DiffLine = memo(function DiffLine({
   draftsOnLine,
   onEditDraft,
   onDeleteDraft,
+  threadsOnLine = NO_THREADS,
+  onToggleThread,
+  charRanges = NO_CHAR_RANGES,
 }: {
   line: DiffLineVM
   tokenizer: LineTokenizer | null
@@ -60,6 +82,13 @@ export const DiffLine = memo(function DiffLine({
   draftsOnLine: DraftComment[]
   onEditDraft: (draft: DraftComment) => void
   onDeleteDraft: (draft: DraftComment) => void
+  // EXISTING published comment threads anchored to this head line (distinct from local drafts
+  // above). The bubble toggles the thread panel, which the pane renders below the row.
+  threadsOnLine?: CommentThread[]
+  onToggleThread?: (headLine: number) => void
+  // Characters that differ from this line's pair (§10). Unlike every annotation above, this
+  // belongs to the CONTENT rather than to the head line, so the base column paints its own.
+  charRanges?: CharRange[]
 }) {
   const rowClass = [
     styles.line,
@@ -118,6 +147,8 @@ export const DiffLine = memo(function DiffLine({
         tokenizer={tokenizer}
         anchors={shownAnchors}
         onAnchorClick={onAnchorClick}
+        charRanges={charRanges}
+        charClass={CHAR_CLASS[line.kind]}
       />
       {line.wsOnly && showAnnotations && (
         <span className={styles.wsOnly} title="whitespace-only change hidden">
@@ -127,6 +158,20 @@ export const DiffLine = memo(function DiffLine({
       {definition && (
         <button className={styles.pill} onClick={() => onShowUsages(definition)}>
           {definition.usages.length} usages in this PR
+        </button>
+      )}
+      {showAnnotations && headLine !== null && threadsOnLine.length > 0 && (
+        <button
+          type="button"
+          className={styles.threadMarker}
+          // A count only when there's more than one comment on the line, per the spec — a lone
+          // comment just shows the bubble. Counts COMMENTS across the line's threads (replies
+          // included), so "🗨 3" means three comments to read here.
+          aria-label={`${commentCountOf(threadsOnLine)} existing comment(s) on line ${headLine}`}
+          title="Show existing review comments"
+          onClick={() => onToggleThread?.(headLine)}
+        >
+          🗨{commentCountOf(threadsOnLine) > 1 ? ` ${commentCountOf(threadsOnLine)}` : ""}
         </button>
       )}
       {showAnnotations &&

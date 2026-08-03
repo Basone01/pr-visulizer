@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest"
 
 import {
   type AnalysisResult,
+  type PrMeta,
   RANKING_PRESETS,
   analysisResultSchema,
+  prMetaSchema,
   rankFiles,
 } from "../src/index.js"
 import { pr42ContractEdges, pr42Files, pr42Paths, pr42RankingInput } from "./fixtures/pr42.js"
@@ -67,5 +69,55 @@ describe("AnalysisResult contract (§3)", () => {
 
     // Assert
     expect(outcome.success).toBe(false)
+  })
+})
+
+// The description viewer reads `body` + `htmlUrl` off PrMeta (GitHub `pulls.get`). Both must
+// survive the boundary schema, and the nullable `body` must accept GitHub's "no description".
+describe("PrMeta description fields (§3)", () => {
+  it("parses a PrMeta carrying a markdown body and web url", () => {
+    // Arrange
+    const htmlUrl = "https://github.com/acme/web/pull/42"
+    const body = "## Summary\n\n- rate limiting\n\n[docs](https://example.com)"
+    const meta: PrMeta = {
+      owner: "acme",
+      repo: "web",
+      number: 42,
+      title: "Add login rate limiting",
+      author: "contributor-dev",
+      baseSha: "base0000",
+      headSha: "head1111",
+      body,
+      htmlUrl,
+    }
+
+    // Act
+    const parsed = prMetaSchema.parse(meta)
+
+    // Assert
+    expect(parsed.body).toBe(body)
+    expect(parsed.htmlUrl).toBe(htmlUrl)
+  })
+
+  it("accepts a null body (GitHub returns null for a PR with no description)", () => {
+    // Arrange
+    const nullBody = null
+    const meta = {
+      owner: "acme",
+      repo: "web",
+      number: 7,
+      title: "Docs tweak",
+      author: "contributor-dev",
+      baseSha: "base0000",
+      headSha: "head2222",
+      body: nullBody,
+      htmlUrl: "https://github.com/acme/web/pull/7",
+    }
+
+    // Act
+    const parsed = prMetaSchema.parse(meta)
+
+    // Assert
+    expect(parsed.body).toBeNull()
   })
 })

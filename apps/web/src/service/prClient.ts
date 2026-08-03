@@ -6,6 +6,7 @@ import type {
   PrOverview,
   PrSummary,
   RangeDiff,
+  ReviewComment,
   ReviewProgress,
   Viewer,
 } from "@pr-visulizer/shared"
@@ -54,6 +55,9 @@ export interface PrClient {
   submitReview(target: PrTarget, submission: ReviewSubmission): Promise<void>
   // §11: publish one inline comment immediately — no pending review, visible at once.
   addCommentNow(target: PrTarget, comment: DraftComment): Promise<void>
+  // Every EXISTING published review comment on the PR (any author) — the "show existing comments"
+  // feature. Read-only; the SPA groups them into threads and anchors each to its head line.
+  listReviewComments(target: PrTarget): Promise<ReviewComment[]>
   // The authenticated viewer identity (§9 /api/me): http → the BFF route, tauri → the
   // gateway, fixture → a dev viewer. Powers the own-PR Approve guard (task 4, §11).
   getViewer(): Promise<Viewer>

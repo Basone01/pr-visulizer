@@ -9,11 +9,10 @@
 // type library (missing `Array.prototype.map`, `Promise`, …) and the tier produces wrong,
 // quietly-degraded results. Node tests would never notice — the node LibSource reads any file
 // off disk.
+import { DEFAULT_LIB } from "@pr-visulizer/engine/browser"
 import { readFileSync, readdirSync } from "node:fs"
 import { createRequire } from "node:module"
 import { describe, expect, it } from "vitest"
-
-import { DEFAULT_LIB } from "@pr-visulizer/engine/browser"
 
 const requireFromHere = createRequire(import.meta.url)
 const TS_LIB_DIR = requireFromHere.resolve("typescript").replace(/\/typescript\.js$/, "")

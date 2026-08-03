@@ -212,6 +212,24 @@ export const pr42Analysis: AnalysisResult = analysisResultSchema.parse({
     author: "octocat", // PR opener; the fixture viewer ("reviewer-dev") differs → Approve enabled
     baseSha: "a1b2c3d",
     headSha: "3f9c2e1",
+    // An invented description so the fixture exercises the viewer end-to-end: headings, a task
+    // checklist and a link — the markdown wrapper renders it, and the link routes through
+    // openExternalUrl rather than navigating the webview.
+    body: [
+      "## What & why",
+      "",
+      "Login had **no throttling**, so credential-stuffing was cheap. This adds a token-bucket",
+      "limiter (`src/lib/rateLimiter.ts`) behind `withRateLimit`, wired into the login route.",
+      "",
+      "### Checklist",
+      "",
+      "- [x] Limiter core + unit tests",
+      "- [x] Middleware wrapper",
+      "- [ ] Dashboard metrics (follow-up)",
+      "",
+      "See the [rate-limit RFC](https://example.com/rfc) for the chosen window and burst.",
+    ].join("\n"),
+    htmlUrl: "https://github.com/acme/webapp/pull/42",
   },
   files,
   symbols,

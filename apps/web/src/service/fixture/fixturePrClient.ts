@@ -4,6 +4,7 @@ import {
   type PrOverview,
   type PrSummary,
   type RangeDiff,
+  type ReviewComment,
   type ReviewProgress,
   type Viewer,
   mergeViewedFiles,
@@ -16,6 +17,8 @@ import type { PrTarget, RepoRef } from "@/entity/pr"
 import type { AnalysisResponse, PrClient, ReviewSubmission } from "../prClient"
 import {
   BIG_FIXTURE_NUMBER,
+  BIG_MARKDOWN_HEAD,
+  BIG_MARKDOWN_PATH,
   GHOST_HEAD,
   GHOST_PATH,
   bigPatch,
@@ -25,6 +28,7 @@ import { pr42Commits, pr42RangeDiff } from "./commits"
 import { pr42HeadFile } from "./headFiles"
 import { pr42Patches } from "./patches"
 import { pr42Analysis } from "./pr42"
+import { pr42ReviewComments } from "./reviewComments"
 
 // Serves the PR #42 fixture client-side so the SPA renders end-to-end without the
 // BFF (VITE_FIXTURE=1). Progress lives in memory so optimistic checkmarks round-trip.
@@ -173,11 +177,23 @@ export function createFixturePrClient(): PrClient {
       return delay(undefined)
     },
 
+    listReviewComments(target: PrTarget): Promise<ReviewComment[]> {
+      // Only the PR #42 fixture carries threads; the big profiling PR has none.
+      if (target.number === BIG_FIXTURE_NUMBER) return delay([])
+
+      return delay(pr42ReviewComments())
+    },
+
     getFileAtHead(target: PrTarget, path: string): Promise<string | null> {
-      // The big fixture serves only its ghost's head text — every other path stays null so
-      // the "content unavailable" state remains reachable in fixture mode.
-      if (target.number === BIG_FIXTURE_NUMBER)
-        return delay(path === GHOST_PATH ? GHOST_HEAD : null)
+      // The big fixture serves head text for exactly two paths — its ghost, and the one markdown
+      // file the preview needs. Every other path stays null, so the "content unavailable" state
+      // the toolbar has to handle remains reachable in fixture mode.
+      if (target.number === BIG_FIXTURE_NUMBER) {
+        if (path === GHOST_PATH) return delay(GHOST_HEAD)
+        if (path === BIG_MARKDOWN_PATH) return delay(BIG_MARKDOWN_HEAD)
+
+        return delay(null)
+      }
 
       return delay(pr42HeadFile(path))
     },

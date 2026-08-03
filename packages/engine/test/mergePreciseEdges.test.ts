@@ -218,9 +218,12 @@ describe("mergePreciseEdges — deduplication", () => {
     // Arrange — start calls doThing three times.
     const astResult = analysisWith([])
     const lines = [11, 12, 13]
-    const references = lines.map(
-      (line): PreciseReference => ({ symbolId: doThing.id, path: CALLER, line, kind: "calls" })
-    )
+    const references = lines.map((line): PreciseReference => ({
+      symbolId: doThing.id,
+      path: CALLER,
+      line,
+      kind: "calls",
+    }))
 
     // Act
     const { result, stats } = mergePreciseEdges(astResult, references)

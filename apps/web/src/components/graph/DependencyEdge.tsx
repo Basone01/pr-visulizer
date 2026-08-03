@@ -26,8 +26,7 @@ export const DependencyEdge = memo(function DependencyEdge({
   // Re-deriving the curve on every focus change is pure waste — it only moves when the layout
   // does, and a 1,600-edge graph re-focuses on every click.
   const [path] = useMemo(
-    () =>
-      getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition }),
+    () => getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition }),
     [sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition]
   )
 

@@ -1,10 +1,30 @@
-import { useMemo } from "react"
+import { type ReactNode, useMemo } from "react"
 
-import type { LineTokenizer } from "@/utils/highlight/highlighter"
+import { type CharRange, splitByRanges } from "@/utils/diff/intraLineDiff"
+import type { LineTokenizer, SyntaxToken } from "@/utils/highlight/highlighter"
 
 import type { SymbolAnchor } from "@/entity/anchor"
 
 import styles from "./Diff.module.css"
+
+// Shared empty, so a line with no intra-line emphasis keeps the same prop reference across
+// renders and the memoized row skips re-rendering (same trick as DiffLine's NO_ANCHORS).
+export const NO_CHAR_RANGES: CharRange[] = []
+
+// Where each token starts in the line — a token carries its text but not its position, and the
+// intra-line ranges are line-relative.
+type PositionedToken = { token: SyntaxToken; start: number }
+
+function positionTokens(tokens: SyntaxToken[]): PositionedToken[] {
+  let start = 0
+
+  return tokens.map((token) => {
+    const positioned = { token, start }
+    start += token.content.length
+
+    return positioned
+  })
+}
 
 // Renders one code line: shiki tokens for syntax color (foreground), with any symbol
 // anchor on the line turned into a dotted-underline interactive span (§10). The diff
@@ -14,22 +34,46 @@ export function CodeContent({
   tokenizer,
   anchors,
   onAnchorClick,
+  charRanges = NO_CHAR_RANGES,
+  charClass,
 }: {
   text: string
   tokenizer: LineTokenizer | null
   anchors: SymbolAnchor[]
   onAnchorClick: (anchor: SymbolAnchor, withMeta: boolean) => void
+  // Characters that differ from this line's counterpart in the pair (§10), when the intra-line
+  // toggle is on. Empty is the whole feature off — every branch below then renders plain text.
+  charRanges?: CharRange[]
+  // Which side's emphasis to paint (add or del); undefined on a line that has none.
+  charClass?: string | undefined
 }) {
   // Tokenizing is a grammar run per line; a re-render for any other reason (selection, flash,
   // a draft pill) must not pay for it again.
   const tokens = useMemo(() => (tokenizer ? tokenizer(text) : null), [tokenizer, text])
 
+  // Emphasis is painted INSIDE the token (and inside an anchor), never around it: the segment
+  // spans carry only a background, so the token's syntax color and the anchor's underline and
+  // click target both survive being split.
+  function emphasize(pieceText: string, pieceStart: number): ReactNode {
+    if (charRanges.length === 0) return pieceText
+
+    return splitByRanges(pieceText, pieceStart, charRanges).map((segment, index) =>
+      segment.changed ? (
+        <span key={index} className={charClass}>
+          {segment.text}
+        </span>
+      ) : (
+        segment.text
+      )
+    )
+  }
+
   // Until shiki loads, show plain text — highlighting never blocks the diff.
-  if (!tokens) return <span className={styles.content}>{text}</span>
+  if (!tokens) return <span className={styles.content}>{emphasize(text, 0)}</span>
 
   return (
     <span className={styles.content}>
-      {tokens.map((token, index) => {
+      {positionTokens(tokens).map(({ token, start }, index) => {
         // Underline only when the token IS a navigable symbol with a counterpart.
         const anchor = anchors.find(
           (candidate) => candidate.hasCounterpart && candidate.name === token.content
@@ -38,7 +82,7 @@ export function CodeContent({
         if (!anchor) {
           return (
             <span key={index} style={{ color: token.cssVar }}>
-              {token.content}
+              {emphasize(token.content, start)}
             </span>
           )
         }
@@ -52,7 +96,7 @@ export function CodeContent({
             role="button"
             tabIndex={0}
           >
-            {token.content}
+            {emphasize(token.content, start)}
           </span>
         )
       })}

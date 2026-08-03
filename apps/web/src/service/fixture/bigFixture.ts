@@ -28,6 +28,84 @@ function bigFiles(): ChangedFile[] {
   }))
 }
 
+// The one markdown file in fixture mode, so the rendered-markdown preview (§10) is reachable
+// without a real PR. It lives HERE and not in PR #42 on purpose: #42 is the §7–§8 worked example
+// and its file list, ranking order and readiness numbers are asserted verbatim by
+// deriveView.test.ts — a seventh file would rewrite the documented example.
+//
+// `language: null` is the honest value (the engine ships no markdown grammar) and is exactly why
+// the preview keys off the path extension instead of this field.
+export const BIG_MARKDOWN_PATH = "README.md"
+
+const BIG_MARKDOWN_FILE: ChangedFile = {
+  path: BIG_MARKDOWN_PATH,
+  status: "modified",
+  additions: 14,
+  deletions: 1,
+  language: null,
+}
+
+// Head content for the preview. Covers every construct the preview styles — headings, a fence, a
+// table, a quote, a task list — plus both URL cases the policy has to answer: an absolute https
+// link (opens externally) and a RELATIVE image (unresolvable → alt-text placeholder).
+export const BIG_MARKDOWN_HEAD = [
+  "# webapp",
+  "",
+  "A small API server with **login rate limiting**.",
+  "",
+  "![architecture diagram](./docs/architecture.png)",
+  "",
+  "## Rate limiting",
+  "",
+  "Login attempts are capped per window. Configure it in `src/config/limits.ts`:",
+  "",
+  "```ts",
+  "export const LOGIN_RATE_LIMIT: RateLimitConfig = { windowMs: 60000, max: 5 }",
+  "```",
+  "",
+  "- A blocked request answers `429`.",
+  "- The window is a sliding one, not a fixed bucket.",
+  "",
+  "See the [rate limiting RFC](https://example.com/rfc/rate-limiting) for the rationale.",
+  "",
+  "### Limits",
+  "",
+  "| Route | Window | Max |",
+  "| --- | --- | --- |",
+  "| `POST /login` | 60s | 5 |",
+  "| `POST /signup` | 60s | 3 |",
+  "",
+  "> Rate limiting is per IP. A proxy in front of the app must forward `X-Forwarded-For`.",
+  "",
+  "### Checklist",
+  "",
+  "- [x] limiter",
+  "- [ ] metrics",
+].join("\n")
+
+// The diff the reviewer toggles away FROM — a normal markdown patch, unlike the synthetic
+// 600-line one bigPatch() generates for the code files.
+export const BIG_MARKDOWN_PATCH = [
+  "@@ -1,4 +1,17 @@",
+  " # webapp",
+  " ",
+  "-A small API server.",
+  "+A small API server with **login rate limiting**.",
+  "+",
+  "+![architecture diagram](./docs/architecture.png)",
+  "+",
+  "+## Rate limiting",
+  "+",
+  "+Login attempts are capped per window. Configure it in `src/config/limits.ts`:",
+  "+",
+  "+```ts",
+  "+export const LOGIN_RATE_LIMIT: RateLimitConfig = { windowMs: 60000, max: 5 }",
+  "+```",
+  "+",
+  "+- A blocked request answers `429`.",
+  "+- The window is a sliding one, not a fixed bucket.",
+].join("\n")
+
 // A chain-ish edge set so the graph has real depth and ~1.5 edges/node.
 function bigEdges(files: ChangedFile[]): Edge[] {
   const edges: Edge[] = []
@@ -133,9 +211,12 @@ function ghostFiles(): GhostFile[] {
 }
 
 export function buildBigAnalysis(owner: string, repo: string): AnalysisResult {
-  const files = bigFiles()
-  const edges = bigEdges(files)
-  const { symbols, occurrences } = bigSymbolsAndOccurrences(files)
+  // The markdown file joins AFTER the edges and symbols are built, so it stays a leaf: no
+  // synthetic "README.md imports file7.ts" edge, and no fake symbols inside a document.
+  const codeFiles = bigFiles()
+  const edges = bigEdges(codeFiles)
+  const { symbols, occurrences } = bigSymbolsAndOccurrences(codeFiles)
+  const files = [...codeFiles, BIG_MARKDOWN_FILE]
 
   const rankingInput: RankingInputShape = {
     files: files.map((file) => ({ path: file.path, churn: file.additions + file.deletions })),
@@ -166,6 +247,8 @@ export function buildBigAnalysis(owner: string, repo: string): AnalysisResult {
 type RankingInputShape = Parameters<typeof rankFiles>[0]
 
 export function bigPatch(path: string): string {
+  if (path === BIG_MARKDOWN_PATH) return BIG_MARKDOWN_PATCH
+
   // A large-ish real-world-sized diff so opening a file exercises the line renderer.
   const lines = Array.from({ length: 600 }, (_unused, index) => `+  const value${index} = ${index}`)
   return `diff --git a/${path} b/${path}\n@@ -0,0 +1,${lines.length} @@\n${lines.join("\n")}\n`

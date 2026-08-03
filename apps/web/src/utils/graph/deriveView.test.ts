@@ -1,6 +1,5 @@
-import { describe, expect, it } from "vitest"
-
 import type { AnalysisResult } from "@pr-visulizer/shared"
+import { describe, expect, it } from "vitest"
 
 import { pr42Analysis, pr42Paths } from "@/service/fixture/pr42"
 

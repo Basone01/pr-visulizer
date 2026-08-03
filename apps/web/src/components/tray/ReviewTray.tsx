@@ -53,8 +53,9 @@ type ReviewTrayProps = {
   // The checkmarks are still the reviewer's own — this only says the mirror is behind.
   viewedSyncError: string | null
   // Paths the diff pane's selected commit range touches, or null when no range is selected (§10).
-  // null means "no range" — every row renders normally. The queue itself never changes: order,
-  // readiness and the checkmarks stay whole-PR; this only mutes the rows outside the range.
+  // null means "no range" — every row is listed. A range FILTERS the list down to the files
+  // those commits changed; it never re-ranks it. Order, readiness and the reviewed counts all
+  // stay whole-PR, so the rows still line up with the graph and with GitHub's "Viewed" state.
   rangeTouchedPaths: Set<string> | null
   onHide: () => void
 }
@@ -100,6 +101,14 @@ export function ReviewTray({
   // has no graph, so fileNodes is empty).
   const hasRanking = view.fileNodes.length > 0
 
+  // A selected commit range narrows the queue to the files those commits touched — the reviewer
+  // asked "what did these commits change?", and rows they didn't change are noise. Filtered, not
+  // re-ranked: the surviving rows keep their whole-PR ranking order.
+  const rangeActive = rangeTouchedPaths !== null
+  const visibleRows = rangeActive
+    ? view.trayRows.filter((row) => rangeTouchedPaths.has(row.path))
+    : view.trayRows
+
   return (
     <div className={styles.tray}>
       <div className={styles.header}>
@@ -135,17 +144,29 @@ export function ReviewTray({
         </div>
       )}
 
+      {rangeActive && (
+        <div className={styles.rangeFilter} role="status">
+          <span className="mono">
+            {visibleRows.length} of {view.trayRows.length}
+          </span>{" "}
+          files in the selected commits
+        </div>
+      )}
+
       <div className={styles.rows}>
-        {view.trayRows.map((row) => (
-          <TrayRow
-            key={row.path}
-            row={row}
-            active={row.path === activePath}
-            outsideRange={rangeTouchedPaths !== null && !rangeTouchedPaths.has(row.path)}
-            onToggle={onToggleReviewed}
-            onOpen={onOpenFile}
-          />
-        ))}
+        {rangeActive && visibleRows.length === 0 ? (
+          <div className={styles.rangeEmpty}>No queued files in the selected commits.</div>
+        ) : (
+          visibleRows.map((row) => (
+            <TrayRow
+              key={row.path}
+              row={row}
+              active={row.path === activePath}
+              onToggle={onToggleReviewed}
+              onOpen={onOpenFile}
+            />
+          ))
+        )}
       </div>
 
       <div className={styles.verdicts}>

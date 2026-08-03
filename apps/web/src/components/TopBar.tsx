@@ -1,5 +1,7 @@
 import type { Engine, PrMeta } from "@pr-visulizer/shared"
+import { useState } from "react"
 
+import { PrDescriptionPanel } from "./PrDescriptionPanel"
 import { ThemeSwitch } from "./ThemeSwitch"
 import styles from "./TopBar.module.css"
 
@@ -21,6 +23,10 @@ type TopBarProps = {
 }
 
 export function TopBar({ pr, engine, onBack, showSettings, onOpenCloneSettings }: TopBarProps) {
+  // Description-viewer open state is trivial UI state that belongs with the button controlling
+  // it — kept local so the panel stays a self-contained overlay and the review flow is untouched.
+  const [showDescription, setShowDescription] = useState(false)
+
   return (
     <div className={styles.top}>
       <button className={styles.back} onClick={onBack} title="Back to home">
@@ -29,6 +35,14 @@ export function TopBar({ pr, engine, onBack, showSettings, onOpenCloneSettings }
       <b>
         PR #{pr.number} — {pr.title}
       </b>
+      <button
+        className={styles.info}
+        onClick={() => setShowDescription(true)}
+        title="View PR description"
+        aria-label="View PR description"
+      >
+        ⓘ
+      </button>
       <span className={styles.badge}>{engineLabel(engine)}</span>
 
       {showSettings && (
@@ -47,6 +61,8 @@ export function TopBar({ pr, engine, onBack, showSettings, onOpenCloneSettings }
         {pr.owner}/{pr.repo} · headSha {pr.headSha.slice(0, 7)}
       </span>
       <ThemeSwitch />
+
+      {showDescription && <PrDescriptionPanel pr={pr} onClose={() => setShowDescription(false)} />}
     </div>
   )
 }

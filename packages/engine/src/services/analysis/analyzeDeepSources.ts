@@ -20,13 +20,11 @@ import {
   isTypeScriptFamily,
   languageForPath,
 } from "../../utils/language.js"
+import { resolveToKnownPath } from "../../utils/modulePath.js"
 import { basename } from "../../utils/posixPath.js"
 import { throttleByCount } from "../../utils/progressThrottle.js"
-import { resolveToKnownPath } from "../../utils/modulePath.js"
 import { type AliasTable, buildAliasTable } from "../../utils/tsconfigPaths.js"
 import type { GatewayChangedFile } from "../githubGateway/index.js"
-import type { PrecisionPolicy } from "./precise/policy.js"
-import type { LibSource } from "./precise/tsLanguageService.js"
 import {
   type ChangedFileSyntax,
   buildChangedSymbols,
@@ -35,6 +33,8 @@ import {
 import { type ParsedSource, type ResolvedReference, resolveRepo } from "./deepResolve.js"
 import type { AnalysisProgressFn } from "./engine.js"
 import { importSpecifiers } from "./heuristic.js"
+import type { PrecisionPolicy } from "./precise/policy.js"
+import type { LibSource } from "./precise/tsLanguageService.js"
 import { type GrammarSource, type ModuleSyntax, createSyntaxAnalyzer } from "./treeSitter.js"
 
 // The PURE CPU core of the deep engine (docs/architecture.md §6). All I/O — PR meta +

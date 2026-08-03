@@ -95,6 +95,29 @@ describe("peek navigation — jump step", () => {
   })
 })
 
+describe("peek navigation — closing a peek", () => {
+  it("closes the peek without touching the detour the reviewer is inside", () => {
+    // Arrange — peeking from INSIDE a jump, so a close that wrongly unwound the stack would
+    // teleport the reviewer back to where the detour started. This is what the × dispatches.
+    const start = initialNavState(withRateLimitPath)
+    const origin = { path: withRateLimitPath, line: 1 }
+    const jumped = reducer(start, { type: "jumpToDefinition", anchor: createRateLimiterUsage })
+    const peeked = reducer(jumped, {
+      type: "peekUsage",
+      anchor: createRateLimiterUsage,
+      definitionLineCount: 5,
+    })
+
+    // Act
+    const closed = reducer(peeked, { type: "closePeek" })
+
+    // Assert — the peek is gone and nothing else moved.
+    expect(closed.peek).toBeNull()
+    expect(closed.current).toEqual(jumped.current)
+    expect(closed.jumpStack).toEqual([origin])
+  })
+})
+
 describe("peek navigation — Esc unwinds peek before jumps", () => {
   it("Esc closes an open peek first, then pops the jump stack", () => {
     // Arrange

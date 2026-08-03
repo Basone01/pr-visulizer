@@ -1,7 +1,10 @@
 import { type CommitRange, type PrCommit, commitRange } from "@pr-visulizer/shared"
 
 // A live commit-range selection in the diff pane's picker (docs/architecture.md §10), tracked by
-// INDEX into the commit list the picker is showing. Deliberately the same two-click state machine
+// INDEX into the CANONICAL commit list — oldest-first, as the API returns it — never into the
+// order the picker happens to draw. The picker lists commits newest-first; keeping the indices
+// canonical is what lets the range math below stay "first selected = oldest" without knowing
+// which way the list is drawn. Deliberately the same two-click state machine
 // as the diff's line-range selection (utils/comments/lineSelection.ts): a reviewer who has
 // learned "click, then click again to complete the range" in the gutter gets the same gesture
 // here, rather than a second interaction vocabulary for the same idea.

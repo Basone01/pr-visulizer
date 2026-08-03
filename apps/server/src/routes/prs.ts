@@ -1,4 +1,9 @@
-import { prCommitListSchema, prOverviewSchema, rangeDiffSchema } from "@pr-visulizer/shared"
+import {
+  prCommitListSchema,
+  prOverviewSchema,
+  rangeDiffSchema,
+  reviewCommentSchema,
+} from "@pr-visulizer/shared"
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
 
@@ -17,6 +22,8 @@ import {
 const analysisQuerySchema = z.object({
   engine: z.enum(["fast", "deep"]).default("fast"),
 })
+
+const reviewCommentListSchema = z.array(reviewCommentSchema)
 
 const fileQuerySchema = z.object({
   sha: z.string().optional(),
@@ -89,6 +96,21 @@ export function registerPrRoutes(app: FastifyInstance, ctx: AppContext): void {
 
     const commits = await ctx.gateway.listPrCommits(toTarget(params.value))
     return reply.send(prCommitListSchema.parse(commits))
+  })
+
+  // GET .../comments — every EXISTING published review comment on the PR (any author), for the
+  // "show existing comments" feature. Read-only and whole-PR; the SPA groups them into threads
+  // and anchors each to its head line. A sibling of the POST /comments in review.ts (same path,
+  // different method): that one WRITES one comment, this one READS them all.
+  app.get("/api/prs/:owner/:repo/:number/comments", async (req, reply) => {
+    const user = requireUser(req, reply, ctx)
+    if (!user) return reply
+
+    const params = parse(prParamsSchema, req.params)
+    if (!params.ok) return badRequest(reply, params.issues)
+
+    const comments = await ctx.gateway.listReviewComments(toTarget(params.value))
+    return reply.send(reviewCommentListSchema.parse(comments))
   })
 
   // GET .../compare?base=&head= — the diff restricted to one commit range (§10). `base` is the

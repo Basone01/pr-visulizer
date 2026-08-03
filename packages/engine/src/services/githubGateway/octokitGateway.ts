@@ -6,6 +6,7 @@ import type {
   PrSummary,
   RangeDiff,
   RangeDiffFile,
+  ReviewComment,
 } from "@pr-visulizer/shared"
 
 import type { SessionUser } from "../../entities/index.js"
@@ -119,6 +120,10 @@ export function createOctokitGateway(
       author: details.data.user?.login ?? "unknown",
       baseSha: details.data.base.sha,
       headSha: details.data.head.sha,
+      // The description viewer's fields (docs.github.com pulls.get): `body` is string|null,
+      // `html_url` the PR web page. Fed straight through — the panel renders the raw markdown.
+      body: details.data.body ?? null,
+      htmlUrl: details.data.html_url,
     }
   }
 
@@ -279,6 +284,32 @@ export function createOctokitGateway(
     })
   }
 
+  async function listReviewComments(target: PrTarget): Promise<ReviewComment[]> {
+    const { owner, repo, number: pull_number } = target
+
+    // Paginated like listFiles — a busy PR can carry hundreds of comments across pages.
+    const rows = await octokit.paginate(octokit.pulls.listReviewComments, {
+      owner,
+      repo,
+      pull_number,
+      per_page: 100,
+    })
+
+    return rows.map((row) => ({
+      id: row.id,
+      path: row.path,
+      // `line` is absent/null on an outdated or file-level comment — carry the null through
+      // rather than defaulting it, so the grouping layer can bucket it honestly.
+      line: row.line ?? null,
+      startLine: row.start_line ?? null,
+      side: row.side === "LEFT" ? "LEFT" : "RIGHT",
+      inReplyToId: row.in_reply_to_id ?? null,
+      author: row.user?.login ?? "ghost",
+      body: row.body,
+      createdAt: row.created_at,
+    }))
+  }
+
   // Both viewed-state mutations key off the PR's GraphQL node id, and a sync writes several
   // files at once — resolving it once per target turns what used to be one REST `pulls.get`
   // PER FILE PER SAVE into a single call for the whole session.
@@ -352,6 +383,7 @@ export function createOctokitGateway(
     compareRange,
     submitReview,
     addReviewComment,
+    listReviewComments,
     listViewedFiles,
     setFileViewed,
     getViewer,

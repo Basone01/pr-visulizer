@@ -146,10 +146,7 @@ function chainIds(metrics: FileMetric[], edges: DependencyEdge[]): Map<string, n
 
 // Reorder policy-ranked entry points so all tops of one chain sit together, at the position
 // of that chain's best-ranked top. Stable within a chain: the policy order of its tops is kept.
-function groupEntriesByChain(
-  entries: FileMetric[],
-  chainOf: Map<string, number>
-): FileMetric[] {
+function groupEntriesByChain(entries: FileMetric[], chainOf: Map<string, number>): FileMetric[] {
   const byChain = new Map<number, FileMetric[]>()
   for (const entry of entries) {
     const chain = chainOf.get(entry.path)!

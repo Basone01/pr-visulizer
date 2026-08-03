@@ -1,0 +1,189 @@
+/* Rendered-markdown typography — a README-shaped reading surface, not a second design system.
+   Every color comes from tokens.css, so both themes follow the app with no dark-mode rules here. */
+
+.markdownPreview {
+  padding: 16px 20px 40px;
+  color: var(--text);
+  /* The app-shell sans stack from global.css, stated explicitly rather than inherited: this
+     container is mounted inside the diff pane, whose own font is monospace. A rendered README
+     is prose — only its `code` goes back to mono, below. */
+  font:
+    13px/1.6 -apple-system,
+    "SF Pro Text",
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  /* A long unbroken URL in a README must not widen the pane. */
+  overflow-wrap: anywhere;
+}
+
+.markdownPreview > :first-child {
+  margin-top: 0;
+}
+
+/* Embedded in a comment card: drop the page padding and the bottom scroll gutter, and tighten
+   the type a step so a one-line reply doesn't tower over its card. */
+.inline {
+  padding: 0;
+  font-size: 12.5px;
+}
+
+.inline > :last-child {
+  margin-bottom: 0;
+}
+
+.markdownPreview h1,
+.markdownPreview h2,
+.markdownPreview h3,
+.markdownPreview h4,
+.markdownPreview h5,
+.markdownPreview h6 {
+  margin: 24px 0 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.markdownPreview h1 {
+  font-size: 22px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdownPreview h2 {
+  font-size: 18px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdownPreview h3 {
+  font-size: 15px;
+}
+
+.markdownPreview h4,
+.markdownPreview h5,
+.markdownPreview h6 {
+  font-size: 13px;
+}
+
+.markdownPreview h6 {
+  color: var(--muted);
+}
+
+.markdownPreview p,
+.markdownPreview ul,
+.markdownPreview ol,
+.markdownPreview blockquote,
+.markdownPreview table,
+.markdownPreview pre {
+  margin: 0 0 12px;
+}
+
+.markdownPreview ul,
+.markdownPreview ol {
+  padding-left: 22px;
+}
+
+.markdownPreview li {
+  margin: 2px 0;
+}
+
+/* A nested list belongs to its parent item — no double gap between the two. */
+.markdownPreview li > ul,
+.markdownPreview li > ol {
+  margin: 2px 0;
+}
+
+.markdownPreview code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--code-bg);
+}
+
+.markdownPreview pre {
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  overflow-x: auto;
+}
+
+/* Inside a fence the block already carries the background — the inline chip would double it. */
+.markdownPreview pre code {
+  padding: 0;
+  background: none;
+  /* A code block scrolls; it never re-wraps, so the sample stays byte-faithful. */
+  overflow-wrap: normal;
+  white-space: pre;
+}
+
+.markdownPreview blockquote {
+  padding: 2px 0 2px 14px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
+.markdownPreview blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.markdownPreview table {
+  border-collapse: collapse;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.markdownPreview th,
+.markdownPreview td {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.markdownPreview th {
+  font-weight: 600;
+  background: var(--code-bg);
+}
+
+.markdownPreview hr {
+  height: 1px;
+  margin: 20px 0;
+  border: 0;
+  background: var(--border);
+}
+
+.markdownPreview input[type="checkbox"] {
+  margin-right: 6px;
+  /* GFM task lists are a rendering of the source, never an editor. */
+  pointer-events: none;
+}
+
+.link {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.image {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+/* Stand-in for an image the preview cannot fetch (relative repo path, or a non-https url). */
+.imagePlaceholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}

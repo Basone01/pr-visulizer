@@ -13,6 +13,7 @@ import { useEffect, useMemo } from "react"
 import { NODE_HEIGHT, NODE_WIDTH, type NodePosition, nodeSize } from "@/utils/graph/elkLayout"
 import { layoutGhostGroup } from "@/utils/graph/ghostGroupLayout"
 import { DEFAULT_GRAPH_ZOOM_POLICY } from "@/utils/graph/graphViewport"
+import { rangeVisibleGraph } from "@/utils/graph/rangeFilter"
 
 import { type FileNodeVM, type GhostNodeVM, fileNodeVariant } from "@/entity/viewModels"
 
@@ -24,7 +25,7 @@ import { GHOST_GROUP_NODE_ID, type GhostGroupData, GhostGroupNode } from "./Ghos
 import { GhostNode } from "./GhostNode"
 import styles from "./GraphPane.module.css"
 import { ReviewedProgressChip } from "./ReviewedProgressChip"
-import { type GraphFocus, GraphFocusProvider, NO_FOCUS } from "./graphFocus"
+import { type GraphFocus, GraphFocusProvider, focusAroundPath } from "./graphFocus"
 
 const nodeTypes = { file: FileNode, ghost: GhostNode, ghostGroup: GhostGroupNode }
 const edgeTypes = { dependency: DependencyEdge }
@@ -95,6 +96,9 @@ type GraphPaneProps = {
   reviewedCount: number
   totalCount: number
   firstUnreviewedPath: string | null
+  // Paths the diff pane's selected commit range touches, or null for the whole PR (§10) — the
+  // SAME set the review tray filters on, so the two panes never disagree about what's in range.
+  rangeTouchedPaths: Set<string> | null
 }
 
 // The dependency graph pane (docs/architecture.md §8, §2.1). React Flow renders the
@@ -108,32 +112,39 @@ export function GraphPane({
   reviewedCount,
   totalCount,
   firstUnreviewedPath,
+  rangeTouchedPaths,
 }: GraphPaneProps) {
-  // Only file-level edges shape the graph and the ranking (§5 step 6).
-  const fileEdges = useMemo(
-    () =>
-      edges
-        .filter((edge) => edge.level === "file")
-        .map((edge) => ({ from: edge.from, to: edge.to })),
-    [edges]
+  // What the selected commit range leaves on the canvas — file-level edges included. With no
+  // range this is the whole PR, so nothing about the pane changes.
+  const visible = useMemo(
+    () => rangeVisibleGraph(fileNodes, edges, rangeTouchedPaths),
+    [fileNodes, edges, rangeTouchedPaths]
+  )
+
+  const layoutEdges = useMemo(
+    () => visible.fileEdges.map((edge) => ({ from: edge.from, to: edge.to })),
+    [visible]
   )
 
   // Only CHANGED files go through the layered layout. Ghosts have no edges at all (§6), so elk
   // used to drop them into the first column beside the isolated changed files — the two groups
   // were indistinguishable. They get their own band below instead.
+  //
+  // Filtering feeds straight in: a narrower node set is a new layout signature, so elk re-lays
+  // out the subset and FitGraphOnLayout re-frames it — no separate "refit on range" machinery.
   const layoutNodes = useMemo(
-    () => fileNodes.map((n) => ({ path: n.path, ...fileNodeVariant(n) })),
-    [fileNodes]
+    () => visible.fileNodes.map((n) => ({ path: n.path, ...fileNodeVariant(n) })),
+    [visible]
   )
 
-  const positions = useElkLayout(layoutNodes, fileEdges)
+  const positions = useElkLayout(layoutNodes, layoutEdges)
 
   // The ghost band, anchored under whatever elk produced. null when the PR has no ghosts (the
   // fast engine, the common case) — then nothing about the graph changes.
   const ghostGroup = useMemo(() => {
     if (!positions) return null
 
-    const mainBoxes = fileNodes.map((node) => ({
+    const mainBoxes = visible.fileNodes.map((node) => ({
       ...(positions.get(node.path) ?? { x: 0, y: 0 }),
       ...nodeSize(fileNodeVariant(node)),
     }))
@@ -142,22 +153,15 @@ export function GraphPane({
       ghostNodes.map((node) => node.path),
       mainBoxes
     )
-  }, [positions, fileNodes, ghostNodes])
+  }, [positions, visible, ghostNodes])
 
   // Focus + context: the open file's node and its DIRECT neighbours (files it depends on or
-  // that depend on it) stay in focus; everything else dims. null when nothing is open — no
-  // dimming, the whole graph reads at full strength.
-  const focus = useMemo<GraphFocus>(() => {
-    if (!currentPath) return NO_FOCUS
-
-    const focusSet = new Set<string>([currentPath])
-    for (const edge of fileEdges) {
-      if (edge.from === currentPath) focusSet.add(edge.to)
-      else if (edge.to === currentPath) focusSet.add(edge.from)
-    }
-
-    return { currentPath, focusSet }
-  }, [currentPath, fileEdges])
+  // that depend on it) stay in focus; everything else dims. No dimming when nothing is open, or
+  // when a range filtered the open file off the canvas.
+  const focus = useMemo<GraphFocus>(
+    () => focusAroundPath(currentPath, layoutEdges, visible.paths),
+    [currentPath, layoutEdges, visible]
+  )
 
   // Nodes and edges are pure functions of the TOPOLOGY + the layout. Neither depends on which
   // file is open — that rides the focus context — so a click rebuilds nothing here and React
@@ -166,7 +170,7 @@ export function GraphPane({
   const rfNodes = useMemo<Node[]>(() => {
     if (!positions) return []
 
-    const files: Node<FileNodeData>[] = fileNodes.map((node) => ({
+    const files: Node<FileNodeData>[] = visible.fileNodes.map((node) => ({
       id: node.path,
       type: "file",
       position: positions.get(node.path) ?? { x: 0, y: 0 },
@@ -200,26 +204,24 @@ export function GraphPane({
     }
 
     return [groupBackdrop, ...files, ...ghosts]
-  }, [positions, ghostGroup, fileNodes, ghostNodes])
+  }, [positions, ghostGroup, visible, ghostNodes])
 
   const rfEdges = useMemo<Edge[]>(
     () =>
-      edges
-        .filter((edge) => edge.level === "file")
-        .map((edge) => {
-          // Deep-confirmed edges (source lsp) draw in the accent color (edge-legend).
-          const color = edge.source === "lsp" ? "var(--accent)" : "var(--muted)"
+      visible.fileEdges.map((edge) => {
+        // Deep-confirmed edges (source lsp) draw in the accent color (edge-legend).
+        const color = edge.source === "lsp" ? "var(--accent)" : "var(--muted)"
 
-          return {
-            id: `${edge.from}->${edge.to}`,
-            type: "dependency",
-            source: edge.from,
-            target: edge.to,
-            style: { stroke: color },
-            markerEnd: { type: MarkerType.ArrowClosed, color },
-          }
-        }),
-    [edges]
+        return {
+          id: `${edge.from}->${edge.to}`,
+          type: "dependency",
+          source: edge.from,
+          target: edge.to,
+          style: { stroke: color },
+          markerEnd: { type: MarkerType.ArrowClosed, color },
+        }
+      }),
+    [visible]
   )
 
   const progressChip = (

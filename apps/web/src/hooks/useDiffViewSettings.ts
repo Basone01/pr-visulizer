@@ -14,14 +14,16 @@ import { getAppStorage } from "@/service/clientFactory"
 
 const DIFF_VIEW_SETTINGS_KEY = "diffViewSettings"
 
-// `fullFile` and `splitView` default IN THE SCHEMA, not just in the constant: a record persisted
-// before either toggle existed carries only the fields of its day, and a required field would fail
-// the parse and silently reset the reviewer's other toggles to their defaults.
+// Every late-added toggle defaults IN THE SCHEMA, not just in the constant: a record persisted
+// before it existed carries only the fields of its day, and a required field would fail the parse
+// and silently reset the reviewer's other toggles to their defaults.
 const diffViewSettingsSchema = z.object({
   wrap: z.boolean(),
   hideWhitespace: z.boolean(),
   fullFile: z.boolean().default(false),
   splitView: z.boolean().default(false),
+  intraLineDiff: z.boolean().default(false),
+  markdownPreview: z.boolean().default(false),
 })
 
 export type DiffViewSettingsApi = {
@@ -31,6 +33,8 @@ export type DiffViewSettingsApi = {
   toggleHideWhitespace: () => void
   toggleFullFile: () => void
   toggleSplitView: () => void
+  toggleIntraLineDiff: () => void
+  toggleMarkdownPreview: () => void
 }
 
 export function useDiffViewSettings(store: KeyValueStore = getAppStorage()): DiffViewSettingsApi {
@@ -88,5 +92,24 @@ export function useDiffViewSettings(store: KeyValueStore = getAppStorage()): Dif
     [commit]
   )
 
-  return { settings, isLoaded, toggleWrap, toggleHideWhitespace, toggleFullFile, toggleSplitView }
+  const toggleIntraLineDiff = useCallback(
+    () => commit({ ...settingsRef.current, intraLineDiff: !settingsRef.current.intraLineDiff }),
+    [commit]
+  )
+
+  const toggleMarkdownPreview = useCallback(
+    () => commit({ ...settingsRef.current, markdownPreview: !settingsRef.current.markdownPreview }),
+    [commit]
+  )
+
+  return {
+    settings,
+    isLoaded,
+    toggleWrap,
+    toggleHideWhitespace,
+    toggleFullFile,
+    toggleSplitView,
+    toggleIntraLineDiff,
+    toggleMarkdownPreview,
+  }
 }

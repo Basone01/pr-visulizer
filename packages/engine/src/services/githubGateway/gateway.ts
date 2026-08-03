@@ -7,6 +7,7 @@ import type {
   PrSummary,
   RangeDiff,
   RangeDiffFile,
+  ReviewComment,
 } from "@pr-visulizer/shared"
 
 import type { SessionUser } from "../../entities/index.js"
@@ -110,6 +111,11 @@ export interface GithubGateway {
   // §11: publish ONE inline comment immediately — POST /pulls/:n/comments, visible at once,
   // no pending review involved.
   addReviewComment(input: AddReviewCommentInput): Promise<void>
+
+  // READ every EXISTING published review comment on the PR (any author) — the "show existing
+  // comments" feature. GET /pulls/:n/comments, paginated. Read-only: this pass views threads,
+  // it never replies/edits/resolves. Rows are mapped to the shared ReviewComment shape.
+  listReviewComments(target: PrTarget): Promise<ReviewComment[]>
 
   // §11: READ GitHub's native "Viewed" checkboxes for this reviewer, path → state. The
   // sync is two-way — a file ticked on github.com has to show up here too — so the state

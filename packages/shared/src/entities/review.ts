@@ -16,6 +16,33 @@ export const draftCommentSchema = z.object({
 })
 export type DraftComment = z.infer<typeof draftCommentSchema>
 
+// An EXISTING published review comment fetched back from GitHub (any author), as opposed to a
+// local unsent draft above. GET /repos/:o/:r/pulls/:n/comments (verified 2026-07-23 against
+// docs.github.com/en/rest/pulls/comments). Field names are app-idiomatic; the gateway maps the
+// REST row to this shape so nothing upstream sees Octokit's snake_case.
+export const reviewCommentSchema = z.object({
+  // GitHub's comment id — the thread key, and the target a reply points at via inReplyToId.
+  id: z.number().int(),
+  path: z.string(),
+  // The head-version line the comment anchors to. NULLABLE on purpose: an OUTDATED comment
+  // (its line force-pushed away) and a file-level comment (subject_type "file") both come back
+  // with no line, and the doc's create-schema marks `line` non-null but a response for those
+  // does not — so we parse it as nullable and treat null as "not anchored to a visible line".
+  line: z.number().int().nullable(),
+  // First line of a multi-line range; null for a single-line or file-level comment.
+  startLine: z.number().int().nullable(),
+  side: z.enum(["LEFT", "RIGHT"]),
+  // The comment this one replies to (GitHub's in_reply_to_id) — the threading chain. null on a
+  // thread root.
+  inReplyToId: z.number().int().nullable(),
+  // The comment author's GitHub login (user.login).
+  author: z.string(),
+  // GitHub-flavored markdown — rendered through the sanitizing MarkdownContent wrapper.
+  body: z.string(),
+  createdAt: z.string(),
+})
+export type ReviewComment = z.infer<typeof reviewCommentSchema>
+
 // Whether the checkmarks in `reviewedFiles` are actually mirrored in GitHub's own "Viewed"
 // state right now (§11). Server-DERIVED and transient — it is never persisted and never read
 // from a request body, so a GitHub write that fails can surface as degraded sync in the UI

@@ -35,4 +35,3 @@ export {
 } from "./services/analysis/precise/policy.js"
 // Type-only: importing the VALUE would drag `typescript` into the worker's entry chunk.
 export type { LibSource } from "./services/analysis/precise/tsLanguageService.js"
-

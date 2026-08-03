@@ -143,6 +143,21 @@ describe("selectedCommitRange", () => {
     expect(range).toEqual(expected)
   })
 
+  it("bases at the OLDEST selected commit even when the newest was clicked first", () => {
+    // Arrange — the gesture a newest-first picker produces: click the top (newest) row, then the
+    // one below it. The indices stay canonical (oldest-first), so the clicks arrive descending.
+    const newestIndex = 2
+    const middleIndex = 1
+    const selection = selectCommit(selectCommit(null, newestIndex), middleIndex)
+
+    // Act
+    const range = selectedCommitRange(selection, commits, PR_BASE_SHA)
+
+    // Assert — the middle commit's parent through the newest commit, NOT the PR base.
+    const expected = { baseSha: commits[0]?.sha, headSha: commits[2]?.sha }
+    expect(range).toEqual(expected)
+  })
+
   it("returns null with no selection, so the pane stays on the whole PR", () => {
     // Arrange
     const noSelection = null

@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useReducer } from "react"
+import { useCallback, useMemo, useReducer } from "react"
 
 import { DEFAULT_SETTINGS } from "@/config/settings"
 
 import { initialNavState, makeNavReducer } from "@/utils/peek/peekNavigation"
 
 import type { OccurrenceRef, SymbolAnchor } from "@/entity/anchor"
+
+import { useEscapeKey } from "@/hooks/useEscapeKey"
 
 // React wrapper over the pure peek -> expand -> jump machine (§10). The reducer holds
 // all the logic; this hook only wires useReducer + the global Esc handler.
@@ -36,21 +38,11 @@ export function usePeekNavigation(
   const back = useCallback(() => dispatch({ type: "back" }), [])
   const clearFlash = useCallback(() => dispatch({ type: "clearFlash" }), [])
 
-  // Esc closes an open peek first, then unwinds the jump stack (§10). CAPTURE phase so a
-  // focused React Flow node's stopPropagation can't swallow it before it reaches window
-  // (same reason as the AppShell Esc handler).
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") return
-
-      // Suppress the webview's native Escape default (a page reload in the packaged app).
-      event.preventDefault()
-      dispatch({ type: "escape" })
-    }
-
-    window.addEventListener("keydown", onKeyDown, true)
-    return () => window.removeEventListener("keydown", onKeyDown, true)
-  }, [])
+  // Esc closes an open peek first, then unwinds the jump stack (§10). Claimed only when there is
+  // one of those to do: with no peek and an empty stack the `escape` action is a no-op, and the
+  // key belongs to whatever sits outside the peek (the shell's pane collapse).
+  const hasDetourToUnwind = state.peek !== null || state.jumpStack.length > 0
+  useEscapeKey("peek", hasDetourToUnwind, () => dispatch({ type: "escape" }))
 
   return {
     state,

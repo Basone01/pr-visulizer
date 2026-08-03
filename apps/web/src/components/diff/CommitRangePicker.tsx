@@ -1,7 +1,9 @@
 import { type PrCommit, shortSha } from "@pr-visulizer/shared"
-import { useEffect, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 
 import { type CommitSelection, isCommitInSelection } from "@/utils/commits/commitSelection"
+
+import { useEscapeKey } from "@/hooks/useEscapeKey"
 
 import styles from "./CommitRangePicker.module.css"
 
@@ -37,29 +39,32 @@ export function CommitRangePicker({
 }: CommitRangePickerProps) {
   const popoverRef = useRef<HTMLDivElement>(null)
 
+  // Newest first, like every commit list a reviewer already reads (GitHub's own, `git log`) —
+  // the commit you just pushed is the one you want to isolate, and it should not be at the
+  // bottom of a 40-commit scroll. DISPLAY only: each row keeps its CANONICAL index, so the
+  // selection machine and `selectedCommitRange` still see an oldest-first list and a range
+  // picked top-to-bottom here still bases at the OLDEST selected commit's parent.
+  const rowsNewestFirst = useMemo(
+    () => commits.map((commit, index) => ({ commit, index })).reverse(),
+    [commits]
+  )
+
   // Escape closes the picker, and a click anywhere outside it dismisses — the two ways every
-  // other popover in the app closes. CAPTURE phase for the same reason as the pane's other
-  // Escape handlers: a focused child can call stopPropagation and a bubble listener never fires.
+  // other popover in the app closes. As the pane's topmost popover it outranks the diff's own
+  // Escape consumers (find, peek, selection), so one keypress closes the picker only.
+  useEscapeKey("commitPicker", true, onClose)
+
+  // CAPTURE phase for the click-outside: a focused child can call stopPropagation, and a bubble
+  // listener would then never fire.
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return
-
-      event.preventDefault()
-      onClose()
-    }
-
     function onPointerDown(event: MouseEvent): void {
       if (popoverRef.current?.contains(event.target as Node)) return
 
       onClose()
     }
 
-    window.addEventListener("keydown", onKeyDown, true)
     window.addEventListener("mousedown", onPointerDown, true)
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true)
-      window.removeEventListener("mousedown", onPointerDown, true)
-    }
+    return () => window.removeEventListener("mousedown", onPointerDown, true)
   }, [onClose])
 
   return (
@@ -87,7 +92,7 @@ export function CommitRangePicker({
         <div className={styles.empty}>No commits to choose from.</div>
       ) : (
         <ul className={styles.list}>
-          {commits.map((commit, index) => {
+          {rowsNewestFirst.map(({ commit, index }) => {
             const selected = isCommitInSelection(selection, index)
 
             return (

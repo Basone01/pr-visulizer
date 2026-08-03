@@ -12,16 +12,11 @@ import styles from "./ReviewTray.module.css"
 export const TrayRow = memo(function TrayRow({
   row,
   active,
-  outsideRange,
   onToggle,
   onOpen,
 }: {
   row: TrayRowVM
   active: boolean
-  // True when a commit range is selected in the diff pane and this file isn't in it (§10). It is
-  // a MARKER, not a mode: the row stays clickable and "mark viewed" stays enabled, because viewed
-  // state is whole-PR state on GitHub and the review queue is a whole-PR concept.
-  outsideRange: boolean
   onToggle: (path: string) => void
   onOpen: (path: string) => void
 }) {
@@ -30,7 +25,6 @@ export const TrayRow = memo(function TrayRow({
     row.reviewed ? styles.done : "",
     row.isNext ? styles.next : "",
     active ? styles.active : "",
-    outsideRange ? styles.outsideRange : "",
   ]
     .filter(Boolean)
     .join(" ")
@@ -45,11 +39,7 @@ export const TrayRow = memo(function TrayRow({
         aria-label={`Mark ${row.path} reviewed`}
       />
 
-      <button
-        className={`${styles.path} mono`}
-        onClick={() => onOpen(row.path)}
-        title={outsideRange ? `${row.path} — not changed in the selected commits` : row.path}
-      >
+      <button className={`${styles.path} mono`} onClick={() => onOpen(row.path)} title={row.path}>
         {row.path}
       </button>
 

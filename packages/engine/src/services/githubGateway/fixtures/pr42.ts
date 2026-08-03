@@ -1,4 +1,4 @@
-import type { PrMeta, RangeDiffFile } from "@pr-visulizer/shared"
+import type { PrMeta, RangeDiffFile, ReviewComment } from "@pr-visulizer/shared"
 
 import type { GatewayChangedFile, GatewayFixtureCommit } from "../gateway.js"
 
@@ -26,6 +26,8 @@ export const PR42_META: PrMeta = {
   author: "contributor-dev",
   baseSha: "base0042cafebabe",
   headSha: "head0042deadbeef",
+  body: "## Summary\n\nAdds token-bucket **rate limiting** to the login route.\n\n- [x] limiter core\n- [ ] docs\n\nSee [the RFC](https://example.com/rfc).",
+  htmlUrl: "https://github.com/acme/web/pull/42",
 }
 
 // 1 — src/config/limits.ts (added). Foundational config: no changed-file imports.
@@ -268,5 +270,59 @@ export const PR42_COMMITS: GatewayFixtureCommit[] = [
     author: "contributor-dev",
     authoredAt: "2026-06-30T11:47:00Z",
     files: [rangeFile(PR42_PATHS.withRateLimit), rangeFile(PR42_PATHS.login)],
+  },
+]
+
+// Existing PUBLISHED review comments for PR #42 (any author) — the "show existing comments"
+// feature. Three deliberate shapes: a two-comment THREAD (root + reply) anchored to a head
+// line, an OUTDATED comment (line: null — its line was force-pushed away), and a LEFT-side
+// comment on the base. The grouping layer must anchor the first, and bucket the other two.
+export const PR42_REVIEW_COMMENTS: ReviewComment[] = [
+  {
+    id: 5001,
+    path: PR42_PATHS.rateLimiter,
+    line: 3,
+    startLine: null,
+    side: "RIGHT",
+    inReplyToId: null,
+    author: "senior-dev",
+    body: "Does `createRateLimiter` need to guard against a **zero** window?\n\nA `windowMs: 0` would divide oddly.",
+    createdAt: "2026-07-02T09:12:00Z",
+  },
+  {
+    id: 5002,
+    path: PR42_PATHS.rateLimiter,
+    line: 3,
+    startLine: null,
+    side: "RIGHT",
+    // Replies to 5001 → the same thread.
+    inReplyToId: 5001,
+    author: "contributor-dev",
+    body: "Good catch — I'll add a `Math.max(1, windowMs)` clamp in a follow-up.",
+    createdAt: "2026-07-02T10:03:00Z",
+  },
+  {
+    id: 5003,
+    path: PR42_PATHS.login,
+    // Outdated: the line this was on no longer exists in the current diff.
+    line: null,
+    startLine: null,
+    side: "RIGHT",
+    inReplyToId: null,
+    author: "senior-dev",
+    body: "This handler moved since I commented — leaving the note for history.",
+    createdAt: "2026-07-01T16:40:00Z",
+  },
+  {
+    id: 5004,
+    path: PR42_PATHS.http,
+    line: 4,
+    startLine: null,
+    // LEFT side — anchored to the base revision, so it lands in the file bucket, not inline.
+    side: "LEFT",
+    inReplyToId: null,
+    author: "reviewer-two",
+    body: "Was the old `message` field intentionally kept?",
+    createdAt: "2026-07-01T14:20:00Z",
   },
 ]

@@ -20,7 +20,6 @@ import type { PreciseReference, PreciseReferenceIndex } from "./referenceIndex.j
 // ride the `?url` seam — a bundler serves it as an erased, empty module.)
 export type LibSource = (libName: string) => Promise<string | undefined>
 
-
 // Virtual roots. Engine paths are repo-relative POSIX; the compiler wants absolute-looking
 // ones, so everything is prefixed. The two namespaces cannot collide.
 const SOURCE_ROOT = "/repo/"

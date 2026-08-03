@@ -5,6 +5,7 @@ import {
   type PrOverview,
   type PrSummary,
   type RangeDiff,
+  type ReviewComment,
   type ReviewProgress,
   type Viewer,
   analysisResultSchema,
@@ -12,6 +13,7 @@ import {
   prOverviewSchema,
   prSummarySchema,
   rangeDiffSchema,
+  reviewCommentSchema,
   reviewProgressSchema,
   viewerSchema,
 } from "@pr-visulizer/shared"
@@ -37,6 +39,7 @@ const patchResponseSchema = z.object({ patch: z.string().nullable() })
 const contentResponseSchema = z.object({ content: z.string().nullable() })
 
 const prSummaryListSchema = z.array(prSummarySchema)
+const reviewCommentListSchema = z.array(reviewCommentSchema)
 
 export function createHttpPrClient(): PrClient {
   return {
@@ -88,6 +91,11 @@ export function createHttpPrClient(): PrClient {
         method: "POST",
         body: JSON.stringify(comment),
       })
+    },
+
+    // GET the same /comments path the POST above writes to — the read side of existing threads.
+    listReviewComments(target: PrTarget): Promise<ReviewComment[]> {
+      return parseJson(`${base(target)}/comments`, reviewCommentListSchema)
     },
 
     async getFileAtHead(target: PrTarget, path: string): Promise<string | null> {

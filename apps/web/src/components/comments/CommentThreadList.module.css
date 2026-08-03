@@ -1,0 +1,51 @@
+/* Existing-comment threads — a modest GitHub-review-thread look, all tokens, both themes.
+   Mounted under a diff line (inline overlay) or inside the file bucket panel. */
+
+.threads {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.thread {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+/* Why a bucketed thread isn't inline (outdated / base side / off-screen). */
+.caption {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--code-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.comment {
+  padding: 8px 12px;
+}
+
+/* A reply sits under a hairline, so a multi-comment thread reads as one conversation. */
+.comment + .comment {
+  border-top: 1px solid var(--border);
+}
+
+.meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.author {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.time {
+  font-size: 11px;
+  color: var(--muted);
+}

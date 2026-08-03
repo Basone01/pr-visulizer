@@ -255,6 +255,14 @@
   padding: 4px 0;
 }
 
+/* The markdown preview's scroll container: the same box as .diff, deliberately WITHOUT its
+   monospace code font — a rendered document is prose, and MarkdownContent owns its own type. */
+.previewRegion {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
 /* Programmatic focus target (Escape returns focus here from the find bar) — no visible ring. */
 .diff:focus {
   outline: none;
@@ -404,6 +412,25 @@
   background: var(--code-bg);
 }
 
+/* Intra-line emphasis (§10) — the third layer, over the characters that actually differ. Same hue
+   as the row it sits on, mixed from the STRONG token rather than a new color.
+   The OUTLINE carries the signal and the wash stays faint on purpose: the dark theme's --added is
+   LIGHTER than the syntax tokens, so a solid fill inverts the polarity — measured in the browser,
+   a 32% fill dropped a comment token from 2.88:1 to 1.23:1 against its own background. At 14% the
+   run is still unmistakably boxed and the text keeps its contrast. Same inset-outline idiom as
+   .findCurrent above. */
+.charAdd {
+  background: color-mix(in srgb, var(--added) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--added) 55%, transparent);
+  border-radius: 2px;
+}
+
+.charDel {
+  background: color-mix(in srgb, var(--deleted) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--deleted) 55%, transparent);
+  border-radius: 2px;
+}
+
 .flash {
   animation: flash 1.2s ease-out;
 }
@@ -512,6 +539,62 @@
 
 .draftAction:hover {
   color: var(--accent);
+}
+
+/* Existing-comment bubble — deliberately DISTINCT from the accent-soft draft pill above: an
+   outlined chip carrying the GitHub thread(s) on this line, read-only (no edit/delete). */
+.threadMarker {
+  margin-left: 8px;
+  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.threadMarker:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* The expanded thread panel mounted under a diff row (via the overlay seam). Indented to clear
+   the gutter so it lines up under the code, like the composer. */
+.threadPanel {
+  margin: 4px 12px 10px 38px;
+  max-width: 640px;
+}
+
+/* The file-level bucket for threads that can't anchor inline (outdated, base-side, off-screen). */
+.commentBucket {
+  margin: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.commentBucketToggle {
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  background: var(--code-bg);
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.commentBucketBody {
+  padding: 8px 12px;
 }
 
 /* Inline comment composer anchored under the selected range (task 5). */
@@ -647,6 +730,17 @@
   border: 0;
   padding: 0;
   cursor: pointer;
+}
+
+/* The peek's close affordance — the same borderless action as the footer buttons, pushed to the
+   trailing edge of the flex header. Esc already closed the peek (usePeekNavigation); this is the
+   DISCOVERABLE half of that action, so it deliberately reuses .peekAction rather than inventing a
+   second button style. The padding is hit-area, not decoration: the glyph alone is a ~6px target. */
+.peekClose {
+  margin-left: auto;
+  padding: 2px 4px;
+  font-size: 14px;
+  line-height: 1;
 }
 
 .peekTag {

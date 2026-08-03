@@ -1,6 +1,6 @@
 import type { ChangedFile, PrCommit, RangeDiff } from "@pr-visulizer/shared"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
@@ -289,6 +289,40 @@ describe("CommitRangePicker — two-click range selection", () => {
         "missing"
     )
     expect(pressed).toEqual(expected)
+  })
+
+  it("lists the commits newest first", () => {
+    // Arrange — `commits` is the API's oldest-first order.
+    const headlines = commits.map((commit) => commit.messageHeadline)
+
+    // Act
+    render(<PickerHarness onRange={() => {}} />)
+
+    // Assert — a row's text starts with its headline, so match on that rather than the whole
+    // sha/author/date line.
+    const listed = within(screen.getByRole("list"))
+      .getAllByRole("button")
+      .map(
+        (row) => headlines.find((headline) => row.textContent?.startsWith(headline)) ?? "unknown"
+      )
+    const expected = ["Wire the middleware", "Add the rate limiter", "Add rate-limit config"]
+    expect(listed).toEqual(expected)
+  })
+
+  it("bases a range picked DOWN the newest-first list at the oldest selected commit's parent", async () => {
+    // Arrange — the regression the newest-first sort invites: reading the two clicks as
+    // first-clicked = oldest would compare from the PR base up to the limiter, the wrong slice.
+    const user = userEvent.setup()
+    let lastRange: string | null = null
+    render(<PickerHarness onRange={(range) => (lastRange = range)} />)
+
+    // Act — the top row (newest), then the one below it.
+    await user.click(screen.getByText("Wire the middleware"))
+    await user.click(screen.getByText("Add the rate limiter"))
+
+    // Assert — base is the OLDEST selected commit's parent, head the NEWEST selected commit.
+    const expected = `${CONFIG_SHA}...${WIRING_SHA}`
+    expect(lastRange).toEqual(expected)
   })
 
   it("clears back to the whole PR from the picker's 'all changes'", async () => {

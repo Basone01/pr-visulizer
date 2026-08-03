@@ -55,6 +55,20 @@
   line-height: 1;
 }
 
+.info {
+  font-size: 14px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.info:hover {
+  color: var(--accent);
+}
+
 .spacer {
   flex: 1;
 }

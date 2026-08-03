@@ -23,6 +23,7 @@ import { analysisQueryOptions, overviewQueryOptions, viewerQueryOptions } from "
 
 import { useAnalysisProgress } from "@/hooks/useAnalysisProgress"
 import { useDiffCommitRange } from "@/hooks/useDiffCommitRange"
+import { useEscapeKey } from "@/hooks/useEscapeKey"
 import { type PaneId, usePaneCollapse } from "@/hooks/usePaneCollapse"
 import { usePanelSizes } from "@/hooks/usePanelSizes"
 import { usePeekNavigation } from "@/hooks/usePeekNavigation"
@@ -223,38 +224,18 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
 
   // Escape progressively zooms out: (1) diff visible → collapse diff + tray to focus the graph;
   // (2) diff already hidden but a node is focused → blur the node (clear selection + dimming);
-  // (3) panels hidden and nothing focused → restore every pane. Yields to the diff's own Esc
-  // (peek/jump), which owns Escape while a peek is open or the jump stack is non-empty (§10).
-  //
-  // CAPTURE phase (the `true` below) is required: a focused React Flow node's key handling
-  // calls stopPropagation on Escape, so a bubble-phase window listener never fires on a real
-  // keypress (only synthetic dispatch reached it). Capturing at the window runs first, before
-  // any child can swallow the event.
-  const peekActive = nav.state.peek !== null || nav.state.jumpStack.length > 0
+  // (3) panels hidden and nothing focused → restore every pane. This is the OUTERMOST layer, so
+  // it runs only when no overlay, peek, selection or panel claimed the key first.
   const { restoreAll, focusGraph, collapsed } = collapse
-  useEffect(() => {
-    if (peekActive) return
+  useEscapeKey("paneCollapse", true, () => {
+    // A text field can own focus with nothing else open (a composer draft, a tray filter) —
+    // Escape belongs to that field, not to collapsing the panes.
+    if (isEditableTarget(document.activeElement)) return
 
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return
-
-      // Suppress the webview's native Escape default — in the packaged WKWebView a real
-      // Escape reloads the page, which instantly undoes the collapse (synthetic events don't
-      // trigger native defaults, so this only bites real keypresses).
-      event.preventDefault()
-
-      // While a text field owns focus (comment composer, find-in-file bar), Escape belongs to
-      // that field — close find, cancel an edit — not to collapsing the panes.
-      if (isEditableTarget(document.activeElement)) return
-
-      if (!collapsed.diff) focusGraph()
-      else if (current.path !== "") selectFile("")
-      else restoreAll()
-    }
-
-    window.addEventListener("keydown", onKeyDown, true)
-    return () => window.removeEventListener("keydown", onKeyDown, true)
-  }, [peekActive, collapsed.diff, current.path, selectFile, restoreAll, focusGraph])
+    if (!collapsed.diff) focusGraph()
+    else if (current.path !== "") selectFile("")
+    else restoreAll()
+  })
 
   // Gate on the OVERVIEW (a fast gateway read), not the full analysis (task 4): the shell
   // renders the instant it has the PR meta + file list; the graph and ranking fill in later.
@@ -382,6 +363,7 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
                 reviewedCount={view.reviewedCount}
                 totalCount={view.totalCount}
                 firstUnreviewedPath={firstUnreviewedPath}
+                rangeTouchedPaths={commitRange.touchedPaths}
               />
             ) : needsRepoSource ? (
               <LocateRepoPrompt

@@ -41,6 +41,16 @@ export type DiffViewSettings = {
   // head (right) side — instead of stacking them inline. A pure render-shape choice: it layers
   // over whatever the other three produced, so it composes with all of them.
   splitView: boolean
+
+  // Within a del/add pair, emphasize only the characters that actually differ instead of tinting
+  // the whole line. A third layer over the row background and the syntax color (§10) — it changes
+  // nothing about the line list, so it composes with every other toggle here.
+  intraLineDiff: boolean
+
+  // Render a markdown file's HEAD revision as rich text instead of showing its diff. Unlike the
+  // other three this is not a diff transform at all — it REPLACES the diff, and only for a file
+  // the app can render (see isMarkdownPath), so on every other file the setting is inert.
+  markdownPreview: boolean
 }
 
 export const DEFAULT_DIFF_VIEW_SETTINGS: DiffViewSettings = {
@@ -48,6 +58,8 @@ export const DEFAULT_DIFF_VIEW_SETTINGS: DiffViewSettings = {
   hideWhitespace: false,
   fullFile: false,
   splitView: false,
+  intraLineDiff: false,
+  markdownPreview: false,
 }
 
 // Deep-v2 precision tier preset for the desktop shell (docs/architecture.md §6.2).

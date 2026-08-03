@@ -7,12 +7,13 @@ import type { PrView, TrayRow } from "@/entity/viewModels"
 import { ReviewTray } from "./ReviewTray"
 import { IDLE_SUBMIT_PROPS } from "./reviewTrayTestProps"
 
-// Tray behaviour while a commit range is selected in the diff pane (§10). The range is a MARKER
-// only: rows outside it are muted, but the queue keeps its whole-PR order and every row stays
-// openable and tickable — review order and GitHub's "Viewed" checkboxes are whole-PR concepts.
+// Tray behaviour while a commit range is selected in the diff pane (§10). The range FILTERS the
+// queue to the files those commits touched, without re-ranking it: the surviving rows keep their
+// whole-PR order, and the reviewed progress stays whole-PR because GitHub's "Viewed" state is.
 
-const IN_RANGE_PATH = "src/lib/rateLimiter.ts"
+const FIRST_IN_RANGE_PATH = "src/config/limits.ts"
 const OUT_OF_RANGE_PATH = "src/api/routes/login.ts"
+const LAST_IN_RANGE_PATH = "src/lib/rateLimiter.ts"
 
 function trayRow(path: string, order: number): TrayRow {
   return {
@@ -28,14 +29,20 @@ function trayRow(path: string, order: number): TrayRow {
   }
 }
 
-function twoFileView(): PrView {
+// Three ranked files, with the out-of-range one in the MIDDLE — so a filtered list that kept its
+// ranking order is distinguishable from one that merely dropped a trailing row.
+function threeFileView(): PrView {
   return {
-    trayRows: [trayRow(IN_RANGE_PATH, 1), trayRow(OUT_OF_RANGE_PATH, 2)],
+    trayRows: [
+      trayRow(FIRST_IN_RANGE_PATH, 1),
+      trayRow(OUT_OF_RANGE_PATH, 2),
+      trayRow(LAST_IN_RANGE_PATH, 3),
+    ],
     fileNodes: [],
     ghostNodes: [],
     suggestedPath: null,
-    reviewedCount: 0,
-    totalCount: 2,
+    reviewedCount: 1,
+    totalCount: 3,
     allReviewed: false,
   }
 }
@@ -48,7 +55,7 @@ function renderTray(props: {
   return render(
     <ReviewTray
       {...IDLE_SUBMIT_PROPS}
-      view={twoFileView()}
+      view={threeFileView()}
       chosenVerdict={null}
       approveDisabled={false}
       onToggleReviewed={props.onToggleReviewed ?? (() => {})}
@@ -64,74 +71,102 @@ function renderTray(props: {
   )
 }
 
+// The listed paths, top to bottom — the tray's own rendered order, not the view model's.
+function listedPaths(): string[] {
+  return screen
+    .getAllByRole("checkbox")
+    .map((checkbox) => checkbox.getAttribute("aria-label")?.replace(/^Mark | reviewed$/g, "") ?? "")
+}
+
 describe("ReviewTray — commit range active", () => {
-  it("marks only the rows the range does NOT touch", () => {
-    // Arrange
-    const rangeTouchedPaths = new Set([IN_RANGE_PATH])
+  it("lists ONLY the files the range touched, in whole-PR ranking order", () => {
+    // Arrange — the untouched file sits between the two touched ones.
+    const rangeTouchedPaths = new Set([FIRST_IN_RANGE_PATH, LAST_IN_RANGE_PATH])
 
     // Act
     renderTray({ rangeTouchedPaths })
 
-    // Assert — the untouched row explains itself in its title; the touched one doesn't.
-    const expected = {
-      inRangeTitle: IN_RANGE_PATH,
-      outOfRangeTitle: `${OUT_OF_RANGE_PATH} — not changed in the selected commits`,
-    }
+    // Assert
+    const expected = [FIRST_IN_RANGE_PATH, LAST_IN_RANGE_PATH]
+    expect(listedPaths()).toEqual(expected)
+  })
+
+  it("says how many of the PR's files the range is showing, so hidden rows aren't a surprise", () => {
+    // Arrange
+    const rangeTouchedPaths = new Set([FIRST_IN_RANGE_PATH, LAST_IN_RANGE_PATH])
+
+    // Act
+    renderTray({ rangeTouchedPaths })
+
+    // Assert
+    const expected = "2 of 3"
+    expect(screen.getByText(expected)).toBeTruthy()
+  })
+
+  it("keeps the reviewed progress whole-PR — the range narrows the list, not the review", () => {
+    // Arrange
+    const rangeTouchedPaths = new Set([FIRST_IN_RANGE_PATH])
+
+    // Act
+    renderTray({ rangeTouchedPaths })
+
+    // Assert — 1 of 3 files reviewed across the PR, even with one row listed.
+    const expected = "1/3"
+    expect(screen.getByText(expected)).toBeTruthy()
+  })
+
+  it("shows a quiet empty message when the range touches nothing in the queue", () => {
+    // Arrange — possible via a rename: the range lists the file under a name the queue doesn't.
+    const rangeTouchedPaths = new Set(["src/lib/oldRateLimiterName.ts"])
+
+    // Act
+    renderTray({ rangeTouchedPaths })
+
+    // Assert — an explanation, not a blank panel.
+    const expected = { rowCount: 0, message: "No queued files in the selected commits." }
     expect({
-      inRangeTitle: screen.getByText(IN_RANGE_PATH).getAttribute("title"),
-      outOfRangeTitle: screen.getByText(OUT_OF_RANGE_PATH).getAttribute("title"),
+      rowCount: screen.queryAllByRole("checkbox").length,
+      message: screen.getByText("No queued files in the selected commits.").textContent,
     }).toEqual(expected)
   })
 
-  it("marks nothing when no range is selected", () => {
+  it("lists every file, with no count line, when no range is selected", () => {
     // Arrange
     const noRange = null
 
     // Act
     renderTray({ rangeTouchedPaths: noRange })
 
-    // Assert — both rows keep their plain path title.
-    const expected = { first: IN_RANGE_PATH, second: OUT_OF_RANGE_PATH }
+    // Assert
+    const expected = {
+      paths: [FIRST_IN_RANGE_PATH, OUT_OF_RANGE_PATH, LAST_IN_RANGE_PATH],
+      countLine: null,
+    }
     expect({
-      first: screen.getByText(IN_RANGE_PATH).getAttribute("title"),
-      second: screen.getByText(OUT_OF_RANGE_PATH).getAttribute("title"),
+      paths: listedPaths(),
+      countLine: screen.queryByText(/files in the selected commits/),
     }).toEqual(expected)
   })
 
-  it("keeps 'mark viewed' enabled on an out-of-range row — viewed state is whole-PR", async () => {
+  it("keeps an in-range row openable and tickable — viewed state is still whole-PR", async () => {
     // Arrange
     const user = userEvent.setup()
     const onToggleReviewed = vi.fn()
-    const rangeTouchedPaths = new Set([IN_RANGE_PATH])
-    renderTray({ rangeTouchedPaths, onToggleReviewed })
+    const onOpenFile = vi.fn()
+    const rangeTouchedPaths = new Set([FIRST_IN_RANGE_PATH])
+    renderTray({ rangeTouchedPaths, onToggleReviewed, onOpenFile })
 
     // Act
-    const checkbox = screen.getByLabelText(`Mark ${OUT_OF_RANGE_PATH} reviewed`)
+    const checkbox = screen.getByLabelText(`Mark ${FIRST_IN_RANGE_PATH} reviewed`)
     await user.click(checkbox)
+    await user.click(screen.getByText(FIRST_IN_RANGE_PATH))
 
     // Assert
-    const expected = { disabled: false, toggleCalls: 1 }
+    const expected = { disabled: false, toggleCalls: 1, openCalls: 1 }
     expect({
       disabled: (checkbox as HTMLInputElement).disabled,
       toggleCalls: onToggleReviewed.mock.calls.length,
-    }).toEqual(expected)
-  })
-
-  it("keeps an out-of-range row openable, and keeps the whole-PR queue order", async () => {
-    // Arrange
-    const user = userEvent.setup()
-    const onOpenFile = vi.fn()
-    const rangeTouchedPaths = new Set([IN_RANGE_PATH])
-    renderTray({ rangeTouchedPaths, onOpenFile })
-
-    // Act
-    await user.click(screen.getByText(OUT_OF_RANGE_PATH))
-
-    // Assert — both files still listed, in the same order, and the click opened the file.
-    const expected = { openCalls: 1, rowCount: 2 }
-    expect({
       openCalls: onOpenFile.mock.calls.length,
-      rowCount: screen.getAllByRole("checkbox").length,
     }).toEqual(expected)
   })
 })

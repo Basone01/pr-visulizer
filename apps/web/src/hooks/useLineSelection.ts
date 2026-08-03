@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 
 import { type LineSelection, extendSelection, selectLine } from "@/utils/comments/lineSelection"
+
+import { useEscapeKey } from "@/hooks/useEscapeKey"
 
 // Owns the diff pane's live line-range selection (task 5): a plain gutter click anchors and
 // a second one completes the range, a shift-click extends, and Esc clears. The transitions
@@ -28,20 +30,10 @@ export function useLineSelection(): LineSelectionApi {
   )
   const clear = useCallback(() => setSelection(null), [])
 
-  // Esc cancels an in-progress selection (and any open composer that reads it). CAPTURE phase
-  // so a focused element's stopPropagation can't swallow it (same reason as the other Esc
-  // handlers).
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return
-
-      event.preventDefault()
-      setSelection(null)
-    }
-
-    window.addEventListener("keydown", onKeyDown, true)
-    return () => window.removeEventListener("keydown", onKeyDown, true)
-  }, [])
+  // Esc cancels an in-progress selection (and any open composer that reads it) — but only when
+  // there IS one, so an Escape aimed at the find bar or a peek doesn't wipe the reviewer's
+  // selection on its way past.
+  useEscapeKey("lineSelection", selection !== null, () => setSelection(null))
 
   return { selection, select, extend, clear }
 }

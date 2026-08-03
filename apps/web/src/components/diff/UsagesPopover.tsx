@@ -35,9 +35,7 @@ export function UsagesPopover({
 
   if (outside.length === 0) {
     return (
-      <div className={styles.usages}>
-        {anchor.usages.map((usage) => usageButton(usage, false))}
-      </div>
+      <div className={styles.usages}>{anchor.usages.map((usage) => usageButton(usage, false))}</div>
     )
   }
 

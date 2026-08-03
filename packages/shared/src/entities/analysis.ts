@@ -77,6 +77,12 @@ export const prMetaSchema = z.object({
   author: z.string(), // the PR opener's login — GitHub forbids approving your own PR (§11)
   baseSha: z.string(),
   headSha: z.string(), // cache key — new push = new SHA = new analysis
+  // The PR description viewer's two fields (GitHub REST `pulls.get`). `body` is the markdown
+  // description — GitHub returns it as string|null (null = no description). `htmlUrl` is the PR's
+  // web page. Both are OPTIONAL on the contract so the ~28 existing PrMeta fixtures need no churn;
+  // the octokit gateway and the fixture client always populate them, so live data carries both.
+  body: z.string().nullable().optional(),
+  htmlUrl: z.string().optional(),
 })
 export type PrMeta = z.infer<typeof prMetaSchema>
 

@@ -4,10 +4,17 @@ import type {
   PrSummary,
   RangeDiff,
   RangeDiffFile,
+  ReviewComment,
 } from "@pr-visulizer/shared"
 
 import type { SessionUser } from "../../entities/index.js"
-import { PR42_COMMITS, PR42_CONTENTS, PR42_FILES, PR42_META } from "./fixtures/pr42.js"
+import {
+  PR42_COMMITS,
+  PR42_CONTENTS,
+  PR42_FILES,
+  PR42_META,
+  PR42_REVIEW_COMMENTS,
+} from "./fixtures/pr42.js"
 import type {
   AddReviewCommentInput,
   GatewayChangedFile,
@@ -28,6 +35,9 @@ export type GatewayFixture = {
   files: GatewayChangedFile[]
   contents: Record<string, string>
   commits?: GatewayFixtureCommit[]
+  // Existing published review comments (any author). Optional — a fixture without them simply
+  // has no threads to show, exactly like a PR nobody has commented on.
+  reviewComments?: ReviewComment[]
 }
 
 // The fixture-backed gateway (docs/architecture.md §5 step-by-step, testable
@@ -66,6 +76,7 @@ export function pr42Fixture(): GatewayFixture {
     files: PR42_FILES,
     contents: PR42_CONTENTS,
     commits: PR42_COMMITS,
+    reviewComments: PR42_REVIEW_COMMENTS,
   }
 }
 
@@ -216,6 +227,10 @@ export function createFakeGithubGateway(
 
     async addReviewComment(input: AddReviewCommentInput): Promise<void> {
       addedComments.push(input)
+    },
+
+    async listReviewComments(target: PrTarget): Promise<ReviewComment[]> {
+      return lookupFixture(target).reviewComments ?? []
     },
 
     async listViewedFiles(target: PrTarget): Promise<Record<string, ViewedFileState>> {

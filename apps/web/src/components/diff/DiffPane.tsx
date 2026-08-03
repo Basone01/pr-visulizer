@@ -2,6 +2,7 @@ import {
   type ChangedFile,
   type ChangedSymbol,
   type DraftComment,
+  type ReviewComment,
   shortSha,
 } from "@pr-visulizer/shared"
 import { useMutation, useQuery } from "@tanstack/react-query"
@@ -16,10 +17,16 @@ import {
   useState,
 } from "react"
 
+import {
+  type CommentThread,
+  buildThreads,
+  splitThreadsForView,
+} from "@/utils/comments/commentThreads"
 import { isLineInSelection, selectionRange } from "@/utils/comments/lineSelection"
 import { anchorsForLine } from "@/utils/diff/anchors"
 import { buildFullFileView } from "@/utils/diff/fullFileView"
 import { hideWhitespaceOnly } from "@/utils/diff/hideWhitespaceOnly"
+import { buildIntraLineRanges } from "@/utils/diff/intraLineDiff"
 import { parseUnifiedDiff } from "@/utils/diff/parseUnifiedDiff"
 import {
   type SideBySideCell,
@@ -27,6 +34,7 @@ import {
   findRowForLineIndex,
 } from "@/utils/diff/sideBySideRows"
 import { openExternalUrl } from "@/utils/externalLink/openExternal"
+import { isMarkdownPath } from "@/utils/markdown/markdownPath"
 import { githubPrFileUrl } from "@/utils/prUrl/githubFileUrl"
 import { draftKey } from "@/utils/review/progress"
 
@@ -35,17 +43,26 @@ import type { DiffLine as DiffLineVM } from "@/entity/diff"
 import type { PrTarget } from "@/entity/pr"
 
 import { getPrClient } from "@/service/clientFactory"
-import { fileAtHeadQueryOptions, patchQueryOptions } from "@/service/queries"
+import {
+  fileAtHeadQueryOptions,
+  patchQueryOptions,
+  reviewCommentsQueryOptions,
+} from "@/service/queries"
 
 import type { DiffCommitRangeApi } from "@/hooks/useDiffCommitRange"
 import { useDiffFind } from "@/hooks/useDiffFind"
 import { useDiffShortcuts } from "@/hooks/useDiffShortcuts"
 import { useDiffViewSettings } from "@/hooks/useDiffViewSettings"
+import { useEscapeKey } from "@/hooks/useEscapeKey"
 import { useLineSelection } from "@/hooks/useLineSelection"
 import { useLineTokenizer } from "@/hooks/useLineTokenizer"
 import type { PeekNavApi } from "@/hooks/usePeekNavigation"
 import { useProgressiveRows } from "@/hooks/useProgressiveRows"
 
+import { CommentThreadList } from "@/components/comments/CommentThreadList"
+import { MarkdownContent } from "@/components/markdown/MarkdownContent"
+
+import { NO_CHAR_RANGES } from "./CodeContent"
 import { CommentComposer } from "./CommentComposer"
 import { CommitRangePicker } from "./CommitRangePicker"
 import styles from "./Diff.module.css"
@@ -107,12 +124,30 @@ const NO_ANCHORS: SymbolAnchor[] = []
 const NO_DRAFTS: DraftComment[] = []
 // Stable reference so the find hook's `lines` dep doesn't churn while the diff is still loading.
 const NO_LINES: DiffLineVM[] = []
+// Stable empties so a line/file with no existing comments keeps a constant prop reference.
+const NO_THREADS: CommentThread[] = []
+const NO_COMMENTS: ReviewComment[] = []
 
 function fullFileTitleFor(status: ChangedFile["status"], unavailable: boolean): string {
   if (status === "deleted") return "A deleted file's patch is already the whole file"
   if (unavailable) return "Full file unavailable for this file — showing the changed hunks"
 
   return "View the whole file, not just the changed hunks"
+}
+
+function previewTitleFor(rangeActive: boolean, unavailable: boolean): string {
+  if (rangeActive) return "Preview is unavailable while a commit range is selected"
+  if (unavailable) return "Preview unavailable for this file — showing the diff"
+
+  return "Preview the rendered markdown instead of the diff"
+}
+
+// Why a bucketed thread can't show inline — shown as the thread's caption in the file bucket.
+function bucketCaptionFor(thread: CommentThread): string {
+  if (thread.side === "LEFT") return "On the base (removed) side"
+  if (thread.anchorLine === null) return "Outdated — this line is no longer in the diff"
+
+  return `On line ${thread.anchorLine}, which isn't shown in the current view`
 }
 
 function draftsByLineFor(drafts: DraftComment[], path: string): Map<number, DraftComment[]> {
@@ -151,9 +186,17 @@ export function DiffPane({
 }: DiffPaneProps) {
   const path = file?.path ?? ""
   const patchQuery = useQuery(patchQueryOptions(target, path))
+  const commentsQuery = useQuery(reviewCommentsQueryOptions(target))
   const tokenizer = useLineTokenizer(file?.language ?? null)
-  const { settings, toggleWrap, toggleHideWhitespace, toggleFullFile, toggleSplitView } =
-    useDiffViewSettings()
+  const {
+    settings,
+    toggleWrap,
+    toggleHideWhitespace,
+    toggleFullFile,
+    toggleSplitView,
+    toggleIntraLineDiff,
+    toggleMarkdownPreview,
+  } = useDiffViewSettings()
 
   // Which patch this pane is rendering. With no range selected it is the whole-PR patch, byte
   // for byte what it was before commit-range selection existed. With a range selected it is the
@@ -170,14 +213,33 @@ export function DiffPane({
   // commit) onto it would renumber lines against the wrong revision. Better to disable the
   // toggle than to render a subtly-wrong file.
   const canShowFullFile = file !== null && file.status !== "deleted" && commitRange.range === null
+
+  // The markdown preview (rendered HEAD revision instead of the diff). Two separate questions,
+  // deliberately: whether the toggle EXISTS at all — only a markdown file the app can render, and
+  // a deleted one has no head revision to render — and whether it can be used right now.
+  const isMarkdownFile = file !== null && file.status !== "deleted" && isMarkdownPath(path)
+  // Disabled under a commit range for the same reason full-file is: the preview renders the PR's
+  // HEAD, which is not the revision the selected commits describe, so showing it under a range
+  // would answer a question the reviewer did not ask.
+  const canPreviewMarkdown = isMarkdownFile && commitRange.range === null
+  const previewWanted = settings.markdownPreview && canPreviewMarkdown
+
+  // ONE head-content query serves both features — same key, same cache, so a reviewer who used
+  // the full-file view on this file pays nothing to preview it.
   const headFileQuery = useQuery(
-    fileAtHeadQueryOptions(target, path, settings.fullFile && canShowFullFile)
+    fileAtHeadQueryOptions(target, path, (settings.fullFile && canShowFullFile) || previewWanted)
   )
   // null = not fetched yet, or the client has no head content for this file (see PrClient).
   const headText = headFileQuery.data ?? null
   const fullFileOn = settings.fullFile && headText !== null
   const fullFileUnavailable =
     settings.fullFile && canShowFullFile && !headFileQuery.isPending && headText === null
+
+  // Non-null is exactly "render the preview instead of the diff", so the source narrows to string
+  // at the one place it is read.
+  const previewSource = previewWanted ? headText : null
+  const previewPending = previewWanted && headFileQuery.isPending
+  const previewUnavailable = previewWanted && !headFileQuery.isPending && headText === null
   const [usagesAnchor, setUsagesAnchor] = useState<SymbolAnchor | null>(null)
   const selection = useLineSelection()
   const [editingKey, setEditingKey] = useState<string | null>(null)
@@ -187,6 +249,8 @@ export function DiffPane({
   useEffect(() => {
     selection.clear()
     setEditingKey(null)
+    setExpandedCommentLine(null)
+    setBucketOpen(false)
   }, [path, selection.clear])
 
   // Both are pure view transforms layered over the parse (§10): neither renumbers the head side,
@@ -221,6 +285,40 @@ export function DiffPane({
     () => draftsByLineFor(drafts, shownDiff?.path ?? ""),
     [drafts, shownDiff]
   )
+
+  // Existing published comment threads for THIS file (§11 "show existing comments"). Built from
+  // the whole-PR comment list, filtered to the open file, then split against the head lines
+  // actually rendered: anchored threads attach to their row, the rest (outdated, base-side,
+  // off-screen) fall into the file bucket below the header.
+  const allThreads = useMemo(
+    () => buildThreads(commentsQuery.data ?? NO_COMMENTS),
+    [commentsQuery.data]
+  )
+  const fileThreads = useMemo(
+    () => allThreads.filter((thread) => thread.path === (shownDiff?.path ?? "")),
+    [allThreads, shownDiff]
+  )
+  const visibleHeadLines = useMemo(() => {
+    const lines = new Set<number>()
+    if (shownDiff) {
+      for (const line of shownDiff.lines) {
+        if (line.newLine !== null) lines.add(line.newLine)
+      }
+    }
+
+    return lines
+  }, [shownDiff])
+  const { byHeadLine: threadsByLine, bucket: bucketThreads } = useMemo(
+    () => splitThreadsForView(fileThreads, visibleHeadLines),
+    [fileThreads, visibleHeadLines]
+  )
+
+  // Which line's existing-comment thread panel is open (one at a time, like the peek/usages
+  // overlays). Keyed by head line — the bubble toggles it; the panel renders under that row.
+  const [expandedCommentLine, setExpandedCommentLine] = useState<number | null>(null)
+  // The file bucket (outdated / base-side / off-screen threads) starts collapsed so it never
+  // pushes the diff down unasked.
+  const [bucketOpen, setBucketOpen] = useState(false)
 
   // Size the line-number gutter to the file's widest number — a fixed width overlaps the
   // code on long files (4+ digit line numbers). `ch` tracks the mono digit width.
@@ -272,6 +370,16 @@ export function DiffPane({
   // the same `requiredRow` seam the peek/flash overlays already use (whichever row is deeper).
   const requiredRow = Math.max(overlayRequiredRow, find.open ? find.currentRowIndex : -1)
 
+  // Character-level emphasis over whatever the transforms above produced (§10). Keyed by FLAT
+  // line index, so the inline view and both side-by-side columns look their own side up in the
+  // same map. Built only when the toggle is on — off, every line gets the stable NO_CHAR_RANGES
+  // and the rows render exactly as they did before the feature existed.
+  const intraLineRanges = useMemo(
+    () =>
+      settings.intraLineDiff && shownDiff ? buildIntraLineRanges({ lines: shownDiff.lines }) : null,
+    [settings.intraLineDiff, shownDiff]
+  )
+
   // The last transform in the chain, and the only one that changes the render SHAPE rather than
   // the line list: base-left / head-right pairs over whatever full-file and hide-whitespace
   // produced. null in inline mode, so the flat line list stays the thing being rendered.
@@ -310,6 +418,15 @@ export function DiffPane({
   // DiffLine's memo and re-render (and re-tokenize) every row on any pane state change.
   const { jumpToDefinition, peekUsage } = nav
   const { select, extend, clear } = selection
+
+  // A bubble click toggles that line's thread panel — second click (same line) collapses it.
+  const handleToggleThread = useCallback((headLine: number): void => {
+    setExpandedCommentLine((current) => (current === headLine ? null : headLine))
+  }, [])
+
+  // Escape closes an open thread panel — claimed only while one is open, and below find, peek
+  // and the line selection, so it never closes the panel out from under them.
+  useEscapeKey("threadPanel", expandedCommentLine !== null, () => setExpandedCommentLine(null))
 
   const handleAnchorClick = useCallback(
     (anchor: SymbolAnchor, withMeta: boolean): void => {
@@ -475,6 +592,8 @@ export function DiffPane({
     const isFlash = flash !== null && flash.path === path && flash.line === headLine
     const selected = headLine !== null && isLineInSelection(selection.selection, headLine)
     const draftsOnLine = headLine !== null ? (draftsByLine.get(headLine) ?? NO_DRAFTS) : NO_DRAFTS
+    const threadsOnLine =
+      headLine !== null ? (threadsByLine.get(headLine) ?? NO_THREADS) : NO_THREADS
 
     return (
       <DiffLine
@@ -491,6 +610,9 @@ export function DiffPane({
         draftsOnLine={draftsOnLine}
         onEditDraft={openEdit}
         onDeleteDraft={removeDraft}
+        threadsOnLine={threadsOnLine}
+        onToggleThread={handleToggleThread}
+        charRanges={intraLineRanges?.get(cell.index) ?? NO_CHAR_RANGES}
       />
     )
   }
@@ -504,10 +626,17 @@ export function DiffPane({
     const showComposer = activeComposer !== null && headLine === activeComposer.endLine
     const showPeek = peek !== null && peekSpan !== undefined && headLine === peek.anchor.line
     const showUsages = usagesAnchor !== null && headLine === usagesAnchor.line
-    if (!showComposer && !showPeek && !showUsages) return null
+    const showThreads = expandedCommentLine === headLine && threadsByLine.has(headLine)
+    if (!showComposer && !showPeek && !showUsages && !showThreads) return null
 
     return (
       <>
+        {showThreads && (
+          <div className={styles.threadPanel}>
+            <CommentThreadList threads={threadsByLine.get(headLine) ?? NO_THREADS} />
+          </div>
+        )}
+
         {showComposer && activeComposer && (
           <CommentComposer
             key={`${activeComposer.mode}-${activeComposer.startLine}-${activeComposer.endLine}`}
@@ -535,6 +664,7 @@ export function DiffPane({
             expanded={peek.expanded}
             onExpand={nav.expandPeek}
             onJump={() => nav.jumpToDefinition(peek.anchor)}
+            onClose={nav.closePeek}
           />
         )}
 
@@ -598,6 +728,30 @@ export function DiffPane({
             >
               ◫
             </button>
+            <button
+              type="button"
+              className={`${styles.iconToggle} ${settings.intraLineDiff ? styles.toggleOn : ""}`}
+              aria-pressed={settings.intraLineDiff}
+              aria-label="Highlight changed characters"
+              title="Highlight only the characters that changed within a line"
+              onClick={toggleIntraLineDiff}
+            >
+              Aa
+            </button>
+            {/* Markdown-only, so the toolbar stays the same width on every other file. */}
+            {isMarkdownFile && (
+              <button
+                type="button"
+                className={`${styles.iconToggle} ${previewSource !== null ? styles.toggleOn : ""}`}
+                aria-pressed={previewSource !== null}
+                aria-label="Preview rendered markdown"
+                title={previewTitleFor(commitRange.range !== null, previewUnavailable)}
+                disabled={!canPreviewMarkdown}
+                onClick={toggleMarkdownPreview}
+              >
+                ¶
+              </button>
+            )}
             <button
               type="button"
               className={styles.nextButton}
@@ -708,91 +862,128 @@ export function DiffPane({
       </div>
 
       <div className={styles.diffRegion}>
-        {find.open && <FindBar find={find} />}
+        {/* Find, comments and symbol anchors all address DIFF lines — none of them has a meaning
+            in a rendered document, so the preview simply replaces the whole diff area and the
+            toggle is the way back to them. */}
+        {find.open && previewSource === null && <FindBar find={find} />}
 
-        <div
-          ref={diffScrollRef}
-          tabIndex={-1}
-          className={`${styles.diff} ${settings.wrap ? styles.diffWrap : ""}`}
-          style={
-            gutterWidth ? ({ "--gutter-width": gutterWidth } as React.CSSProperties) : undefined
-          }
-        >
-          {/* A file the selected commits never touched is a normal, expected state — say so
+        {previewPending && <div className={styles.empty}>Loading preview…</div>}
+
+        {previewSource !== null && (
+          <div className={styles.previewRegion}>
+            <MarkdownContent source={previewSource} />
+          </div>
+        )}
+
+        {previewSource === null && !previewPending && (
+          <div
+            ref={diffScrollRef}
+            tabIndex={-1}
+            className={`${styles.diff} ${settings.wrap ? styles.diffWrap : ""}`}
+            style={
+              gutterWidth ? ({ "--gutter-width": gutterWidth } as React.CSSProperties) : undefined
+            }
+          >
+            {/* Threads that can't anchor inline — outdated, base-side, or on a line the current
+                view hides. Collapsed by default so they never shove the diff down unasked. */}
+            {bucketThreads.length > 0 && (
+              <div className={styles.commentBucket}>
+                <button
+                  type="button"
+                  className={styles.commentBucketToggle}
+                  aria-expanded={bucketOpen}
+                  onClick={() => setBucketOpen((open) => !open)}
+                >
+                  {bucketOpen ? "▾" : "▸"} {bucketThreads.length} comment
+                  {bucketThreads.length === 1 ? "" : "s"} not shown inline
+                </button>
+
+                {bucketOpen && (
+                  <div className={styles.commentBucketBody}>
+                    <CommentThreadList threads={bucketThreads} captionFor={bucketCaptionFor} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* A file the selected commits never touched is a normal, expected state — say so
               quietly and offer the way back, rather than showing an error or an endless spinner.
               This also catches a range patch GitHub omits (a rename with no content change),
               which is why the copy talks about changes rather than about a missing patch. */}
-          {outsideRange && (
-            <div className={styles.rangeEmpty}>
-              <p>No changes in the selected commits.</p>
-              <button type="button" className={styles.rangeReset} onClick={commitRange.clear}>
-                show all changes
-              </button>
-            </div>
-          )}
+            {outsideRange && (
+              <div className={styles.rangeEmpty}>
+                <p>No changes in the selected commits.</p>
+                <button type="button" className={styles.rangeReset} onClick={commitRange.clear}>
+                  show all changes
+                </button>
+              </div>
+            )}
 
-          {!outsideRange && commitRange.error && (
-            <div className={styles.empty} role="alert">
-              Couldn't load the diff for these commits — {commitRange.error}
-            </div>
-          )}
+            {!outsideRange && commitRange.error && (
+              <div className={styles.empty} role="alert">
+                Couldn't load the diff for these commits — {commitRange.error}
+              </div>
+            )}
 
-          {!outsideRange && !commitRange.error && !shownDiff && (
-            <div className={styles.empty}>Loading diff…</div>
-          )}
+            {!outsideRange && !commitRange.error && !shownDiff && (
+              <div className={styles.empty}>Loading diff…</div>
+            )}
 
-          {shownDiff &&
-            !splitRows &&
-            shownDiff.lines.slice(0, mountedRows).map((line, index) => (
-              <Fragment key={index}>
-                {renderLine({ line, index }, shownDiff.path, "head")}
-                {renderRowOverlays(line.newLine)}
-              </Fragment>
-            ))}
+            {shownDiff &&
+              !splitRows &&
+              shownDiff.lines.slice(0, mountedRows).map((line, index) => (
+                <Fragment key={index}>
+                  {renderLine({ line, index }, shownDiff.path, "head")}
+                  {renderRowOverlays(line.newLine)}
+                </Fragment>
+              ))}
 
-          {shownDiff && splitRows && (
-            <table className={styles.split}>
-              <tbody>
-                {splitRows.slice(0, mountedRows).map((row, rowIndex) => {
-                  // A hunk header belongs to neither side — it spans the table like the separator
-                  // it is, and keeps the head gutter so find still resolves it.
-                  if (row.kind === "hunk") {
-                    return (
-                      <tr key={rowIndex}>
-                        <td className={styles.splitCell} colSpan={2}>
-                          {renderLine(row.header, shownDiff.path, "head")}
-                        </td>
-                      </tr>
-                    )
-                  }
-
-                  const overlays = renderRowOverlays(row.right?.line.newLine ?? null)
-
-                  return (
-                    <Fragment key={rowIndex}>
-                      <tr>
-                        <td className={`${styles.splitCell} ${row.left ? "" : styles.splitFiller}`}>
-                          {row.left && renderLine(row.left, shownDiff.path, "base")}
-                        </td>
-                        <td
-                          className={`${styles.splitCell} ${row.right ? "" : styles.splitFiller}`}
-                        >
-                          {row.right && renderLine(row.right, shownDiff.path, "head")}
-                        </td>
-                      </tr>
-
-                      {overlays && (
-                        <tr>
-                          <td colSpan={2}>{overlays}</td>
+            {shownDiff && splitRows && (
+              <table className={styles.split}>
+                <tbody>
+                  {splitRows.slice(0, mountedRows).map((row, rowIndex) => {
+                    // A hunk header belongs to neither side — it spans the table like the separator
+                    // it is, and keeps the head gutter so find still resolves it.
+                    if (row.kind === "hunk") {
+                      return (
+                        <tr key={rowIndex}>
+                          <td className={styles.splitCell} colSpan={2}>
+                            {renderLine(row.header, shownDiff.path, "head")}
+                          </td>
                         </tr>
-                      )}
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+                      )
+                    }
+
+                    const overlays = renderRowOverlays(row.right?.line.newLine ?? null)
+
+                    return (
+                      <Fragment key={rowIndex}>
+                        <tr>
+                          <td
+                            className={`${styles.splitCell} ${row.left ? "" : styles.splitFiller}`}
+                          >
+                            {row.left && renderLine(row.left, shownDiff.path, "base")}
+                          </td>
+                          <td
+                            className={`${styles.splitCell} ${row.right ? "" : styles.splitFiller}`}
+                          >
+                            {row.right && renderLine(row.right, shownDiff.path, "head")}
+                          </td>
+                        </tr>
+
+                        {overlays && (
+                          <tr>
+                            <td colSpan={2}>{overlays}</td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

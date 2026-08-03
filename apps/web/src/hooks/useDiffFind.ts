@@ -1,6 +1,8 @@
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { type RefObject, useCallback, useEffect, useMemo, useState } from "react"
 
 import type { DiffLine } from "@/entity/diff"
+
+import { useEscapeKey } from "@/hooks/useEscapeKey"
 
 // Case-insensitive substring search over the parsed diff lines. Returns the indices of the
 // matching rows (indices into the same `lines` array the pane renders), in document order.
@@ -64,35 +66,26 @@ export function useDiffFind(lines: DiffLine[], paneRef: RefObject<HTMLElement | 
     )
   }, [matches.length])
 
-  // Cmd/Ctrl+F opens the bar (suppressing the browser's own find); Escape closes it. The
-  // AppShell/peek-nav Escape handlers yield to a focused text field (they check
-  // `isEditableTarget`), and the bar's input holds focus while open — so closing here never
-  // races them for who collapses the pane. `open` is read through a ref so the listener stays
-  // registered once (a dep on `open` would re-register it on every toggle).
-  const openRef = useRef(open)
-  openRef.current = open
-
+  // Cmd/Ctrl+F opens the bar, suppressing the browser's own find.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
       const isFindChord =
         (event.metaKey || event.ctrlKey) &&
         !event.altKey &&
         (event.key === "f" || event.key === "F")
-      if (isFindChord) {
-        event.preventDefault()
-        setOpen(true)
-        return
-      }
+      if (!isFindChord) return
 
-      if (event.key === "Escape" && openRef.current) {
-        event.preventDefault()
-        close()
-      }
+      event.preventDefault()
+      setOpen(true)
     }
 
     window.addEventListener("keydown", onKeyDown, true)
     return () => window.removeEventListener("keydown", onKeyDown, true)
-  }, [close])
+  }, [])
+
+  // Escape closes the bar and nothing else — the precedence table puts the open bar above the
+  // peek and the pane collapse, so it no longer has to hope the other handlers yield.
+  useEscapeKey("findBar", open, close)
 
   return {
     open,

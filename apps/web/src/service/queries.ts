@@ -44,6 +44,17 @@ export function progressQueryOptions(target: PrTarget) {
   })
 }
 
+// Existing published review comments for the PR (§ "show existing comments"). Fetched when a PR
+// is opened and re-fetched on remount, but NOT polled — a reviewer reading threads doesn't need
+// a background timer, and a manual refresh (reopening the PR) is enough. Left at the default
+// staleTime so opening the PR after commenting elsewhere picks the new threads up.
+export function reviewCommentsQueryOptions(target: PrTarget) {
+  return queryOptions({
+    queryKey: ["reviewComments", prKey(target)] as const,
+    queryFn: () => getPrClient().listReviewComments(target),
+  })
+}
+
 export function openPullRequestsQueryOptions(repo: RepoRef) {
   return queryOptions({
     queryKey: ["openPulls", repoKey(repo)] as const,

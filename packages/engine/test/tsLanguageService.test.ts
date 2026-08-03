@@ -220,7 +220,8 @@ describe("analyzeDeepFromSources — precision tier wiring", () => {
   }))
 
   async function analyze(precisionEnabled: boolean) {
-    const { analyzeDeepFromSources } = await import("../src/services/analysis/analyzeDeepSources.js")
+    const { analyzeDeepFromSources } =
+      await import("../src/services/analysis/analyzeDeepSources.js")
     const { createNodeGrammarSource } = await import("../src/node.js")
 
     return analyzeDeepFromSources({
@@ -260,7 +261,8 @@ describe("analyzeDeepFromSources — precision tier wiring", () => {
 
   it("keeps the ast result when the tier cannot build (no lib available)", async () => {
     // Arrange
-    const { analyzeDeepFromSources } = await import("../src/services/analysis/analyzeDeepSources.js")
+    const { analyzeDeepFromSources } =
+      await import("../src/services/analysis/analyzeDeepSources.js")
     const { createNodeGrammarSource } = await import("../src/node.js")
     const brokenLibSource = () => Promise.resolve(undefined)
 

@@ -26,6 +26,7 @@ export function PeekPopup({
   expanded,
   onExpand,
   onJump,
+  onClose,
 }: {
   target: PrTarget
   definition: OccurrenceRef
@@ -34,6 +35,9 @@ export function PeekPopup({
   expanded: boolean
   onExpand: () => void
   onJump: () => void
+  // Dismiss without navigating. The open state lives in the nav machine (§10), so closing is
+  // the host's action — this component owns no visibility state of its own.
+  onClose: () => void
 }) {
   const patchQuery = useQuery(patchQueryOptions(target, definition.path))
   const tokenizer = useLineTokenizer("typescript")
@@ -70,6 +74,15 @@ export function PeekPopup({
           {definition.path}:{span.startLine}
         </span>
         <span className={styles.peekTag}>in this PR</span>
+        <button
+          type="button"
+          className={`${styles.peekAction} ${styles.peekClose}`}
+          aria-label="Close peek"
+          title="Close peek (Esc)"
+          onClick={onClose}
+        >
+          ×
+        </button>
       </div>
 
       <div className={bodyClass}>
