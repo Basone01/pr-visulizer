@@ -92,6 +92,49 @@ describe("buildThreads", () => {
     expect(threads[0]!.anchorLine).toBe(expectedAnchor)
   })
 
+  it("anchors a multi-line comment at the START of its range, not its last line", () => {
+    // Arrange — GitHub reports a range comment as start_line..line, so `line` alone would put the
+    // marker under the closing brace of the block the reviewer commented on.
+    const startLine = 6
+    const endLine = 9
+    const rangeComment = comment({ id: 11, startLine, line: endLine })
+    const comments = [rangeComment]
+
+    // Act
+    const threads = buildThreads(comments)
+
+    // Assert
+    const expectedAnchor = startLine
+    expect(threads[0]!.anchorLine).toBe(expectedAnchor)
+  })
+
+  it("anchors a single-line comment at its own line, which carries no start line", () => {
+    // Arrange — the common case: GitHub sends start_line null.
+    const singleLine = comment({ id: 12, startLine: null, line: 3 })
+    const comments = [singleLine]
+
+    // Act
+    const threads = buildThreads(comments)
+
+    // Assert
+    const expectedAnchor = 3
+    expect(threads[0]!.anchorLine).toBe(expectedAnchor)
+  })
+
+  it("leaves an outdated root unanchored even when it carries a start line", () => {
+    // Arrange — no end line means the range no longer exists in the diff; a start line on its own
+    // must not resurrect it onto a row that means something else now.
+    const outdatedRange = comment({ id: 13, startLine: 6, line: null })
+    const comments = [outdatedRange]
+
+    // Act
+    const threads = buildThreads(comments)
+
+    // Assert
+    const expectedAnchor = null
+    expect(threads[0]!.anchorLine).toBe(expectedAnchor)
+  })
+
   it("treats a reply whose parent is missing as its own root rather than dropping it", () => {
     // Arrange — id 2 replies to id 1, but id 1 was not in the fetched page.
     const orphanReply = comment({ id: 2, inReplyToId: 1 })

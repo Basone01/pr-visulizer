@@ -507,17 +507,27 @@
   cursor: pointer;
 }
 
+/* Sized to sit QUIETLY beside a 12px/1.7 code line: the pill annotates the row, it is not a
+   second subject on it. Deliberately a step under the draft marker's 10px — that one carries a
+   word the reviewer must read, this one a count they only glance at.
+   `align-self` is what actually shrinks it: the row is a flex container, so a stretched child
+   was taking the FULL row height (measured 22px) however small its text got — and `vertical-
+   align`, which this rule used to carry, does nothing in flex layout. */
 .pill {
   display: inline-block;
-  margin-left: 8px;
-  font-size: 10px;
+  align-self: center;
+  margin-left: 6px;
+  font-size: 9px;
+  line-height: 15px;
   font-weight: 600;
-  border-radius: 10px;
-  padding: 0 8px;
+  /* Stated, like .threadMarker states its own: the UA's default button border was silently
+     adding 4px of height to a chip whose whole job is to stay out of the way. */
+  border: 0;
+  border-radius: 7px;
+  padding: 0 6px;
   background: var(--accent-soft);
   color: var(--accent);
   cursor: pointer;
-  vertical-align: middle;
 }
 
 /* The line-number gutter doubles as the range-selection handle (task 5): a bare button so

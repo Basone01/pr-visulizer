@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { buildAnchorIndex } from "@/utils/diff/anchors"
 
@@ -20,6 +20,10 @@ import { NO_COMMIT_RANGE } from "./diffPaneTestProps"
 
 // Head lines 1..3 exist; the thread is anchored to line 3.
 const PATCH = ["@@ -0,0 +1,3 @@", "+first", "+second", "+third"].join("\n")
+
+// Which comments the mocked client serves — set per test, so one file can cover both a
+// single-line thread and a multi-line RANGE one without a second harness.
+const served = vi.hoisted(() => ({ comments: [] as unknown[] }))
 
 // A body carrying an injected <script> and a javascript: link — both must be neutralized.
 const THREAD_ROOT: ReviewComment = {
@@ -51,7 +55,7 @@ vi.mock("@/service/clientFactory", async () => {
   const client = {
     getPatch: async () => PATCH,
     getFileAtHead: async () => null,
-    listReviewComments: async () => [THREAD_ROOT, THREAD_REPLY],
+    listReviewComments: async () => served.comments,
   }
 
   return {
@@ -117,7 +121,25 @@ function renderWithQuery(node: ReactNode) {
 
 const BUBBLE_LABEL = /existing comment/i
 
+// A comment on the WHOLE file body — GitHub reports the range as start_line 1 through line 3,
+// where `line` is its LAST line.
+const RANGE_ROOT: ReviewComment = {
+  id: 800,
+  path: "src/lib/rateLimiter.ts",
+  line: 3,
+  startLine: 1,
+  side: "RIGHT",
+  inReplyToId: null,
+  author: "senior-dev",
+  body: "This whole block needs a guard.",
+  createdAt: "2026-07-20T09:00:00Z",
+}
+
 describe("DiffPane existing comments", () => {
+  beforeEach(() => {
+    served.comments = [THREAD_ROOT, THREAD_REPLY]
+  })
+
   it("shows a comment bubble on the commented line", async () => {
     // Arrange / Act
     renderWithQuery(<DiffPaneHarness />)
@@ -178,5 +200,38 @@ describe("DiffPane existing comments", () => {
     expect(draftPill).toBeInTheDocument()
     expect(bubble).not.toBe(draftPill)
     expect(within(bubble).queryByText(/draft/i)).toBeNull()
+  })
+
+  it("puts the bubble on the START line of a multi-line comment", async () => {
+    // Arrange — the range covers head lines 1..3; GitHub's `line` is the LAST of them, so before
+    // this the marker sat on line 3, under the end of the block someone commented on.
+    served.comments = [RANGE_ROOT]
+
+    // Act
+    renderWithQuery(<DiffPaneHarness />)
+    const bubble = await screen.findByRole("button", { name: BUBBLE_LABEL })
+
+    // Assert
+    const expectedLabel = "1 existing comment(s) on line 1"
+    expect(bubble).toHaveAttribute("aria-label", expectedLabel)
+  })
+
+  it("opens the thread panel under the START-line row it is anchored to", async () => {
+    // Arrange — the panel is keyed by the same head line as the bubble, so a range comment must
+    // not open its thread under a different row than the one carrying its marker.
+    const user = userEvent.setup()
+    served.comments = [RANGE_ROOT]
+    renderWithQuery(<DiffPaneHarness />)
+    const bubble = await screen.findByRole("button", { name: BUBBLE_LABEL })
+
+    // Act
+    await user.click(bubble)
+
+    // Assert — the thread opens, and the row carrying the marker is the one whose gutter is line
+    // 1 (the panel is keyed by that same head line, so both live on the start-line row).
+    const markerRow = bubble.closest("div")!
+    expect(await screen.findByText("senior-dev")).toBeInTheDocument()
+    expect(within(markerRow).getByRole("button", { name: "Comment on line 1" })).toBeInTheDocument()
+    expect(markerRow).toHaveTextContent("first")
   })
 })

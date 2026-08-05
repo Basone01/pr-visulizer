@@ -4,6 +4,7 @@ import type { ReviewComment } from "@pr-visulizer/shared"
 // comments" feature is reachable in the browser with no BFF. Deliberately four shapes:
 //   - a two-comment THREAD (root 6001 + reply 6002) on rateLimiter.ts head line 3 → anchors inline
 //   - a single comment on head line 12 → a one-comment thread (no count badge)
+//   - a multi-line RANGE comment (start_line 6 → line 9) → anchors at its START line, 6
 //   - an OUTDATED comment (line: null) → the file's "not shown inline" bucket
 //   - a LEFT-side comment on http.ts → also the bucket (base side is not annotated inline)
 // The bodies are GitHub-flavored markdown on purpose — they render through MarkdownContent, which
@@ -47,6 +48,19 @@ export function pr42ReviewComments(): ReviewComment[] {
       author: "reviewer-two",
       body: "`checkLimit` mutates on read — worth a `// side effect` note.",
       createdAt: "2026-07-20T11:20:00Z",
+    },
+    {
+      id: 6006,
+      path: RATE_LIMITER,
+      // A RANGE comment over the whole `pruneOldHits` helper: GitHub reports the range as
+      // start_line 6 through line 9, where `line` is its LAST line. The marker belongs on 6.
+      line: 9,
+      startLine: 6,
+      side: "RIGHT",
+      inReplyToId: null,
+      author: "reviewer-two",
+      body: "This helper rebuilds the whole array on every hit.\n\nFine at these limits, worth a note if the window grows.",
+      createdAt: "2026-07-20T12:05:00Z",
     },
     {
       id: 6004,

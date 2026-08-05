@@ -20,10 +20,20 @@ export type CommentThread = {
 // A thread anchors inline only from the RIGHT/head side with a concrete line. LEFT-side and
 // outdated (null-line) roots are deliberately NOT anchored — the base gutter carries no
 // annotations today, and an outdated line no longer exists in the diff — so both go to the bucket.
+//
+// On a MULTI-LINE comment GitHub's `line` is the range's LAST line and `start_line` its first, so
+// anchoring on `line` put the bubble at the bottom of the commented block — under the closing
+// brace of the function someone commented on. The reviewer reads a range from its start, so that
+// is where the marker belongs. Same `startLine ?? line` convention drafts already key by
+// (utils/review/progress.ts), so both kinds of comment now anchor the same way.
+//
+// The `line === null` guard stays FIRST: a comment with no end line is outdated or file-level,
+// and no start line can make it anchorable.
 function anchorLineOf(root: ReviewComment): number | null {
   if (root.side !== "RIGHT") return null
+  if (root.line === null) return null
 
-  return root.line
+  return root.startLine ?? root.line
 }
 
 // Order comments oldest-first, breaking ties by id so the result is deterministic regardless of
