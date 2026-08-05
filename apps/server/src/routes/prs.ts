@@ -85,6 +85,20 @@ export function registerPrRoutes(app: FastifyInstance, ctx: AppContext): void {
     return reply.send(state.result)
   })
 
+  // POST .../refresh — drop what the BFF has cached about this PR, so the SPA's refresh button
+  // re-reads the PR at its CURRENT head. Only the analysis job needs dropping: every other route
+  // here calls the gateway per request. No body, no result — the SPA refetches its queries next.
+  app.post("/api/prs/:owner/:repo/:number/refresh", async (req, reply) => {
+    const user = requireUser(req, reply, ctx)
+    if (!user) return reply
+
+    const params = parse(prParamsSchema, req.params)
+    if (!params.ok) return badRequest(reply, params.issues)
+
+    ctx.analysis.forget(toTarget(params.value))
+    return reply.code(204).send()
+  })
+
   // GET .../commits — the PR's commits, for the diff pane's commit-range picker (§10). Read-only
   // and whole-PR; the range it produces narrows the DIFF only, never the ranking or the queue.
   app.get("/api/prs/:owner/:repo/:number/commits", async (req, reply) => {

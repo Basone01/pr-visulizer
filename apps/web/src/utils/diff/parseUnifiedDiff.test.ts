@@ -48,7 +48,7 @@ describe("parseUnifiedDiff", () => {
   })
 
   it("keeps base and head numbering independent across a modify hunk", () => {
-    // Arrange — http.ts: one deletion then two additions inside a context block.
+    // Arrange — http.ts: one deletion then two additions, closed by a context line.
     const patch = pr42Patches["src/types/http.ts"]!
 
     // Act

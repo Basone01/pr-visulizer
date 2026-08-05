@@ -12,7 +12,19 @@ vi.mock("./clientFactory", () => ({
   getPrClient: () => ({ getAnalysis }),
 }))
 
-const { analysisQueryOptions } = await import("./queries")
+const {
+  analysisQueryOptions,
+  commitsQueryOptions,
+  fileAtHeadQueryOptions,
+  openPullRequestsQueryOptions,
+  overviewQueryOptions,
+  patchQueryOptions,
+  prScopeKey,
+  progressQueryOptions,
+  rangeDiffQueryOptions,
+  reviewCommentsQueryOptions,
+  viewerQueryOptions,
+} = await import("./queries")
 
 const PR42: PrTarget = { owner: "acme", repo: "web", number: 42 }
 
@@ -111,5 +123,52 @@ describe("analysisQueryOptions — a ready result is fetched once per headSha", 
 
     unsubscribeSecond()
     queryClient.clear()
+  })
+})
+
+// The refresh button invalidates ONE key prefix and expects every PR-scoped query to hang off
+// it. That contract is invisible at the call site — a new query keyed the old way would simply
+// never refresh — so it is pinned here, for both the queries that must be under the prefix and
+// the ones that must not.
+
+describe("prScopeKey", () => {
+  it("prefixes every PR-scoped query, so one invalidate refreshes the whole PR", () => {
+    // Arrange
+    const engine = "deep" as const
+    const path = "src/config/limits.ts"
+    const range = { baseSha: "base42", headSha: "head42" }
+    const pickerOpened = true
+    const fullFileShown = true
+
+    const prScoped = [
+      overviewQueryOptions(PR42),
+      analysisQueryOptions(PR42, engine),
+      progressQueryOptions(PR42),
+      reviewCommentsQueryOptions(PR42),
+      patchQueryOptions(PR42, path),
+      commitsQueryOptions(PR42, pickerOpened),
+      rangeDiffQueryOptions(PR42, range),
+      fileAtHeadQueryOptions(PR42, path, fullFileShown),
+    ]
+
+    // Act
+    const prefixes = prScoped.map((options) => options.queryKey.slice(0, prScopeKey(PR42).length))
+
+    // Assert
+    const expected = prScoped.map(() => ["pr", "acme/web/42"])
+    expect(prefixes).toEqual(expected)
+  })
+
+  it("leaves the queries that outlive one PR outside the prefix", () => {
+    // Arrange
+    const repo = { owner: PR42.owner, repo: PR42.repo }
+    const notPrScoped = [openPullRequestsQueryOptions(repo), viewerQueryOptions()]
+
+    // Act
+    const roots = notPrScoped.map((options) => options.queryKey[0])
+
+    // Assert — refreshing a PR must not re-read the repo's open-PR list or the viewer identity.
+    const expected = ["openPulls", "viewer"]
+    expect(roots).toEqual(expected)
   })
 })

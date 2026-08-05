@@ -64,4 +64,10 @@ export interface PrClient {
   // The home-screen picker (docs/tauri-architecture.md §5): open PRs for a watched repo.
   // http → new BFF route; fixture/tauri → gateway or fixture direct.
   listOpenPullRequests(repo: RepoRef): Promise<PrSummary[]>
+  // Drop everything this client (or the BFF behind it) has memoized about ONE PR, so the next
+  // read sees the PR at its current head. The refresh button calls this BEFORE invalidating the
+  // query cache: both sides memoize per PR with no head SHA in the key — the BFF's analysis job
+  // and the desktop client's PR meta / prepared repo — so invalidating queries alone would
+  // refetch straight back into the pre-push answer.
+  invalidatePr(target: PrTarget): Promise<void>
 }

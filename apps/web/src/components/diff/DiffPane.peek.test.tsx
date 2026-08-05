@@ -29,7 +29,9 @@ const PATCH = [
 vi.mock("@/service/clientFactory", async () => {
   const { createMemoryKeyValueStore } = await import("@/utils/storage/keyValueStore")
   const store = createMemoryKeyValueStore()
-  const client = { getPatch: async () => PATCH }
+  // No head content here on purpose: the peek's degraded source (patch only) must still open,
+  // close and dismiss exactly the same — those are what these tests are about.
+  const client = { getPatch: async () => PATCH, getFileAtHead: async () => null }
 
   return { getPrClient: () => client, getAppStorage: () => store }
 })

@@ -396,3 +396,46 @@ describe("createTauriPrClient — local git diff (deep path)", () => {
     expect(maxInFlight).toBeGreaterThan(1)
   })
 })
+
+// The desktop half of the refresh button. PR meta and the prepared repo are memoized per PR
+// with NO head SHA in the key, so without an explicit drop a desktop refresh would keep
+// re-serving the head the app opened on, however many times the SPA refetched.
+describe("createTauriPrClient — invalidatePr", () => {
+  function countingGateway(): { gateway: GithubGateway; metaReads: () => number } {
+    const inner = createFakeGithubGateway()
+    let reads = 0
+
+    return {
+      gateway: {
+        ...inner,
+        getPullMeta: (target) => {
+          reads += 1
+          return inner.getPullMeta(target)
+        },
+      },
+      metaReads: () => reads,
+    }
+  }
+
+  it("re-reads the PR from GitHub on the next call, where a repeat read is memoized", async () => {
+    // Arrange
+    const { gateway, metaReads } = countingGateway()
+    const client = createTauriPrClient({
+      gateway,
+      storage: createMemoryKeyValueStore(),
+      repoSource: inMemoryRepoSource(PR42_CONTENTS, PR42_FILES),
+    })
+
+    // Act
+    await client.getOverview(PR42)
+    await client.getOverview(PR42)
+    const memoizedReads = metaReads()
+
+    await client.invalidatePr(PR42)
+    await client.getOverview(PR42)
+
+    // Assert — two opens cost one read; the drop makes the third one hit GitHub again.
+    const expected = { memoizedReads: 1, readsAfterInvalidate: 2 }
+    expect({ memoizedReads, readsAfterInvalidate: metaReads() }).toEqual(expected)
+  })
+})

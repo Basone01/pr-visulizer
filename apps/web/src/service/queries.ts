@@ -11,9 +11,17 @@ import { getPrClient } from "./clientFactory"
 // resource so prefetch and read never drift on key or fetcher — the type flows from
 // the client's return, not a useQuery<T> generic.
 
+// Every PR-scoped query hangs off this prefix, so ONE invalidate refreshes the whole PR (the
+// top bar's refresh button). Enumerating the resources at the call site instead would rot the
+// moment a new PR query is added — and rot silently, as a resource that never refreshes.
+// Queries NOT scoped to a PR (the repo's open-PR list, the viewer) keep their own roots.
+export function prScopeKey(target: PrTarget) {
+  return ["pr", prKey(target)] as const
+}
+
 export function overviewQueryOptions(target: PrTarget) {
   return queryOptions({
-    queryKey: ["overview", prKey(target)] as const,
+    queryKey: [...prScopeKey(target), "overview"] as const,
     queryFn: () => getPrClient().getOverview(target),
     // Meta + the changed-file list are immutable per session (like a patch, §9) — the
     // instant-open payload the shell renders before analysis lands (task 4).
@@ -23,7 +31,7 @@ export function overviewQueryOptions(target: PrTarget) {
 
 export function analysisQueryOptions(target: PrTarget, engine: Engine) {
   return queryOptions({
-    queryKey: ["analysis", prKey(target), engine] as const,
+    queryKey: [...prScopeKey(target), "analysis", engine] as const,
     queryFn: () => getPrClient().getAnalysis(target, engine),
     // A ready result is immutable per headSha (like the overview and a patch) — a remount must
     // never re-enter the deep pipeline. `refetchInterval` below drives the 202-poll on its own
@@ -39,7 +47,7 @@ export function analysisQueryOptions(target: PrTarget, engine: Engine) {
 
 export function progressQueryOptions(target: PrTarget) {
   return queryOptions({
-    queryKey: ["progress", prKey(target)] as const,
+    queryKey: [...prScopeKey(target), "progress"] as const,
     queryFn: () => getPrClient().getProgress(target),
   })
 }
@@ -50,7 +58,7 @@ export function progressQueryOptions(target: PrTarget) {
 // staleTime so opening the PR after commenting elsewhere picks the new threads up.
 export function reviewCommentsQueryOptions(target: PrTarget) {
   return queryOptions({
-    queryKey: ["reviewComments", prKey(target)] as const,
+    queryKey: [...prScopeKey(target), "reviewComments"] as const,
     queryFn: () => getPrClient().listReviewComments(target),
   })
 }
@@ -76,7 +84,7 @@ export function viewerQueryOptions() {
 
 export function patchQueryOptions(target: PrTarget, path: string) {
   return queryOptions({
-    queryKey: ["patch", prKey(target), path] as const,
+    queryKey: [...prScopeKey(target), "patch", path] as const,
     queryFn: () => getPrClient().getPatch(target, path),
     // A file's patch is immutable per headSha — never stale within a session.
     staleTime: Infinity,
@@ -89,7 +97,7 @@ export function patchQueryOptions(target: PrTarget, path: string) {
 // — `enabled` is that first open, so a reviewer who never ranges never pays for the call.
 export function commitsQueryOptions(target: PrTarget, enabled: boolean) {
   return queryOptions({
-    queryKey: ["commits", prKey(target)] as const,
+    queryKey: [...prScopeKey(target), "commits"] as const,
     queryFn: () => getPrClient().listCommits(target),
     staleTime: Infinity,
     enabled,
@@ -108,7 +116,12 @@ export function commitsQueryOptions(target: PrTarget, enabled: boolean) {
 // whole-PR patch query never left the cache.
 export function rangeDiffQueryOptions(target: PrTarget, range: CommitRange | null) {
   return queryOptions({
-    queryKey: ["rangeDiff", prKey(target), range?.baseSha ?? "", range?.headSha ?? ""] as const,
+    queryKey: [
+      ...prScopeKey(target),
+      "rangeDiff",
+      range?.baseSha ?? "",
+      range?.headSha ?? "",
+    ] as const,
     queryFn: range ? () => getPrClient().getRangeDiff(target, range) : skipToken,
     // A compare between two fixed SHAs can never change — the strongest immutability in the app.
     staleTime: Infinity,
@@ -121,7 +134,7 @@ export function rangeDiffQueryOptions(target: PrTarget, range: CommitRange | nul
 // or leaving and re-opening the file, re-reads nothing.
 export function fileAtHeadQueryOptions(target: PrTarget, path: string, enabled: boolean) {
   return queryOptions({
-    queryKey: ["fileAtHead", prKey(target), path] as const,
+    queryKey: [...prScopeKey(target), "fileAtHead", path] as const,
     queryFn: () => getPrClient().getFileAtHead(target, path),
     staleTime: Infinity,
     enabled: enabled && path.length > 0,

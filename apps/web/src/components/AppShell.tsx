@@ -28,6 +28,7 @@ import { type PaneId, usePaneCollapse } from "@/hooks/usePaneCollapse"
 import { usePanelSizes } from "@/hooks/usePanelSizes"
 import { usePeekNavigation } from "@/hooks/usePeekNavigation"
 import { useQueueMode } from "@/hooks/useQueueMode"
+import { useRefreshPr } from "@/hooks/useRefreshPr"
 import { useReviewProgress } from "@/hooks/useReviewProgress"
 import { type Verdict, useSubmitReview } from "@/hooks/useSubmitReview"
 
@@ -81,6 +82,7 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   const collapse = usePaneCollapse()
   const queueMode = useQueueMode()
   const nav = usePeekNavigation("", DEFAULT_SETTINGS.peekMaxLines)
+  const { refresh, isRefreshing } = useRefreshPr(target)
   const {
     chosenVerdict,
     setChosenVerdict,
@@ -129,6 +131,14 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
 
   function closeCloneModal(): void {
     setCloneModal(null)
+  }
+
+  // A commit range is a lens on the commit list the refresh is about to replace, and the
+  // selection is held as INDEXES into it: after a force-push those indexes can name different
+  // commits, so a refresh drops back to the whole PR — the state a fresh open already shows.
+  function refreshPr(): void {
+    commitRange.clear()
+    refresh()
   }
 
   const analysis = analysisQuery.data?.status === "ready" ? analysisQuery.data.result : null
@@ -299,6 +309,8 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
         onBack={onBack}
         showSettings={env.tauriMode}
         onOpenCloneSettings={() => setCloneModal("settings")}
+        onRefresh={refreshPr}
+        refreshing={isRefreshing}
       />
 
       {analysisFailure && (

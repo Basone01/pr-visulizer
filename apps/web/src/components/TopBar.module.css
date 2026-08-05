@@ -69,6 +69,44 @@
   color: var(--accent);
 }
 
+/* Same icon-button shape as .info; the glyph matches the home screen's refresh (↻). */
+.refresh {
+  font-size: 13px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.refresh:hover {
+  color: var(--accent);
+}
+
+.refresh:disabled {
+  cursor: default;
+}
+
+.spinning {
+  animation: spin 900ms linear infinite;
+  /* The glyph is text, so it rotates around its own box only with a block display. */
+  display: inline-block;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinning {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 .spacer {
   flex: 1;
 }

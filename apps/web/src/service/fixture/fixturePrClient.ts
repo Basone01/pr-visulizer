@@ -147,6 +147,12 @@ export function createFixturePrClient(): PrClient {
       return delay([summary])
     },
 
+    // Nothing to drop: the fixture serves static data and holds no per-PR cache. Refreshing in
+    // fixture mode still refetches every query — it just lands on the same answer.
+    invalidatePr(): Promise<void> {
+      return Promise.resolve()
+    },
+
     getPatch(target: PrTarget, path: string): Promise<string> {
       if (target.number === BIG_FIXTURE_NUMBER) return delay(bigPatch(path))
 

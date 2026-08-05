@@ -11,10 +11,12 @@ export const pr42Patches: Record<string, string> = {
     "+",
   ].join("\n"),
 
+  // The hunk deliberately starts BELOW the `ApiError` declaration (symbol span 1–5): only the
+  // field lines changed, so head lines 1–2 — including the signature — exist in the head file
+  // and in NO hunk. That is the shape the peek popover has to survive: a definition wider than
+  // its changed region (§10). The full-file view feeds on the same gap.
   "src/types/http.ts": [
-    "@@ -1,4 +1,5 @@",
-    " export type ApiError = {",
-    "   code: string",
+    "@@ -3,2 +3,3 @@",
     "-  message: string",
     "+  message: string",
     "+  retryAfterSeconds?: number",

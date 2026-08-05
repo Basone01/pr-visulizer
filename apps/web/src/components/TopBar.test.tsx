@@ -1,6 +1,7 @@
 import type { PrMeta } from "@pr-visulizer/shared"
 import { render, screen } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import userEvent from "@testing-library/user-event"
+import { describe, expect, it, vi } from "vitest"
 
 import { TopBar } from "./TopBar"
 
@@ -25,6 +26,8 @@ function renderTopBar(overrides: Partial<Parameters<typeof TopBar>[0]> = {}) {
     onBack: () => {},
     showSettings: true,
     onOpenCloneSettings: () => {},
+    onRefresh: () => {},
+    refreshing: false,
     ...overrides,
   }
 
@@ -56,5 +59,39 @@ describe("TopBar (deep-only)", () => {
     // Assert
     expect(screen.getByText("FAST · AST")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Clone folder settings" })).toBeNull()
+  })
+})
+
+// The refresh button re-reads the open PR at its current head. It is in the top bar in every
+// mode (not gated on the desktop like the gear), because a browser reviewer needs the new
+// commits just as much as a desktop one.
+describe("TopBar — refresh", () => {
+  it("asks for a refresh when clicked", async () => {
+    // Arrange
+    const onRefresh = vi.fn()
+    renderTopBar({ onRefresh })
+
+    // Act
+    await userEvent.click(screen.getByRole("button", { name: "Refresh PR" }))
+
+    // Assert
+    const expectedCalls = 1
+    expect(onRefresh.mock.calls.length).toBe(expectedCalls)
+  })
+
+  it("disables the button while the refresh is in flight", async () => {
+    // Arrange
+    const onRefresh = vi.fn()
+    const refreshing = true
+    renderTopBar({ onRefresh, refreshing })
+
+    // Act
+    const button = screen.getByRole("button", { name: "Refresh PR" })
+    await userEvent.click(button)
+
+    // Assert — a second click can't stack another refresh onto the running one.
+    const expectedCalls = 0
+    expect(button).toBeDisabled()
+    expect(onRefresh.mock.calls.length).toBe(expectedCalls)
   })
 })

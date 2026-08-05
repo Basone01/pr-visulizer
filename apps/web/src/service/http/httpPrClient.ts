@@ -19,7 +19,7 @@ import {
 } from "@pr-visulizer/shared"
 import { z } from "zod"
 
-import { parseJson, requestJson } from "@/utils/api/http"
+import { parseJson, requestJson, requestOk } from "@/utils/api/http"
 
 import type { Engine, PrTarget, RepoRef } from "@/entity/pr"
 
@@ -125,6 +125,11 @@ export function createHttpPrClient(): PrClient {
 
     getViewer(): Promise<Viewer> {
       return parseJson(`/api/me`, viewerSchema)
+    },
+
+    // 204, no body — the BFF just drops its cached analysis job for this PR.
+    invalidatePr(target: PrTarget): Promise<void> {
+      return requestOk(`${base(target)}/refresh`, { method: "POST" })
     },
   }
 }

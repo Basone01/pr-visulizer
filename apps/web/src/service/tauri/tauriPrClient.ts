@@ -429,6 +429,20 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
       return patch
     },
 
+    // The desktop half of the refresh button. Three memos here are keyed by PR with NO head SHA
+    // — the light PR meta, the prepared repo (fetched pinned at base/head) and the API
+    // file-list fallback — so a PR that gained commits would keep re-serving the head the app
+    // opened on. The analysis cache is deliberately KEPT: it is keyed by headSha, so a new push
+    // misses it on its own and an unchanged head still re-renders instantly.
+    invalidatePr(target: PrTarget): Promise<void> {
+      const key = prKey(target)
+      pullMetaByKey.delete(key)
+      preparedByKey.delete(key)
+      apiPullRequestByKey.delete(key)
+
+      return Promise.resolve()
+    },
+
     // §10 commit-range picker. Both reads go to the API rather than the local clone: the clone
     // is fetched pinned at base/head for the analysis, so an arbitrary intermediate commit's
     // objects may simply not be present locally, and a compare is one cheap call.

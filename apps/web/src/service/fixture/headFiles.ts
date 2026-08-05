@@ -12,7 +12,8 @@ import { pr42Analysis } from "./pr42"
 // hunk. Those unchanged lines are the whole point of the full-file view.
 
 const modifiedHeadFiles: Record<string, string> = {
-  // Hunk covers head lines 1–5 (@@ -1,4 +1,5 @@); everything from line 6 down is unchanged.
+  // Hunk covers head lines 3–5 (@@ -3,2 +3,3 @@); lines 1–2 (the ApiError signature) and
+  // everything from line 6 down are unchanged, so they live ONLY here.
   "src/types/http.ts": [
     "export type ApiError = {",
     "  code: string",

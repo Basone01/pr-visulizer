@@ -10,6 +10,11 @@ import type { AnalysisJobState } from "../../entities/index.js"
 
 export type AnalysisService = {
   request(target: PrTarget): AnalysisJobState
+  // Drop a finished job so the next request re-enters the pipeline. The job key has no head
+  // SHA in it, so a PR that gained commits would otherwise be served its pre-push result
+  // forever — this is what the SPA's refresh button busts. Re-running is cheap when the head
+  // did NOT move: the engine's own cache is keyed by headSha and hits (§5 step 9).
+  forget(target: PrTarget): void
 }
 
 // A running or finished job — replaced (never mutated) on completion.
@@ -46,5 +51,14 @@ export function createAnalysisService(engine: AnalysisEngine): AnalysisService {
     return { status: "analyzing" }
   }
 
-  return { request }
+  // A job still RUNNING is left alone: dropping it would start a second pipeline over the same
+  // PR while the first is mid-flight, and the refresh only needs the NEXT request to be fresh.
+  function forget(target: PrTarget): void {
+    const existing = jobs.get(jobKey(target))
+    if (existing?.done !== true) return
+
+    jobs.delete(jobKey(target))
+  }
+
+  return { request, forget }
 }

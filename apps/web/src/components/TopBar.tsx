@@ -20,9 +20,20 @@ type TopBarProps = {
   // Desktop only: the gear that opens the clone-folder settings modal.
   showSettings: boolean
   onOpenCloneSettings: () => void
+  // Re-read the PR at its current head — commits pushed since the app opened it.
+  onRefresh: () => void
+  refreshing: boolean
 }
 
-export function TopBar({ pr, engine, onBack, showSettings, onOpenCloneSettings }: TopBarProps) {
+export function TopBar({
+  pr,
+  engine,
+  onBack,
+  showSettings,
+  onOpenCloneSettings,
+  onRefresh,
+  refreshing,
+}: TopBarProps) {
   // Description-viewer open state is trivial UI state that belongs with the button controlling
   // it — kept local so the panel stays a self-contained overlay and the review flow is untouched.
   const [showDescription, setShowDescription] = useState(false)
@@ -44,6 +55,16 @@ export function TopBar({ pr, engine, onBack, showSettings, onOpenCloneSettings }
         ⓘ
       </button>
       <span className={styles.badge}>{engineLabel(engine)}</span>
+
+      <button
+        className={`${styles.refresh} ${refreshing ? styles.spinning : ""}`}
+        onClick={onRefresh}
+        disabled={refreshing}
+        title="Refresh this PR"
+        aria-label="Refresh PR"
+      >
+        ↻
+      </button>
 
       {showSettings && (
         <button
