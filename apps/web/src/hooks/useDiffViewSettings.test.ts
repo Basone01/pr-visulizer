@@ -34,9 +34,10 @@ describe("useDiffViewSettings", () => {
       splitView: true,
       intraLineDiff: true,
       markdownPreview: true,
+      markdownRichDiff: true,
     }
 
-    // Act — toggle all six on, then mount a second hook against the same store.
+    // Act — toggle all seven on, then mount a second hook against the same store.
     const first = renderHook(() => useDiffViewSettings(store))
     await waitFor(() => expect(first.result.current.isLoaded).toBe(true))
     await act(async () => first.result.current.toggleWrap())
@@ -45,6 +46,7 @@ describe("useDiffViewSettings", () => {
     await act(async () => first.result.current.toggleSplitView())
     await act(async () => first.result.current.toggleIntraLineDiff())
     await act(async () => first.result.current.toggleMarkdownPreview())
+    await act(async () => first.result.current.toggleMarkdownRichDiff())
 
     const second = renderHook(() => useDiffViewSettings(store))
     await waitFor(() => expect(second.result.current.isLoaded).toBe(true))
@@ -55,7 +57,7 @@ describe("useDiffViewSettings", () => {
 
   it("keeps the older toggles of a record persisted before the later toggles existed", async () => {
     // Arrange — what a reviewer who used wrap/hide-whitespace already has on disk, from before
-    // full-file, split-view, intra-line emphasis and the markdown preview were added.
+    // full-file, split-view, intra-line emphasis and the two markdown toggles were added.
     const store = createMemoryKeyValueStore()
     const legacyRecord = JSON.stringify({ wrap: true, hideWhitespace: true })
     await store.set("diffViewSettings", legacyRecord)
@@ -66,6 +68,7 @@ describe("useDiffViewSettings", () => {
       splitView: false,
       intraLineDiff: false,
       markdownPreview: false,
+      markdownRichDiff: false,
     }
 
     // Act

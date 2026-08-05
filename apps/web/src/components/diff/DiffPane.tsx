@@ -24,7 +24,7 @@ import {
 } from "@/utils/comments/commentThreads"
 import { isLineInSelection, selectionRange } from "@/utils/comments/lineSelection"
 import { anchorsForLine } from "@/utils/diff/anchors"
-import { buildFullFileView } from "@/utils/diff/fullFileView"
+import { buildBaseFileText, buildFullFileView } from "@/utils/diff/fullFileView"
 import { hideWhitespaceOnly } from "@/utils/diff/hideWhitespaceOnly"
 import { buildIntraLineRanges } from "@/utils/diff/intraLineDiff"
 import { parseUnifiedDiff } from "@/utils/diff/parseUnifiedDiff"
@@ -34,6 +34,7 @@ import {
   findRowForLineIndex,
 } from "@/utils/diff/sideBySideRows"
 import { openExternalUrl } from "@/utils/externalLink/openExternal"
+import { diffMarkdownBlocks } from "@/utils/markdown/markdownBlockDiff"
 import { isMarkdownPath } from "@/utils/markdown/markdownPath"
 import { githubPrFileUrl } from "@/utils/prUrl/githubFileUrl"
 import { draftKey } from "@/utils/review/progress"
@@ -196,6 +197,7 @@ export function DiffPane({
     toggleSplitView,
     toggleIntraLineDiff,
     toggleMarkdownPreview,
+    toggleMarkdownRichDiff,
   } = useDiffViewSettings()
 
   // Which patch this pane is rendering. With no range selected it is the whole-PR patch, byte
@@ -240,6 +242,21 @@ export function DiffPane({
   const previewSource = previewWanted ? headText : null
   const previewPending = previewWanted && headFileQuery.isPending
   const previewUnavailable = previewWanted && !headFileQuery.isPending && headText === null
+
+  // The rendered CHANGES, inside the preview (experimental). Only a MODIFIED file has a base
+  // revision to compare against: an added file's preview is already everything that changed, and
+  // a deleted one has no preview at all — so the sub-toggle simply isn't offered there.
+  const canRichDiff = previewWanted && file?.status === "modified"
+  const richDiffWanted = settings.markdownRichDiff && canRichDiff
+  // The base revision comes from the head text plus the patch — a unified patch is a complete
+  // delta, so no second content endpoint is needed (buildBaseFileText). Null whenever either
+  // half is missing, which falls back to the plain head-revision preview rather than an empty one.
+  const markdownBlocks = useMemo(() => {
+    if (!richDiffWanted || headText === null || !activePatch) return null
+
+    const baseText = buildBaseFileText(headText, parseUnifiedDiff(activePatch))
+    return diffMarkdownBlocks(baseText, headText)
+  }, [richDiffWanted, headText, activePatch])
   const [usagesAnchor, setUsagesAnchor] = useState<SymbolAnchor | null>(null)
   const selection = useLineSelection()
   const [editingKey, setEditingKey] = useState<string | null>(null)
@@ -752,6 +769,20 @@ export function DiffPane({
                 ¶
               </button>
             )}
+            {/* A sub-choice of the preview, so it only exists while the preview is on and the
+                file has a base revision to compare against (experimental). */}
+            {canRichDiff && (
+              <button
+                type="button"
+                className={`${styles.iconToggle} ${richDiffWanted ? styles.toggleOn : ""}`}
+                aria-pressed={richDiffWanted}
+                aria-label="Show rendered changes"
+                title="Show what changed, rendered — added and removed blocks"
+                onClick={toggleMarkdownRichDiff}
+              >
+                ±
+              </button>
+            )}
             <button
               type="button"
               className={styles.nextButton}
@@ -871,7 +902,30 @@ export function DiffPane({
 
         {previewSource !== null && (
           <div className={styles.previewRegion}>
-            <MarkdownContent source={previewSource} />
+            {markdownBlocks === null ? (
+              <MarkdownContent source={previewSource} />
+            ) : (
+              // Each block is a standalone document to the renderer, so the banding wraps it
+              // from outside rather than reaching into the rendered markup. A removed block is
+              // still RENDERED (that is the point of a rich diff) — only its band differs.
+              <div className={styles.richDiff}>
+                {markdownBlocks.map((block, index) => (
+                  <div
+                    key={index}
+                    className={`${styles.richBlock} ${
+                      block.status === "added"
+                        ? styles.richAdded
+                        : block.status === "removed"
+                          ? styles.richRemoved
+                          : ""
+                    }`}
+                    data-block-status={block.status}
+                  >
+                    <MarkdownContent source={block.source} variant="inline" />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

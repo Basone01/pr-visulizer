@@ -51,6 +51,11 @@ export type DiffViewSettings = {
   // other three this is not a diff transform at all — it REPLACES the diff, and only for a file
   // the app can render (see isMarkdownPath), so on every other file the setting is inert.
   markdownPreview: boolean
+
+  // Inside the markdown preview: render what CHANGED between the two revisions (block by block)
+  // instead of the head revision alone. A sub-choice of `markdownPreview` — inert on its own, and
+  // inert on a file with no base revision to compare against (an added file). Experimental.
+  markdownRichDiff: boolean
 }
 
 export const DEFAULT_DIFF_VIEW_SETTINGS: DiffViewSettings = {
@@ -60,6 +65,7 @@ export const DEFAULT_DIFF_VIEW_SETTINGS: DiffViewSettings = {
   splitView: false,
   intraLineDiff: false,
   markdownPreview: false,
+  markdownRichDiff: false,
 }
 
 // Deep-v2 precision tier preset for the desktop shell (docs/architecture.md §6.2).

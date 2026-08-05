@@ -21,6 +21,21 @@ function headLinesOf(headText: string): string[] {
   return lines
 }
 
+// The BASE revision, reconstructed from the head text plus the patch. A unified patch is a
+// complete delta, so no extra API call is needed: the merged view below already holds every
+// line of both sides in order — the head lines it filled the gaps with, and the patch's own
+// del/context/add rows. Dropping the adds from it leaves exactly the base file.
+//
+// Read it as the mirror of `buildFullFileView`: same walk, other side. Written on top of that
+// function rather than beside it so there is only ever ONE piece of code that knows how a hunk
+// lines up against head text.
+export function buildBaseFileText(headText: string, parsed: ParsedDiff): string {
+  return buildFullFileView(headText, parsed)
+    .lines.filter((line) => line.kind !== "add")
+    .map((line) => line.content)
+    .join("\n")
+}
+
 export function buildFullFileView(headText: string, parsed: ParsedDiff): ParsedDiff {
   const headLines = headLinesOf(headText)
   const lines: DiffLine[] = []

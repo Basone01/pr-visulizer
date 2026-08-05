@@ -263,6 +263,35 @@
   min-height: 0;
 }
 
+/* Rendered markdown diff (experimental): the blocks stack as one document, so the reading rhythm
+   stays that of a document rather than a list of cards. */
+.richDiff {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.richBlock {
+  padding: 2px 0 2px 12px;
+  /* An unchanged block keeps the same indent as a marked one, so nothing shifts sideways when a
+     paragraph gains or loses its band. */
+  border-left: 3px solid transparent;
+}
+
+/* Same lesson as the intra-line highlight: over RENDERED prose the band carries the signal and
+   the wash stays faint, because the dark theme's --added/--deleted are lighter than the text
+   they sit behind — a strong fill would win against the words the reviewer is here to read. */
+.richAdded {
+  border-left-color: color-mix(in srgb, var(--added) 55%, transparent);
+  background: color-mix(in srgb, var(--added) 10%, transparent);
+}
+
+.richRemoved {
+  border-left-color: color-mix(in srgb, var(--deleted) 55%, transparent);
+  background: color-mix(in srgb, var(--deleted) 10%, transparent);
+}
+
 /* Programmatic focus target (Escape returns focus here from the find bar) — no visible ring. */
 .diff:focus {
   outline: none;

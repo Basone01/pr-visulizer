@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { DiffLine } from "@/entity/diff"
 
-import { buildFullFileView } from "./fullFileView"
+import { buildBaseFileText, buildFullFileView } from "./fullFileView"
 import { parseUnifiedDiff } from "./parseUnifiedDiff"
 
 // The full-file view (§10): every head line rendered, changed lines still marked, deleted runs
@@ -126,5 +126,76 @@ describe("buildFullFileView", () => {
     expect(view.lines.filter((line) => line.kind === "add").map((line) => line.newLine)).toEqual(
       expectedHeadLines
     )
+  })
+})
+
+// The base revision, rebuilt from head + patch. It exists so a rendered markdown diff can show
+// what the file looked like BEFORE, without a second content endpoint: everything the reverse
+// direction needs is already in the delta.
+
+describe("buildBaseFileText", () => {
+  it("puts back a line the patch deleted and drops the one it added", () => {
+    // Arrange
+    const headText = ["# webapp", "", "A rate-limited API server."].join("\n")
+    const patch = [
+      "@@ -1,3 +1,3 @@",
+      " # webapp",
+      " ",
+      "-A small API server.",
+      "+A rate-limited API server.",
+    ].join("\n")
+
+    // Act
+    const baseText = buildBaseFileText(headText, parseUnifiedDiff(patch))
+
+    // Assert
+    const expected = ["# webapp", "", "A small API server."].join("\n")
+    expect(baseText).toBe(expected)
+  })
+
+  it("keeps the unchanged text outside the hunk, above and below it", () => {
+    // Arrange — the lines no hunk touches are identical in both revisions, so they belong to the
+    // base exactly as the head carries them.
+    const headText = ["intro", "", "changed head", "", "outro"].join("\n")
+    const patch = ["@@ -3 +3 @@", "-changed base", "+changed head"].join("\n")
+
+    // Act
+    const baseText = buildBaseFileText(headText, parseUnifiedDiff(patch))
+
+    // Assert
+    const expected = ["intro", "", "changed base", "", "outro"].join("\n")
+    expect(baseText).toBe(expected)
+  })
+
+  it("reconstructs an empty base for a file the PR added", () => {
+    // Arrange — every line is an addition, so the file did not exist before.
+    const headText = ["# new doc", "", "body"].join("\n")
+    const patch = ["@@ -0,0 +1,3 @@", "+# new doc", "+", "+body"].join("\n")
+
+    // Act
+    const baseText = buildBaseFileText(headText, parseUnifiedDiff(patch))
+
+    // Assert
+    const expected = ""
+    expect(baseText).toBe(expected)
+  })
+
+  it("restores a run the PR deleted off the end of the file", () => {
+    // Arrange
+    const headText = ["kept one", "kept two"].join("\n")
+    const patch = [
+      "@@ -1,4 +1,2 @@",
+      " kept one",
+      " kept two",
+      "-dropped three",
+      "-dropped four",
+    ].join("\n")
+
+    // Act
+    const baseText = buildBaseFileText(headText, parseUnifiedDiff(patch))
+
+    // Assert
+    const expected = ["kept one", "kept two", "dropped three", "dropped four"].join("\n")
+    expect(baseText).toBe(expected)
   })
 })

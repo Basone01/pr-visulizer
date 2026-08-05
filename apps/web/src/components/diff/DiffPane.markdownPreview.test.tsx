@@ -1,6 +1,6 @@
 import type { ChangedFile, RangeDiff } from "@pr-visulizer/shared"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -22,9 +22,19 @@ import { NO_COMMIT_RANGE, activeCommitRange } from "./diffPaneTestProps"
 // rendered head revision. What is pinned here is when the toggle exists, when it is usable, and
 // that turning it on swaps the diff area — the rendering itself is MarkdownContent's own test.
 
-const PATCH = ["@@ -1,2 +1,2 @@", " # webapp", "-old tagline", "+new tagline"].join("\n")
+// The patch and the head text describe the SAME file: the rendered diff reconstructs the base
+// from both, so a head line the patch disagrees about would produce a base nobody ever had.
+const PATCH = ["@@ -1,3 +1,3 @@", " # webapp", " ", "-old tagline", "+new tagline"].join("\n")
 
-const HEAD_MARKDOWN = ["# webapp", "", "A small API server.", "", "## Rate limiting"].join("\n")
+const HEAD_MARKDOWN = [
+  "# webapp",
+  "",
+  "new tagline",
+  "",
+  "A small API server.",
+  "",
+  "## Rate limiting",
+].join("\n")
 
 vi.mock("@/service/clientFactory", async () => {
   const { createMemoryKeyValueStore } = await import("@/utils/storage/keyValueStore")
@@ -66,6 +76,15 @@ const deletedMarkdownFile: ChangedFile = {
   language: null,
 }
 
+// An ADDED markdown file: previewable, but there is no base revision to compare it against.
+const addedMarkdownFile: ChangedFile = {
+  path: "docs/new-guide.md",
+  status: "added",
+  additions: 7,
+  deletions: 0,
+  language: null,
+}
+
 const codeFile: ChangedFile = {
   path: "src/lib/rateLimiter.ts",
   status: "modified",
@@ -89,6 +108,10 @@ const rangeDiff: RangeDiff = {
   ],
   truncated: false,
 }
+
+// Only the DIFF renders a hunk header — the reliable "the diff is on screen" marker now that the
+// patch and the head text share their text.
+const HUNK_HEADER = "@@ -1,3 +1,3 @@"
 
 const PREVIEW_BUTTON = "Preview rendered markdown"
 
@@ -184,9 +207,11 @@ describe("DiffPane markdown preview", () => {
     // Act
     await user.click(screen.getByRole("button", { name: PREVIEW_BUTTON }))
 
-    // Assert — a real heading from the head revision, and the diff line is gone.
+    // Assert — a real heading from the head revision, and the diff is gone. "Gone" is checked on
+    // the HUNK HEADER, which only the diff can render: the tagline used to stand in for it, but
+    // now that the head text and the patch agree, that text is legitimately in the preview too.
     expect(await screen.findByRole("heading", { level: 2, name: "Rate limiting" })).toBeVisible()
-    expect(screen.queryByText("new tagline")).toBeNull()
+    expect(screen.queryByText(HUNK_HEADER)).toBeNull()
   })
 
   it("returns to the diff when switched back off", async () => {
@@ -218,5 +243,108 @@ describe("DiffPane markdown preview", () => {
     // Assert
     expect(toggle).toBeDisabled()
     expect(toggle).toHaveAttribute("title", expectedTitle)
+  })
+})
+
+// The rendered CHANGES inside the preview (experimental). The base revision is rebuilt from the
+// head text plus the patch, so a block that only the BASE had must still render — that is what
+// separates this from the plain head-revision preview.
+
+const RICH_DIFF_BUTTON = "Show rendered changes"
+
+async function openPreview(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await screen.findByText("new tagline")
+  await user.click(screen.getByRole("button", { name: PREVIEW_BUTTON }))
+  await screen.findByRole("heading", { level: 2, name: "Rate limiting" })
+}
+
+describe("DiffPane markdown rendered diff", () => {
+  it("offers the sub-toggle only once the preview is on", async () => {
+    // Arrange
+    const user = userEvent.setup()
+    renderWithQuery(<DiffPaneHarness file={markdownFile} />)
+    await screen.findByText("new tagline")
+
+    // Act
+    const beforePreview = screen.queryByRole("button", { name: RICH_DIFF_BUTTON })
+    await user.click(screen.getByRole("button", { name: PREVIEW_BUTTON }))
+
+    // Assert
+    expect(beforePreview).toBeNull()
+    expect(await screen.findByRole("button", { name: RICH_DIFF_BUTTON })).toBeEnabled()
+  })
+
+  it("hides the sub-toggle on an added file, which has no base revision to compare", async () => {
+    // Arrange
+    const user = userEvent.setup()
+    renderWithQuery(<DiffPaneHarness file={addedMarkdownFile} />)
+
+    // Act — the plain preview still works; only the comparison is meaningless here.
+    await user.click(await screen.findByRole("button", { name: PREVIEW_BUTTON }))
+    await screen.findByRole("heading", { level: 2, name: "Rate limiting" })
+
+    // Assert
+    expect(screen.queryByRole("button", { name: RICH_DIFF_BUTTON })).toBeNull()
+  })
+
+  it("renders the removed block beside the added one, both as markdown", async () => {
+    // Arrange — the patch replaced "old tagline" with "new tagline"; only the head revision
+    // holds the new text, and only the reconstructed base holds the old.
+    const user = userEvent.setup()
+    renderWithQuery(<DiffPaneHarness file={markdownFile} />)
+    await openPreview(user)
+
+    // Act
+    await user.click(screen.getByRole("button", { name: RICH_DIFF_BUTTON }))
+
+    // Assert — the base-only paragraph is back on screen, banded as removed, and the heading
+    // still renders as markdown rather than as diff text.
+    const removed = await screen.findByText("old tagline")
+    expect(removed.closest("[data-block-status]")).toHaveAttribute("data-block-status", "removed")
+    expect(screen.getByRole("heading", { level: 2, name: "Rate limiting" })).toBeVisible()
+  })
+
+  it("bands a block only the head has as added", async () => {
+    // Arrange
+    const user = userEvent.setup()
+    renderWithQuery(<DiffPaneHarness file={markdownFile} />)
+    await openPreview(user)
+
+    // Act
+    await user.click(screen.getByRole("button", { name: RICH_DIFF_BUTTON }))
+
+    // Assert
+    const added = await screen.findByText("new tagline")
+    expect(added.closest("[data-block-status]")).toHaveAttribute("data-block-status", "added")
+  })
+
+  it("leaves an untouched block unbanded", async () => {
+    // Arrange — the heading is identical in both revisions, so it carries no colour at all.
+    const user = userEvent.setup()
+    renderWithQuery(<DiffPaneHarness file={markdownFile} />)
+    await openPreview(user)
+
+    // Act
+    await user.click(screen.getByRole("button", { name: RICH_DIFF_BUTTON }))
+
+    // Assert
+    const heading = await screen.findByRole("heading", { level: 1, name: "webapp" })
+    expect(heading.closest("[data-block-status]")).toHaveAttribute("data-block-status", "unchanged")
+  })
+
+  it("returns to the plain head preview when switched back off", async () => {
+    // Arrange
+    const user = userEvent.setup()
+    renderWithQuery(<DiffPaneHarness file={markdownFile} />)
+    await openPreview(user)
+    await user.click(screen.getByRole("button", { name: RICH_DIFF_BUTTON }))
+    await screen.findByText("old tagline")
+
+    // Act
+    await user.click(screen.getByRole("button", { name: RICH_DIFF_BUTTON }))
+
+    // Assert — the base-only text is gone; the head revision alone is back.
+    await waitFor(() => expect(screen.queryByText("old tagline")).toBeNull())
+    expect(screen.getByRole("heading", { level: 2, name: "Rate limiting" })).toBeVisible()
   })
 })

@@ -24,6 +24,7 @@ const diffViewSettingsSchema = z.object({
   splitView: z.boolean().default(false),
   intraLineDiff: z.boolean().default(false),
   markdownPreview: z.boolean().default(false),
+  markdownRichDiff: z.boolean().default(false),
 })
 
 export type DiffViewSettingsApi = {
@@ -35,6 +36,7 @@ export type DiffViewSettingsApi = {
   toggleSplitView: () => void
   toggleIntraLineDiff: () => void
   toggleMarkdownPreview: () => void
+  toggleMarkdownRichDiff: () => void
 }
 
 export function useDiffViewSettings(store: KeyValueStore = getAppStorage()): DiffViewSettingsApi {
@@ -102,6 +104,12 @@ export function useDiffViewSettings(store: KeyValueStore = getAppStorage()): Dif
     [commit]
   )
 
+  const toggleMarkdownRichDiff = useCallback(
+    () =>
+      commit({ ...settingsRef.current, markdownRichDiff: !settingsRef.current.markdownRichDiff }),
+    [commit]
+  )
+
   return {
     settings,
     isLoaded,
@@ -111,5 +119,6 @@ export function useDiffViewSettings(store: KeyValueStore = getAppStorage()): Dif
     toggleSplitView,
     toggleIntraLineDiff,
     toggleMarkdownPreview,
+    toggleMarkdownRichDiff,
   }
 }
