@@ -53,13 +53,15 @@ export function CodeContent({
 
   // Emphasis is painted INSIDE the token (and inside an anchor), never around it: the segment
   // spans carry only a background, so the token's syntax color and the anchor's underline and
-  // click target both survive being split.
+  // click target both survive being split. That is also why a range crossing token boundaries
+  // arrives here as several spans — `data-run` tells the CSS which of them are joined, so the
+  // pieces drop their touching edges and read as ONE box (Diff.module.css `.charRun`).
   function emphasize(pieceText: string, pieceStart: number): ReactNode {
     if (charRanges.length === 0) return pieceText
 
     return splitByRanges(pieceText, pieceStart, charRanges).map((segment, index) =>
       segment.changed ? (
-        <span key={index} className={charClass}>
+        <span key={index} className={`${styles.charRun} ${charClass ?? ""}`} data-run={segment.run}>
           {segment.text}
         </span>
       ) : (

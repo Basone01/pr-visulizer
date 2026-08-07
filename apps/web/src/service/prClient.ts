@@ -58,6 +58,10 @@ export interface PrClient {
   // Every EXISTING published review comment on the PR (any author) — the "show existing comments"
   // feature. Read-only; the SPA groups them into threads and anchors each to its head line.
   listReviewComments(target: PrTarget): Promise<ReviewComment[]>
+  // Edit the body of ONE own published comment (§11). Answers void on purpose: the refetched
+  // comment list is the source of truth for what the thread now says, so no caller has to
+  // reconcile a returned row against the list it is already reading.
+  updateReviewComment(target: PrTarget, commentId: number, body: string): Promise<void>
   // The authenticated viewer identity (§9 /api/me): http → the BFF route, tauri → the
   // gateway, fixture → a dev viewer. Powers the own-PR Approve guard (task 4, §11).
   getViewer(): Promise<Viewer>

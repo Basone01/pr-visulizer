@@ -25,6 +25,7 @@ import type {
   RepoRef,
   SubmitReviewInput,
   SubmitReviewResult,
+  UpdateReviewCommentInput,
   ViewedFileState,
 } from "./gateway.js"
 
@@ -47,6 +48,7 @@ export type GatewayFixture = {
 export type FakeGithubGateway = GithubGateway & {
   submittedReviews: SubmitReviewInput[]
   addedComments: AddReviewCommentInput[]
+  updatedComments: UpdateReviewCommentInput[]
   // Every viewed-state WRITE in order, so a test can assert what was forwarded and in which
   // direction — a mark and an unmark are both meaningful now that the sync runs both ways.
   viewedWrites: Array<{ target: PrTarget; path: string; viewed: boolean }>
@@ -134,7 +136,14 @@ export function createFakeGithubGateway(
 
   const submittedReviews: SubmitReviewInput[] = []
   const addedComments: AddReviewCommentInput[] = []
+  const updatedComments: UpdateReviewCommentInput[] = []
   const viewedWrites: Array<{ target: PrTarget; path: string; viewed: boolean }> = []
+
+  // Edited comment bodies by id. Held HERE rather than written into the fixture array: the
+  // fixtures are module-level constants shared by every gateway a test suite builds, so an
+  // in-place edit would leak one test's comment into the next. Applied on read, so an edit
+  // followed by a list behaves like the real thing.
+  const editedBodies = new Map<number, string>()
 
   // GitHub's own Viewed checkboxes, per PR — the fake holds real state rather than only
   // recording calls, so a round-trip (write here, read it back) behaves like the real thing.
@@ -161,6 +170,7 @@ export function createFakeGithubGateway(
   return {
     submittedReviews,
     addedComments,
+    updatedComments,
     viewedWrites,
 
     setRemoteViewed(target: PrTarget, path: string, viewed: boolean): void {
@@ -230,7 +240,26 @@ export function createFakeGithubGateway(
     },
 
     async listReviewComments(target: PrTarget): Promise<ReviewComment[]> {
-      return lookupFixture(target).reviewComments ?? []
+      const comments = lookupFixture(target).reviewComments ?? []
+
+      return comments.map((comment) => {
+        const edited = editedBodies.get(comment.id)
+
+        return edited === undefined ? comment : { ...comment, body: edited }
+      })
+    },
+
+    async updateReviewComment(input: UpdateReviewCommentInput): Promise<ReviewComment> {
+      const comments = lookupFixture(input.target).reviewComments ?? []
+      const existing = comments.find((comment) => comment.id === input.commentId)
+      // GitHub answers 404 for an unknown comment id — fail here too, rather than recording an
+      // edit that could never have landed.
+      if (!existing) throw new Error(`No review comment ${input.commentId}`)
+
+      updatedComments.push(input)
+      editedBodies.set(input.commentId, input.body)
+
+      return { ...existing, body: input.body }
     },
 
     async listViewedFiles(target: PrTarget): Promise<Record<string, ViewedFileState>> {

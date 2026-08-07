@@ -25,7 +25,7 @@ const paths = {
 
 const files: ChangedFile[] = [
   { path: paths.limits, status: "added", additions: 4, deletions: 0, language: "typescript" },
-  { path: paths.http, status: "modified", additions: 2, deletions: 1, language: "typescript" },
+  { path: paths.http, status: "modified", additions: 4, deletions: 2, language: "typescript" },
   { path: paths.rateLimiter, status: "added", additions: 48, deletions: 0, language: "typescript" },
   {
     path: paths.withRateLimit,

@@ -45,6 +45,13 @@ export function useDiffViewSettings(store: KeyValueStore = getAppStorage()): Dif
 
   // The latest settings, read by the toggles without re-creating them on every change.
   const settingsRef = useRef<DiffViewSettings>(DEFAULT_DIFF_VIEW_SETTINGS)
+
+  // Has the reviewer changed anything yet? The initial read is a snapshot of what was on disk
+  // BEFORE they touched the toolbar, so applying it after a toggle is a revert, not a load — and
+  // the desktop's Tauri store is slow enough (an IPC round trip) for a click to land inside that
+  // window. Once a toggle has committed, the in-flight read is stale and gets dropped.
+  const hasLocalEdit = useRef(false)
+
   useEffect(() => {
     settingsRef.current = settings
   }, [settings])
@@ -56,7 +63,8 @@ export function useDiffViewSettings(store: KeyValueStore = getAppStorage()): Dif
       if (!active) return
 
       const parsed = raw === null ? null : diffViewSettingsSchema.safeParse(JSON.parse(raw))
-      setSettings(parsed?.success ? parsed.data : DEFAULT_DIFF_VIEW_SETTINGS)
+      if (!hasLocalEdit.current)
+        setSettings(parsed?.success ? parsed.data : DEFAULT_DIFF_VIEW_SETTINGS)
       setIsLoaded(true)
     })
 
@@ -67,6 +75,7 @@ export function useDiffViewSettings(store: KeyValueStore = getAppStorage()): Dif
 
   const commit = useCallback(
     (next: DiffViewSettings) => {
+      hasLocalEdit.current = true
       settingsRef.current = next
       setSettings(next)
       void store.set(DIFF_VIEW_SETTINGS_KEY, JSON.stringify(next))

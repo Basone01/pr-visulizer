@@ -37,6 +37,16 @@ export function deleteDraft(progress: ReviewProgress, key: string): ReviewProgre
   return { ...progress, drafts }
 }
 
+// Drop a whole SET of drafts by key — what a submitted review needs: the drafts it published are
+// now real comments, so keeping the local copies would double them on screen. Keyed rather than
+// cleared wholesale, so a draft written while the submit was in flight is not thrown away.
+export function deleteDrafts(progress: ReviewProgress, keys: string[]): ReviewProgress {
+  const removing = new Set(keys)
+  const drafts = progress.drafts.filter((draft) => !removing.has(draftKey(draft)))
+
+  return { ...progress, drafts }
+}
+
 export function toggleReviewedFile(progress: ReviewProgress, path: string): ReviewProgress {
   const isReviewed = progress.reviewedFiles.includes(path)
 

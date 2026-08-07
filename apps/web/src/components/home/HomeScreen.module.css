@@ -233,3 +233,21 @@
   font-size: 13px;
   color: var(--muted);
 }
+
+/* Per-repo PR search. Sits between the repo path and its PR list, so it reads as part of the
+   card rather than as a second page-level control. */
+.search {
+  width: 100%;
+  margin: 8px 0 4px;
+  padding: 5px 9px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.search:focus {
+  outline: none;
+  border-color: var(--accent);
+}

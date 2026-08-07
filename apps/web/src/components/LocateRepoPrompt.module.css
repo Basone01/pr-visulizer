@@ -1,15 +1,31 @@
-.panel {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 24px 20px;
+/* Modal shell. Same shape and behaviour as CloneRootModal's so the two desktop dialogs match —
+   deliberately restated rather than shared, since each modal owns its own stylesheet here. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.card {
+  width: 460px;
+  max-width: calc(100vw - 32px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .title {
-  font-size: 13px;
+  margin: 0;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text);
 }
@@ -31,6 +47,32 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  /* Cancel sits left, the two ways forward on the right — the same order as the clone modal. */
+  justify-content: flex-end;
+}
+
+/* The live clone phase, in the reviewer's own words rather than git's when git has none yet. */
+.progress {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.cancel {
+  margin-right: auto;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cancel:hover {
+  color: var(--text);
 }
 
 .primary,

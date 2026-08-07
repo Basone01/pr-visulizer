@@ -1,5 +1,7 @@
 import type { DiffLine, ParsedDiff } from "@/entity/diff"
 
+import { pairChangedLines } from "./pairChangedLines"
+
 // The side-by-side (split) view transform (§10). Like fullFileView and hideWhitespaceOnly this
 // is a pure function over the parse, so it CHAINS after them: full-file re-renders the patch over
 // the whole head file, hide-whitespace collapses the whitespace-only pairs, and this pairs what
@@ -29,15 +31,54 @@ function pairContext(cell: SideBySideCell): SideBySideRow {
   return { kind: "pair", left: cell, right: cell }
 }
 
-// Align one del-run with the add-run that immediately follows it: the Nth removed line sits beside
-// the Nth added line, and the longer run's remainder pairs with an empty filler cell. This is the
-// same positional del/add pairing hideWhitespaceOnly uses, so the two agree on what "a pair" is.
+// Align one del-run with the add-run that immediately follows it, through the SAME similarity
+// pairing the intra-line emphasis uses (pairChangedLines). Sharing it is the point: the emphasis
+// says which two lines are counterparts, and this view has to seat those two lines on one row —
+// pairing positionally here would put a removed line across from a line the other transform has
+// already decided it has nothing to do with.
+//
+// Lines the alignment leaves unpaired are a real deletion or a real insertion and get an empty
+// cell opposite, exactly as an unbalanced run has always rendered. Order is preserved throughout.
 function alignRegion(dels: SideBySideCell[], adds: SideBySideCell[]): SideBySideRow[] {
-  const rowCount = Math.max(dels.length, adds.length)
-  const rows: SideBySideRow[] = []
+  const pairs = pairChangedLines(
+    dels.map((cell) => cell.line.content),
+    adds.map((cell) => cell.line.content)
+  )
+  const addForDel = new Map(pairs.map(({ delIndex, addIndex }) => [delIndex, addIndex]))
 
-  for (let index = 0; index < rowCount; index += 1) {
-    rows.push({ kind: "pair", left: dels[index] ?? null, right: adds[index] ?? null })
+  const rows: SideBySideRow[] = []
+  let delIndex = 0
+  let addIndex = 0
+
+  while (delIndex < dels.length || addIndex < adds.length) {
+    // Nothing left to remove — every remaining addition is a pure insertion.
+    if (delIndex >= dels.length) {
+      rows.push({ kind: "pair", left: null, right: adds[addIndex]! })
+      addIndex += 1
+      continue
+    }
+
+    const partner = addForDel.get(delIndex)
+
+    if (partner === addIndex) {
+      rows.push({ kind: "pair", left: dels[delIndex]!, right: adds[addIndex]! })
+      delIndex += 1
+      addIndex += 1
+      continue
+    }
+
+    // This removal has no counterpart at all: it takes its own row now, ahead of the additions,
+    // which is where the parse already put it.
+    if (partner === undefined) {
+      rows.push({ kind: "pair", left: dels[delIndex]!, right: null })
+      delIndex += 1
+      continue
+    }
+
+    // Its counterpart is a LATER addition, so the additions before it are pure insertions and
+    // take their own rows first — both columns stay in file order.
+    rows.push({ kind: "pair", left: null, right: adds[addIndex]! })
+    addIndex += 1
   }
 
   return rows

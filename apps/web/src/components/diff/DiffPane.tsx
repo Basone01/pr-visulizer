@@ -48,6 +48,7 @@ import {
   fileAtHeadQueryOptions,
   patchQueryOptions,
   reviewCommentsQueryOptions,
+  viewerQueryOptions,
 } from "@/service/queries"
 
 import type { DiffCommitRangeApi } from "@/hooks/useDiffCommitRange"
@@ -59,6 +60,7 @@ import { useLineSelection } from "@/hooks/useLineSelection"
 import { useLineTokenizer } from "@/hooks/useLineTokenizer"
 import type { PeekNavApi } from "@/hooks/usePeekNavigation"
 import { useProgressiveRows } from "@/hooks/useProgressiveRows"
+import { useUpdateReviewComment } from "@/hooks/useUpdateReviewComment"
 
 import { CommentThreadList } from "@/components/comments/CommentThreadList"
 import { MarkdownContent } from "@/components/markdown/MarkdownContent"
@@ -188,6 +190,11 @@ export function DiffPane({
   const path = file?.path ?? ""
   const patchQuery = useQuery(patchQueryOptions(target, path))
   const commentsQuery = useQuery(reviewCommentsQueryOptions(target))
+  // Who is reading, so an own comment can offer Edit (§11). Read HERE rather than drilled down
+  // from the shell: this pane already owns the comment list, and the viewer query is cached
+  // session-wide (staleTime Infinity), so it costs nothing to ask again.
+  const viewerQuery = useQuery(viewerQueryOptions())
+  const { saveEdit } = useUpdateReviewComment(target)
   const tokenizer = useLineTokenizer(file?.language ?? null)
   const {
     settings,
@@ -650,7 +657,11 @@ export function DiffPane({
       <>
         {showThreads && (
           <div className={styles.threadPanel}>
-            <CommentThreadList threads={threadsByLine.get(headLine) ?? NO_THREADS} />
+            <CommentThreadList
+              threads={threadsByLine.get(headLine) ?? NO_THREADS}
+              viewerLogin={viewerQuery.data?.login ?? null}
+              onSaveEdit={saveEdit}
+            />
           </div>
         )}
 
@@ -954,7 +965,12 @@ export function DiffPane({
 
                 {bucketOpen && (
                   <div className={styles.commentBucketBody}>
-                    <CommentThreadList threads={bucketThreads} captionFor={bucketCaptionFor} />
+                    <CommentThreadList
+                      threads={bucketThreads}
+                      captionFor={bucketCaptionFor}
+                      viewerLogin={viewerQuery.data?.login ?? null}
+                      onSaveEdit={saveEdit}
+                    />
                   </div>
                 )}
               </div>

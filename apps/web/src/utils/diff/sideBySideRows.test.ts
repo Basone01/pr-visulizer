@@ -347,3 +347,61 @@ describe("findRowForLineIndex", () => {
     expect(rowIndex).toBe(expectedRowIndex)
   })
 })
+
+// The columns and the character-level emphasis read the SAME pairing (pairChangedLines), so a
+// removed line sits across from the line the emphasis calls its counterpart — not across from
+// whatever happened to be added first.
+
+describe("buildSideBySideRows — the counterpart is not the first added line", () => {
+  it("seats the removed line across from its real counterpart, below the inserted comment", () => {
+    // Arrange — the reported shape: one deletion, an unrelated comment, then the replacement.
+    const patch = [
+      "@@ -1,1 +1,2 @@",
+      '-supportChannels := []string{"blog", "youtube"}',
+      "+// Threads is the newest support channel.",
+      '+supportChannels := []string{"blog", "youtube", "threads"}',
+    ].join("\n")
+    const parsed = parseUnifiedDiff(patch)
+
+    // Act
+    const rows = buildSideBySideRows(parsed)
+
+    // Assert — the comment takes a row of its own on the head side, and the pair lines up under
+    // it. Positional pairing put the deletion across from the comment instead.
+    const expected = [
+      { left: null, right: "// Threads is the newest support channel." },
+      {
+        left: 'supportChannels := []string{"blog", "youtube"}',
+        right: 'supportChannels := []string{"blog", "youtube", "threads"}',
+      },
+    ]
+    const pairs = rows
+      .filter((row) => row.kind === "pair")
+      .map((row) => ({
+        left: row.left?.line.content ?? null,
+        right: row.right?.line.content ?? null,
+      }))
+    expect(pairs).toEqual(expected)
+  })
+
+  it("keeps every cell's flat index, so find and flash still resolve after re-seating", () => {
+    // Arrange — pairing moves lines across rows but must never renumber them.
+    const patch = ["@@ -1,1 +1,2 @@", "-value := 1", "+// why this changed", "+value := 2"].join(
+      "\n"
+    )
+    const parsed = parseUnifiedDiff(patch)
+
+    // Act
+    const rows = buildSideBySideRows(parsed)
+
+    // Assert — flat indexes: 0 hunk, 1 del, 2 comment, 3 add.
+    const expected = [
+      { left: null, right: 2 },
+      { left: 1, right: 3 },
+    ]
+    const pairs = rows
+      .filter((row) => row.kind === "pair")
+      .map((row) => ({ left: row.left?.index ?? null, right: row.right?.index ?? null }))
+    expect(pairs).toEqual(expected)
+  })
+})

@@ -1,89 +1,23 @@
 import type { DiffLine, ParsedDiff } from "@/entity/diff"
 
+import { type CharRange, changedRangesForPair, pairChangedLines } from "./pairChangedLines"
+
 // Intra-line (character-level) diff emphasis (§10). A pure view-layer transform over the parse,
-// like hideWhitespaceOnly and sideBySideRows: within each hunk it pairs the del-block with the
-// add-block positionally (1st del with 1st add, …) — the same pairing those two use, so all
-// three agree on what "a pair" is — and reports which characters differ inside each pair.
+// like hideWhitespaceOnly and sideBySideRows: within each hunk it works out which removed line
+// answers which added line — by SIMILARITY, through the shared pairChangedLines, so an unrelated
+// line inserted among the adds cannot hide the real counterpart — and reports which characters
+// differ inside each pair.
 //
 // It returns ranges keyed by the line's index in the flat ParsedDiff rather than a new line list:
 // nothing about the diff changes, only what the renderer paints on top of it. The inline view and
 // BOTH side-by-side columns address lines by that flat index, so one map serves every mode.
 
-// Half-open [start, end) over a line's content, in UTF-16 code units — the units String.slice
-// takes, so the renderer cuts tokens with it directly.
-export type CharRange = { start: number; end: number }
+// Re-exported so the renderer keeps importing its range type from the module it paints for.
+export type { CharRange } from "./pairChangedLines"
 
 // Flat ParsedDiff line index -> the changed spans on that line. A line with nothing to emphasize
 // is absent rather than mapped to an empty array, so a lookup miss is the common case.
 export type IntraLineRanges = Map<number, CharRange[]>
-
-// Past this share of a line, the changed part IS the line: a rewritten line lights up end to end,
-// which is noise rather than emphasis. Measured against the longer side, so a short line replaced
-// wholesale bails out while a small edit inside a long line always survives.
-const MAX_CHANGED_FRACTION = 0.75
-
-function isHighSurrogate(code: number): boolean {
-  return code >= 0xd800 && code <= 0xdbff
-}
-
-function isLowSurrogate(code: number): boolean {
-  return code >= 0xdc00 && code <= 0xdfff
-}
-
-// A common prefix that ends on a high surrogate would cut an astral character (an emoji in a
-// string literal) in half, and half a pair renders as a replacement glyph — step back one unit.
-function commonPrefixLength(before: string, after: string): number {
-  const limit = Math.min(before.length, after.length)
-
-  let length = 0
-  while (length < limit && before[length] === after[length]) length += 1
-
-  if (length > 0 && isHighSurrogate(before.charCodeAt(length - 1))) return length - 1
-
-  return length
-}
-
-// `limit` keeps the suffix from reaching back into the prefix — without it "aaa" -> "aaaa" would
-// claim the same characters twice and produce a negative-width range.
-function commonSuffixLength(before: string, after: string, limit: number): number {
-  let length = 0
-  while (
-    length < limit &&
-    before[before.length - 1 - length] === after[after.length - 1 - length]
-  ) {
-    length += 1
-  }
-
-  // The suffix starts on a low surrogate whose high half is outside it — same split, same fix.
-  if (length > 0 && isLowSurrogate(before.charCodeAt(before.length - length))) return length - 1
-
-  return length
-}
-
-type PairRanges = { before: CharRange; after: CharRange }
-
-// Everything between the common prefix and the common suffix changed. null means the pair is not
-// worth emphasizing at all — identical text, or a rewrite that trips MAX_CHANGED_FRACTION.
-function changedRangesForPair(before: string, after: string): PairRanges | null {
-  if (before === after) return null
-
-  const prefix = commonPrefixLength(before, after)
-  const suffixLimit = Math.min(before.length, after.length) - prefix
-  const suffix = commonSuffixLength(before, after, suffixLimit)
-
-  const beforeChanged: CharRange = { start: prefix, end: before.length - suffix }
-  const afterChanged: CharRange = { start: prefix, end: after.length - suffix }
-
-  const longestLine = Math.max(before.length, after.length)
-  const longestChange = Math.max(
-    beforeChanged.end - beforeChanged.start,
-    afterChanged.end - afterChanged.start
-  )
-
-  if (longestChange / longestLine > MAX_CHANGED_FRACTION) return null
-
-  return { before: beforeChanged, after: afterChanged }
-}
 
 // A side with an empty span only lost or gained text there (a pure insertion or deletion inside
 // the line) — there is nothing to paint on it, so it stays out of the map.
@@ -99,17 +33,21 @@ function recordRegion(
   addIndices: number[],
   ranges: IntraLineRanges
 ): void {
-  const pairCount = Math.min(delIndices.length, addIndices.length)
+  const pairs = pairChangedLines(
+    delIndices.map((index) => lines[index]!.content),
+    addIndices.map((index) => lines[index]!.content)
+  )
 
-  for (let position = 0; position < pairCount; position += 1) {
-    const delIndex = delIndices[position]!
-    const addIndex = addIndices[position]!
+  for (const { delIndex, addIndex } of pairs) {
+    const delLineIndex = delIndices[delIndex]!
+    const addLineIndex = addIndices[addIndex]!
 
-    const pair = changedRangesForPair(lines[delIndex]!.content, lines[addIndex]!.content)
-    if (!pair) continue
+    // Null here means the pair is identical — aligned, but with nothing to emphasize.
+    const changed = changedRangesForPair(lines[delLineIndex]!.content, lines[addLineIndex]!.content)
+    if (!changed) continue
 
-    recordRange(ranges, delIndex, pair.before)
-    recordRange(ranges, addIndex, pair.after)
+    recordRange(ranges, delLineIndex, changed.before)
+    recordRange(ranges, addLineIndex, changed.after)
   }
 }
 
@@ -144,7 +82,21 @@ export function buildIntraLineRanges(parsed: ParsedDiff): IntraLineRanges {
   return ranges
 }
 
-export type TextSegment = { text: string; changed: boolean }
+// Where a changed segment sits inside the range it came from, once that range has been cut at
+// token boundaries. A range crossing tokens becomes SEVERAL segments — the emphasis is painted
+// inside each token so syntax colour and anchors survive — and the renderer needs to know which
+// edges to draw so those pieces read as one continuous box instead of a row of little chips.
+export type RunPosition = "only" | "start" | "mid" | "end"
+
+export type TextSegment = { text: string; changed: boolean; run?: RunPosition }
+
+function runPositionOf(startsRun: boolean, endsRun: boolean): RunPosition {
+  if (startsRun && endsRun) return "only"
+  if (startsRun) return "start"
+  if (endsRun) return "end"
+
+  return "mid"
+}
 
 // Cut one piece of a line — a shiki token, or the whole line on the plain-text path — at the
 // range boundaries falling inside it. `offset` is where the piece starts in the line, since a
@@ -163,7 +115,10 @@ export function splitByRanges(text: string, offset: number, ranges: CharRange[])
 
     if (start > cursor) segments.push({ text: text.slice(cursor, start), changed: false })
 
-    segments.push({ text: text.slice(start, end), changed: true })
+    // Compared in LINE coordinates: a range that started in an earlier token does not start here,
+    // and one that runs past this token's end does not end here.
+    const run = runPositionOf(offset + start === range.start, offset + end === range.end)
+    segments.push({ text: text.slice(start, end), changed: true, run })
     cursor = end
   }
 

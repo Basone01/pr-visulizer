@@ -21,6 +21,7 @@ import type {
   RepoRef,
   SubmitReviewInput,
   SubmitReviewResult,
+  UpdateReviewCommentInput,
   ViewedFileState,
 } from "./gateway.js"
 
@@ -284,18 +285,20 @@ export function createOctokitGateway(
     })
   }
 
-  async function listReviewComments(target: PrTarget): Promise<ReviewComment[]> {
-    const { owner, repo, number: pull_number } = target
-
-    // Paginated like listFiles — a busy PR can carry hundreds of comments across pages.
-    const rows = await octokit.paginate(octokit.pulls.listReviewComments, {
-      owner,
-      repo,
-      pull_number,
-      per_page: 100,
-    })
-
-    return rows.map((row) => ({
+  // One REST review-comment row → the shared shape. Shared by the list read and the edit's
+  // response so the two can never map the same payload differently.
+  function toReviewComment(row: {
+    id: number
+    path: string
+    line?: number | null
+    start_line?: number | null
+    side?: string | null
+    in_reply_to_id?: number | undefined
+    user: { login: string } | null
+    body: string
+    created_at: string
+  }): ReviewComment {
+    return {
       id: row.id,
       path: row.path,
       // `line` is absent/null on an outdated or file-level comment — carry the null through
@@ -307,7 +310,36 @@ export function createOctokitGateway(
       author: row.user?.login ?? "ghost",
       body: row.body,
       createdAt: row.created_at,
-    }))
+    }
+  }
+
+  async function listReviewComments(target: PrTarget): Promise<ReviewComment[]> {
+    const { owner, repo, number: pull_number } = target
+
+    // Paginated like listFiles — a busy PR can carry hundreds of comments across pages.
+    const rows = await octokit.paginate(octokit.pulls.listReviewComments, {
+      owner,
+      repo,
+      pull_number,
+      per_page: 100,
+    })
+
+    return rows.map(toReviewComment)
+  }
+
+  // Edit one own comment's body (§11). The PR number is not part of the REST path — a review
+  // comment id is repo-scoped — so `input.target` contributes only owner/repo here.
+  async function updateReviewComment(input: UpdateReviewCommentInput): Promise<ReviewComment> {
+    const { owner, repo } = input.target
+
+    const updated = await octokit.pulls.updateReviewComment({
+      owner,
+      repo,
+      comment_id: input.commentId,
+      body: input.body,
+    })
+
+    return toReviewComment(updated.data)
   }
 
   // Both viewed-state mutations key off the PR's GraphQL node id, and a sync writes several
@@ -384,6 +416,7 @@ export function createOctokitGateway(
     submitReview,
     addReviewComment,
     listReviewComments,
+    updateReviewComment,
     listViewedFiles,
     setFileViewed,
     getViewer,

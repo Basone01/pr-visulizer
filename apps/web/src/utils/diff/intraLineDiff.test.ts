@@ -156,7 +156,8 @@ describe("splitByRanges", () => {
     const changedValue: CharRange[] = [{ start: 10, end: 11 }]
     const expected: TextSegment[] = [
       { text: "= ", changed: false },
-      { text: "1", changed: true },
+      // The range begins and ends inside this one token, so the box needs all four sides.
+      { text: "1", changed: true, run: "only" },
     ]
 
     // Act
@@ -185,7 +186,7 @@ describe("splitByRanges", () => {
     const tokenText = "items"
     const tokenOffset = 6
     const changedRegion: CharRange[] = [{ start: 6, end: 11 }]
-    const expected: TextSegment[] = [{ text: "items", changed: true }]
+    const expected: TextSegment[] = [{ text: "items", changed: true, run: "only" }]
 
     // Act
     const segments = splitByRanges(tokenText, tokenOffset, changedRegion)
@@ -206,5 +207,118 @@ describe("splitByRanges", () => {
 
     // Assert
     expect(segments).toEqual(expected)
+  })
+})
+
+// A changed run wider than one token: the renderer paints emphasis inside each token, so the run
+// arrives as several segments. `run` is what lets those pieces draw as ONE box — without it each
+// piece rings itself and a single change reads as a row of chips.
+
+describe("splitByRanges — a run crossing token boundaries", () => {
+  // The line the user reported, tokenized the way a grammar splits it:
+  //   `const sites = {"blog", "youtube", "threads"},`
+  // with the range covering `, "threads"` — which starts inside one token and ends inside another.
+  const CHANGED: CharRange[] = [{ start: 32, end: 43 }]
+
+  it("marks the piece the range starts in as the run's START", () => {
+    // Arrange — the token `"youtube",` sits at offset 23; the range opens on its final comma.
+    const tokenText = '"youtube",'
+    const tokenOffset = 23
+
+    // Act
+    const segments = splitByRanges(tokenText, tokenOffset, CHANGED)
+
+    // Assert
+    const expected: TextSegment[] = [
+      { text: '"youtube"', changed: false },
+      { text: ",", changed: true, run: "start" },
+    ]
+    expect(segments).toEqual(expected)
+  })
+
+  it("marks a token fully inside the range as a MIDDLE piece, with no end of its own", () => {
+    // Arrange — the space between the two strings is covered end to end.
+    const tokenText = " "
+    const tokenOffset = 33
+
+    // Act
+    const segments = splitByRanges(tokenText, tokenOffset, CHANGED)
+
+    // Assert
+    const expected: TextSegment[] = [{ text: " ", changed: true, run: "mid" }]
+    expect(segments).toEqual(expected)
+  })
+
+  it("marks the piece the range ends in as the run's END", () => {
+    // Arrange — the last token carries the rest of the range plus the untouched `},` suffix.
+    const tokenText = '"threads"},'
+    const tokenOffset = 34
+
+    // Act
+    const segments = splitByRanges(tokenText, tokenOffset, CHANGED)
+
+    // Assert
+    const expected: TextSegment[] = [
+      { text: '"threads"', changed: true, run: "end" },
+      { text: "},", changed: false },
+    ]
+    expect(segments).toEqual(expected)
+  })
+})
+
+// The reported shape: a hunk that deletes one line and adds TWO — an unrelated comment first,
+// then the real replacement. Paired positionally the deletion met the comment, the two were far
+// too different to be counterparts, and the whole region lost its emphasis.
+
+describe("buildIntraLineRanges — the counterpart is not the first added line", () => {
+  const PATCH = [
+    "@@ -1,1 +1,2 @@",
+    '-supportChannels := []string{"blog", "youtube"}',
+    "+// Threads is the newest support channel.",
+    '+supportChannels := []string{"blog", "youtube", "threads"}',
+  ].join("\n")
+
+  it("emphasizes the line that actually changed, below the inserted comment", () => {
+    // Arrange — before the alignment this region produced NO ranges at all: the deletion was
+    // pitted against the comment and gave up. The removed line still carries none of its own,
+    // because nothing was removed FROM it — the channel list only gained an entry (same rule as
+    // "a pure insertion gets a range on the add side only" above).
+    const parsed = parseUnifiedDiff(PATCH)
+    const modifiedAddLineIndex = 3
+
+    // Act
+    const ranges = buildIntraLineRanges(parsed)
+
+    // Assert
+    const emphasizedIndexes = [...ranges.keys()].sort((a, b) => a - b)
+    const expected = [modifiedAddLineIndex]
+    expect(emphasizedIndexes).toEqual(expected)
+  })
+
+  it("emphasizes exactly the added channel, not the whole line", () => {
+    // Arrange
+    const parsed = parseUnifiedDiff(PATCH)
+    const modifiedAddLineIndex = 3
+    const addedText = ', "threads"'
+
+    // Act
+    const ranges = buildIntraLineRanges(parsed)
+
+    // Assert
+    const range = ranges.get(modifiedAddLineIndex)![0]!
+    const emphasized = parsed.lines[modifiedAddLineIndex]!.content.slice(range.start, range.end)
+    expect(emphasized).toBe(addedText)
+  })
+
+  it("leaves the inserted comment unemphasized — it replaced nothing", () => {
+    // Arrange
+    const parsed = parseUnifiedDiff(PATCH)
+    const commentLineIndex = 2
+
+    // Act
+    const ranges = buildIntraLineRanges(parsed)
+
+    // Assert
+    expect(ranges.has(commentLineIndex)).toBe(false)
   })
 })

@@ -12,8 +12,8 @@ import { pr42Analysis } from "./pr42"
 // hunk. Those unchanged lines are the whole point of the full-file view.
 
 const modifiedHeadFiles: Record<string, string> = {
-  // Hunk covers head lines 3–5 (@@ -3,2 +3,3 @@); lines 1–2 (the ApiError signature) and
-  // everything from line 6 down are unchanged, so they live ONLY here.
+  // Two hunks: head lines 3–5 (@@ -3,2 +3,3 @@) and head lines 9–12 (@@ -8,3 +9,4 @@). Lines
+  // 1–2 (the ApiError signature) and 6–8 are unchanged, so they live ONLY here.
   "src/types/http.ts": [
     "export type ApiError = {",
     "  code: string",
@@ -24,7 +24,8 @@ const modifiedHeadFiles: Record<string, string> = {
     "export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError }",
     "",
     "export function isApiError(value: unknown): value is ApiError {",
-    '  return typeof value === "object" && value !== null && "code" in value',
+    "  // Narrow by shape: the API never sends a bare string error.",
+    '  return typeof value === "object" && value !== null && "code" in value && "message" in value',
     "}",
   ].join("\n"),
 

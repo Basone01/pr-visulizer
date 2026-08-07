@@ -45,9 +45,19 @@ export function getPrClient(): PrClient {
   return client
 }
 
+// The browser store, built ONCE. It is a stateless wrapper over window.localStorage, so a fresh
+// one per call was harmless in itself — but callers use it as a hook dependency
+// (`useEffect([store])` in useDiffViewSettings), and a new object identity every render re-ran
+// that load effect on every render, letting a stale read land after a toggle and revert it.
+let localStore: KeyValueStore | null = null
+
 // The store the home screen persists its watched-repo list through (docs/tauri-
 // architecture.md §5): the desktop shell's Tauri Store when injected, localStorage in the
-// browser. Kept next to the client factory so both share the one injected Store instance.
+// browser. Kept next to the client factory so both share the one injected Store instance —
+// and, like getPrClient above, it hands back the SAME instance every call.
 export function getAppStorage(): KeyValueStore {
-  return tauriDeps?.storage ?? createLocalStorageKeyValueStore()
+  if (tauriDeps?.storage) return tauriDeps.storage
+
+  localStore ??= createLocalStorageKeyValueStore()
+  return localStore
 }

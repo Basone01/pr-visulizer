@@ -1,7 +1,7 @@
 import type { DraftComment, ReviewProgress } from "@pr-visulizer/shared"
 import { describe, expect, it } from "vitest"
 
-import { addDraft, deleteDraft, draftKey, updateDraftBody } from "./progress"
+import { addDraft, deleteDraft, deleteDrafts, draftKey, updateDraftBody } from "./progress"
 
 // Draft comments round-trip through ReviewProgress (task 5): add appends, updateDraftBody
 // edits in place by key, deleteDraft removes — all pure, producing a whole new progress each
@@ -62,5 +62,44 @@ describe("draft add / edit / delete roundtrip", () => {
     // Assert
     const expected: DraftComment[] = [sameRangeDraft]
     expect(afterSecond.drafts).toEqual(expected)
+  })
+})
+
+// Submitting a review publishes its drafts, so those local copies must go — but only those. A
+// draft written while the submit was in flight was never published and has to survive.
+describe("deleteDrafts", () => {
+  it("removes exactly the published drafts and keeps the rest", () => {
+    // Arrange
+    const publishedDraft: DraftComment = {
+      path: "src/lib/rateLimiter.ts",
+      line: 3,
+      side: "RIGHT",
+      body: "guard the zero window",
+    }
+    const publishedRangeDraft: DraftComment = {
+      path: "src/types/http.ts",
+      startLine: 4,
+      line: 8,
+      side: "RIGHT",
+      body: "is the old field still needed?",
+    }
+    const unpublishedDraft: DraftComment = {
+      path: "src/api/routes/login.ts",
+      line: 21,
+      side: "RIGHT",
+      body: "written after the submit started",
+    }
+    const beforeSubmit = [publishedDraft, publishedRangeDraft, unpublishedDraft].reduce(
+      addDraft,
+      emptyProgress()
+    )
+    const publishedKeys = [draftKey(publishedDraft), draftKey(publishedRangeDraft)]
+
+    // Act
+    const afterSubmit = deleteDrafts(beforeSubmit, publishedKeys)
+
+    // Assert
+    const expected: DraftComment[] = [unpublishedDraft]
+    expect(afterSubmit.drafts).toEqual(expected)
   })
 })

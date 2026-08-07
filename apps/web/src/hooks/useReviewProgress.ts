@@ -1,8 +1,15 @@
 import type { DraftComment, ReviewProgress } from "@pr-visulizer/shared"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useCallback } from "react"
+import { useCallback, useRef } from "react"
 
-import { addDraft, deleteDraft, toggleReviewedFile, updateDraftBody } from "@/utils/review/progress"
+import {
+  addDraft,
+  deleteDraft,
+  deleteDrafts,
+  draftKey,
+  toggleReviewedFile,
+  updateDraftBody,
+} from "@/utils/review/progress"
 
 import type { PrTarget } from "@/entity/pr"
 
@@ -27,18 +34,29 @@ export function useReviewProgress(target: PrTarget) {
   // run serially — so each PUT carries the cumulative state.
   type ProgressTransform = (current: ReviewProgress) => ReviewProgress
 
+  // The state THIS mutation's onMutate computed, handed to its own mutationFn. A v5 mutationFn
+  // cannot receive the mutation context, and re-reading the cache there is not safe: the
+  // previous mutation's onSettled invalidate can land its refetch between the two steps and put
+  // the pre-transform state back, which would then be PUT as if it were the new one (a submit
+  // that clears its published drafts hits exactly this). The `scope` below serializes same-PR
+  // mutations, so at most one of them sits between its onMutate and its mutationFn.
+  const pendingProgress = useRef<ReviewProgress | null>(null)
+
   const mutation = useMutation<ReviewProgress, Error, ProgressTransform, OptimisticContext>({
     scope: { id: `progress:${target.owner}/${target.repo}#${target.number}` },
     onMutate: async (transform) => {
       await queryClient.cancelQueries({ queryKey: options.queryKey })
       const previous = queryClient.getQueryData<ReviewProgress>(options.queryKey)
-      if (previous) queryClient.setQueryData(options.queryKey, transform(previous))
+      pendingProgress.current = previous ? transform(previous) : null
+      if (pendingProgress.current) {
+        queryClient.setQueryData(options.queryKey, pendingProgress.current)
+      }
 
       return { previous }
     },
-    // Runs after onMutate, so the cache already holds this mutation's optimistic state.
+    // Runs directly after onMutate, so it PUTs exactly the state that was made optimistic.
     mutationFn: () => {
-      const next = queryClient.getQueryData<ReviewProgress>(options.queryKey)
+      const next = pendingProgress.current
       if (!next) throw new Error("review progress not loaded yet")
 
       return getPrClient().putProgress(target, next)
@@ -88,6 +106,21 @@ export function useReviewProgress(target: PrTarget) {
     [mutateProgress]
   )
 
+  // A submitted review published these drafts, so their local copies must go — otherwise the diff
+  // shows each comment twice, once as a pending draft and once as the thread it just became.
+  // It rides the SAME scoped, transform-based mutation as every other edit, which is what makes
+  // it safe against a draft written while the submit was in flight: the transform runs against
+  // the cache as it is when the PUT starts, and removes only the keys that were published.
+  const discardDrafts = useCallback(
+    (published: DraftComment[]) => {
+      if (published.length === 0) return
+
+      const keys = published.map(draftKey)
+      mutateProgress((current) => deleteDrafts(current, keys))
+    },
+    [mutateProgress]
+  )
+
   return {
     progress: query.data,
     isLoading: query.isLoading,
@@ -95,5 +128,6 @@ export function useReviewProgress(target: PrTarget) {
     saveDraft,
     editDraft,
     removeDraft,
+    discardDrafts,
   }
 }

@@ -48,7 +48,9 @@ describe("parseUnifiedDiff", () => {
   })
 
   it("keeps base and head numbering independent across a modify hunk", () => {
-    // Arrange — http.ts: one deletion then two additions, closed by a context line.
+    // Arrange — http.ts: two hunks, each one deletion then two additions closed by a context
+    // line. The SECOND hunk is where the two sides have drifted apart (base 9 answers head 11),
+    // which is exactly the independence this pins.
     const patch = pr42Patches["src/types/http.ts"]!
 
     // Act
@@ -57,10 +59,11 @@ describe("parseUnifiedDiff", () => {
     const added = parsed.lines.filter((line) => line.kind === "add")
 
     // Assert
-    expect(deleted).toHaveLength(1)
-    expect(deleted[0]!.oldLine).toBe(3)
-    expect(deleted[0]!.newLine).toBeNull()
-    expect(added.map((line) => line.newLine)).toEqual([3, 4])
+    const expectedDeletedBaseLines = [3, 9]
+    const expectedAddedHeadLines = [3, 4, 10, 11]
+    expect(deleted.map((line) => line.oldLine)).toEqual(expectedDeletedBaseLines)
+    expect(deleted.every((line) => line.newLine === null)).toBe(true)
+    expect(added.map((line) => line.newLine)).toEqual(expectedAddedHeadLines)
   })
 
   it("treats an empty in-hunk line as blank context, keeping head numbering in sync", () => {

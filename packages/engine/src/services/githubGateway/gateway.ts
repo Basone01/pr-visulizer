@@ -79,6 +79,15 @@ export type AddReviewCommentInput = {
   comment: ReviewCommentInput
 }
 
+// §11: edit the BODY of one already-published review comment. Only the body is editable —
+// GitHub's PATCH /pulls/comments/:id takes nothing else, and re-anchoring a published comment
+// to another line is not an edit, it is a different comment.
+export type UpdateReviewCommentInput = {
+  target: PrTarget
+  commentId: number
+  body: string
+}
+
 export interface GithubGateway {
   // PR meta ONLY — one light `GET /pulls/:n` (no file pagination). The desktop deep path
   // (docs/tauri-architecture.md §6) uses this instead of getPullRequest: file list + patches
@@ -116,6 +125,11 @@ export interface GithubGateway {
   // comments" feature. GET /pulls/:n/comments, paginated. Read-only: this pass views threads,
   // it never replies/edits/resolves. Rows are mapped to the shared ReviewComment shape.
   listReviewComments(target: PrTarget): Promise<ReviewComment[]>
+
+  // §11: EDIT one own published review comment — PATCH /pulls/comments/:id. GitHub is the
+  // authority on who may edit (it answers 403 for someone else's comment); the app only gates
+  // the affordance. Answers with the updated comment, the same shape the list read returns.
+  updateReviewComment(input: UpdateReviewCommentInput): Promise<ReviewComment>
 
   // §11: READ GitHub's native "Viewed" checkboxes for this reviewer, path → state. The
   // sync is two-way — a file ticked on github.com has to show up here too — so the state

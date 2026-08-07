@@ -49,3 +49,71 @@
   font-size: 11px;
   color: var(--muted);
 }
+
+/* Edit affordance — only on the viewer's own comments. Pushed to the right of the meta row so
+   it reads as an action on that comment, not part of its byline. */
+.editButton {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.editButton:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* The inline editor. Same shape as the diff pane's composer (textarea + right-aligned actions +
+   an inline failure line), sized to sit inside a thread card rather than float over the code. */
+.editorInput {
+  width: 100%;
+  min-height: 56px;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  background: var(--code-bg);
+  color: inherit;
+}
+
+.editorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.editorSave,
+.editorCancel {
+  font-size: 11px;
+  border-radius: 6px;
+  padding: 3px 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+
+.editorSave {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--panel);
+}
+
+.editorSave:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The edit failed: the comment on GitHub is unchanged and the editor stays open with the
+   reviewer's text, so the reason belongs right here rather than in a toast that steals it. */
+.editorError {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--deleted);
+}

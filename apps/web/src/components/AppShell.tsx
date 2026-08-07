@@ -66,6 +66,10 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   const [cloneRoot, setCloneRoot] = useState<string | null>(null)
   const [locateError, setLocateError] = useState<string | null>(null)
   const [locating, setLocating] = useState(false)
+  // True from "Clone it for me" until the retried analysis settles. It keeps the chooser modal up
+  // so the clone's phases have somewhere to show — without it the modal closes the instant the
+  // repo source resolves and the wait moves to the panel behind it.
+  const [cloning, setCloning] = useState(false)
 
   // The overview is a separate, fast query (§9): meta + file list, rendered the moment it lands
   // while the (slower) analysis is still computing. Live step progress rides its own seam.
@@ -77,7 +81,8 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   // the tray also reads it — to mute rows outside the range — and PR-screen state is the one
   // place both panes can share. Deliberately not persisted: a fresh open shows the whole PR.
   const commitRange = useDiffCommitRange(target, overviewQuery.data?.pr.baseSha ?? "")
-  const { progress, toggleReviewed, saveDraft, editDraft, removeDraft } = useReviewProgress(target)
+  const { progress, toggleReviewed, saveDraft, editDraft, removeDraft, discardDrafts } =
+    useReviewProgress(target)
   const panels = usePanelSizes()
   const collapse = usePaneCollapse()
   const queueMode = useQueueMode()
@@ -91,7 +96,12 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
     isSubmitted,
     submitError,
     resetSubmit,
-  } = useSubmitReview(target, progress)
+  } = useSubmitReview(target, progress, discardDrafts)
+
+  // The retried analysis has settled (either way) — the clone, if there was one, is over.
+  useEffect(() => {
+    if (!analysisQuery.isFetching) setCloning(false)
+  }, [analysisQuery.isFetching])
 
   // Load the persisted clone folder once (desktop only) so the modal can show/change it.
   useEffect(() => {
@@ -112,7 +122,10 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
     const retry = cloneModal === "clone"
     setCloneModal(null)
 
-    if (retry) void analysisQuery.refetch()
+    if (retry) {
+      setCloning(true)
+      void analysisQuery.refetch()
+    }
   }
 
   // "Locate local clone…": pick a folder, validate its origin against this PR's repo,
@@ -140,6 +153,29 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
     commitRange.clear()
     refresh()
   }
+
+  // The chooser owns the screen whenever the repo has no local source, and stays up through a
+  // clone it started. Built once and rendered from both paths below, so it appears the moment
+  // resolution fails rather than waiting for the overview to arrive first.
+  const clonePhase =
+    cloning && analysisProgress?.step === "preparing-repo"
+      ? (analysisProgress.detail ?? "Preparing the local clone…")
+      : cloning
+        ? "Preparing the local clone…"
+        : null
+
+  const repoSourceModal =
+    needsRepoSource || cloning ? (
+      <LocateRepoPrompt
+        slug={repoKey(target)}
+        error={locateError}
+        busy={locating}
+        preparing={clonePhase}
+        onLocate={() => void onLocateRepo()}
+        onClone={() => setCloneModal("clone")}
+        onCancel={onBack}
+      />
+    ) : null
 
   const analysis = analysisQuery.data?.status === "ready" ? analysisQuery.data.result : null
   const overview = overviewQuery.data ?? null
@@ -255,6 +291,7 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   if (!overview || !view || !progress) {
     return (
       <div className={styles.root}>
+        {repoSourceModal}
         <div className={styles.center}>
           <AnalysisProgressPanel
             progress={analysisProgress}
@@ -327,6 +364,8 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
         </div>
       )}
 
+      {repoSourceModal}
+
       {cloneModal && (
         <CloneRootModal
           currentCloneRoot={cloneRoot}
@@ -376,14 +415,6 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
                 totalCount={view.totalCount}
                 firstUnreviewedPath={firstUnreviewedPath}
                 rangeTouchedPaths={commitRange.touchedPaths}
-              />
-            ) : needsRepoSource ? (
-              <LocateRepoPrompt
-                slug={repoKey(target)}
-                error={locateError}
-                busy={locating}
-                onLocate={() => void onLocateRepo()}
-                onClone={() => setCloneModal("clone")}
               />
             ) : (
               <AnalysisProgressPanel

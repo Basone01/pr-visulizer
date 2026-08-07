@@ -29,10 +29,21 @@ const PATCH = [
   "+const total = sum(rows)",
 ].join("\n")
 
+// A change WIDER than one token: the added run `, "threads"` starts on the comma closing one
+// token and ends inside another, so the emphasis arrives as several spans.
+const MULTI_TOKEN_PATCH = [
+  "@@ -1,1 +1,1 @@",
+  '-const sites = {"blog", "youtube"},',
+  '+const sites = {"blog", "youtube", "threads"},',
+].join("\n")
+
+// Which patch the mocked client serves — set per test, so both shapes share one harness.
+const served = vi.hoisted(() => ({ patch: "" }))
+
 vi.mock("@/service/clientFactory", async () => {
   const { createMemoryKeyValueStore } = await import("@/utils/storage/keyValueStore")
   const store = createMemoryKeyValueStore()
-  const client = { getPatch: async () => PATCH }
+  const client = { getPatch: async () => served.patch }
 
   return { getPrClient: () => client, getAppStorage: () => store }
 })
@@ -114,6 +125,7 @@ describe("DiffPane intra-line diff toggle", () => {
   // re-arms the defaults rather than inheriting the previous one's setting.
   beforeEach(async () => {
     await getAppStorage().set("diffViewSettings", JSON.stringify(DEFAULT_DIFF_VIEW_SETTINGS))
+    served.patch = PATCH
   })
 
   it("emphasizes nothing until the toggle is on", async () => {
@@ -185,5 +197,48 @@ describe("DiffPane intra-line diff toggle", () => {
     expect([...removedRow.cells].indexOf(added as HTMLTableCellElement)).toBe(headColumn)
     expect(removed?.textContent).toContain("item")
     expect(added?.textContent).toContain("row")
+  })
+})
+
+// A run that crosses token boundaries has to READ as one highlight. It is still several spans —
+// the emphasis lives inside each token so syntax colour and anchor clicks survive — so what is
+// pinned here is that the pieces are marked as joined: only the outer ends carry an end, and the
+// text they cover, spliced back together, is exactly the changed run.
+
+describe("DiffPane intra-line diff — a run wider than one token", () => {
+  beforeEach(async () => {
+    await getAppStorage().set("diffViewSettings", JSON.stringify(DEFAULT_DIFF_VIEW_SETTINGS))
+    served.patch = MULTI_TOKEN_PATCH
+  })
+
+  it("joins the pieces of one run into a single continuous box", async () => {
+    // Arrange
+    const user = userEvent.setup()
+    const { container } = renderWithQuery()
+    await waitFor(() => expect(container.textContent).toContain('"threads"'))
+
+    // Act
+    await user.click(screen.getByRole("button", { name: "Highlight changed characters" }))
+
+    // Assert — one run: it opens once, closes once, and every piece between is a middle.
+    const pieces = [...container.querySelectorAll(charSelector(styles.charAdd))]
+    const expectedRun = ["start", "mid", "end"]
+    expect(pieces.map((piece) => piece.getAttribute("data-run"))).toEqual(expectedRun)
+    expect(pieces.map((piece) => piece.textContent).join("")).toBe(', "threads"')
+  })
+
+  it("still emphasizes nothing outside the changed run", async () => {
+    // Arrange — the shared prefix and the `},` suffix are identical on both sides.
+    const user = userEvent.setup()
+    const { container } = renderWithQuery()
+    await waitFor(() => expect(container.textContent).toContain('"threads"'))
+
+    // Act
+    await user.click(screen.getByRole("button", { name: "Highlight changed characters" }))
+
+    // Assert
+    const emphasized = emphasizedText(container, styles.charAdd).join("")
+    expect(emphasized).not.toContain("blog")
+    expect(container.textContent).toContain('const sites = {"blog", "youtube", "threads"},')
   })
 })

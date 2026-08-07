@@ -21,6 +21,16 @@ export const pr42Patches: Record<string, string> = {
     "+  message: string",
     "+  retryAfterSeconds?: number",
     " }",
+    // A SECOND hunk whose added block does not start with the counterpart: the guard line is
+    // modified AND a comment is inserted above it, so the removed line's real answer is the
+    // second addition. Paired positionally the removal meets the comment, finds nothing in
+    // common, and the whole region loses its character-level emphasis (§10).
+    "@@ -8,3 +9,4 @@",
+    " export function isApiError(value: unknown): value is ApiError {",
+    '-  return typeof value === "object" && value !== null && "code" in value',
+    "+  // Narrow by shape: the API never sends a bare string error.",
+    '+  return typeof value === "object" && value !== null && "code" in value && "message" in value',
+    " }",
   ].join("\n"),
 
   "src/lib/rateLimiter.ts": [

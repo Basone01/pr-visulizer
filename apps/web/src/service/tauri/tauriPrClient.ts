@@ -510,6 +510,12 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
       return gateway.listReviewComments(target)
     },
 
+    // Straight to the gateway like every other comment call — nothing here is memoized, so the
+    // caller's list refetch reads the edit back from GitHub without a cache to drop first.
+    async updateReviewComment(target: PrTarget, commentId: number, body: string): Promise<void> {
+      await gateway.updateReviewComment({ target, commentId, body })
+    },
+
     async submitReview(target: PrTarget, submission: ReviewSubmission): Promise<void> {
       const pr = await pullMeta(target)
       await gateway.submitReview({

@@ -98,6 +98,15 @@ export function createHttpPrClient(): PrClient {
       return parseJson(`${base(target)}/comments`, reviewCommentListSchema)
     },
 
+    // PATCH one comment under the same path. The BFF answers with the updated row; it is
+    // dropped here on purpose (see PrClient) — the comment list refetch is what the UI reads.
+    async updateReviewComment(target: PrTarget, commentId: number, body: string): Promise<void> {
+      await requestJson(`${base(target)}/comments/${commentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ body }),
+      })
+    },
+
     async getFileAtHead(target: PrTarget, path: string): Promise<string | null> {
       const url = `${base(target)}/files/${encodeURI(path)}`
       const parsed = await parseJson(url, contentResponseSchema)

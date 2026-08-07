@@ -1,5 +1,6 @@
 import {
   type CommitRange,
+  type DraftComment,
   type PrCommitList,
   type PrOverview,
   type PrSummary,
@@ -56,6 +57,35 @@ function emptyProgress(target: PrTarget): ReviewProgress {
   }
 }
 
+// Ids for comments published by a fixture submit. Starts above every id in reviewComments.ts so
+// a submitted comment can never collide with a seeded thread's root.
+const FIRST_PUBLISHED_COMMENT_ID = 7001
+
+// Swap one comment's body in place, by id. Answers whether it was there, so the caller can fail
+// the way GitHub does on an unknown id instead of silently recording an edit that never landed.
+function replaceCommentBody(comments: ReviewComment[], commentId: number, body: string): boolean {
+  const index = comments.findIndex((comment) => comment.id === commentId)
+  if (index < 0) return false
+
+  comments[index] = { ...comments[index]!, body }
+  return true
+}
+
+function toPublishedComment(draft: DraftComment, index: number): ReviewComment {
+  return {
+    id: FIRST_PUBLISHED_COMMENT_ID + index,
+    path: draft.path,
+    line: draft.line,
+    startLine: draft.startLine ?? null,
+    side: draft.side,
+    inReplyToId: null,
+    // The same login getViewer() answers with — a submitted comment is the reviewer's own.
+    author: "reviewer-dev",
+    body: draft.body,
+    createdAt: new Date().toISOString(),
+  }
+}
+
 export function createFixturePrClient(): PrClient {
   // Progress is engine-independent state (§4.2); a single in-memory copy is enough.
   let progress = emptyProgress({
@@ -70,6 +100,14 @@ export function createFixturePrClient(): PrClient {
   // fixture exercises the real reconciliation rather than a shortcut that always agrees.
   let remoteViewed: string[] = []
   let syncedBase: string[] | null = null
+
+  // Comments a fixture submit has "published" — served beside the seeded threads (see below).
+  const publishedComments: ReviewComment[] = []
+
+  // This client's OWN copy of the seeded threads. `pr42ReviewComments()` builds a fresh array on
+  // every call, so editing what it returns would be forgotten by the next read — an edit has to
+  // stick for fixture mode to exercise the feature at all.
+  const seededComments = pr42ReviewComments()
 
   function syncViewed(current: ReviewProgress): ReviewProgress {
     const merged = mergeViewedFiles({
@@ -138,13 +176,56 @@ export function createFixturePrClient(): PrClient {
       const { pr } = pr42Analysis
       if (repo.owner !== pr.owner || repo.repo !== pr.repo) return delay([])
 
-      const summary: PrSummary = {
-        number: pr.number,
-        title: pr.title,
-        author: "octocat",
-        updatedAt: "2026-07-01T12:00:00.000Z",
-      }
-      return delay([summary])
+      // More than the home card lists at once, on purpose: the card shows the few most recent
+      // and a search reaches the rest (§5), so the fixture has to be able to hide one.
+      const summaries: PrSummary[] = [
+        {
+          number: BIG_FIXTURE_NUMBER,
+          title: "Synthetic 120-file PR (profiling)",
+          author: "octocat",
+          updatedAt: "2026-07-05T09:00:00.000Z",
+        },
+        {
+          number: 51,
+          title: "Docs: rate limit runbook",
+          author: "reviewer-two",
+          updatedAt: "2026-07-04T16:20:00.000Z",
+        },
+        {
+          number: 47,
+          title: "Retry on 429 with backoff",
+          author: "contributor-dev",
+          updatedAt: "2026-07-03T11:05:00.000Z",
+        },
+        {
+          number: 46,
+          title: "Drop the unused auth helper",
+          author: "senior-dev",
+          updatedAt: "2026-07-02T08:45:00.000Z",
+        },
+        {
+          number: pr.number,
+          title: pr.title,
+          author: "octocat",
+          updatedAt: "2026-07-01T12:00:00.000Z",
+        },
+        {
+          number: 31,
+          title: "Bump octokit to 22",
+          author: "contributor-dev",
+          updatedAt: "2026-06-20T10:00:00.000Z",
+        },
+        // Oldest, and the only other PR whose title says "login" — the one a search has to
+        // reach past the recent-PR cap to find.
+        {
+          number: 28,
+          title: "Fix the flaky login test",
+          author: "reviewer-two",
+          updatedAt: "2026-06-18T14:30:00.000Z",
+        },
+      ]
+
+      return delay(summaries)
     },
 
     // Nothing to drop: the fixture serves static data and holds no per-PR cache. Refreshing in
@@ -187,7 +268,19 @@ export function createFixturePrClient(): PrClient {
       // Only the PR #42 fixture carries threads; the big profiling PR has none.
       if (target.number === BIG_FIXTURE_NUMBER) return delay([])
 
-      return delay(pr42ReviewComments())
+      return delay([...seededComments, ...publishedComments])
+    },
+
+    // Edit either kind of comment — a seeded thread or one this session submitted. Same
+    // "unknown id fails" rule the fake gateway follows, so the failure path stays reachable.
+    updateReviewComment(_target: PrTarget, commentId: number, body: string): Promise<void> {
+      const edited =
+        replaceCommentBody(seededComments, commentId, body) ||
+        replaceCommentBody(publishedComments, commentId, body)
+
+      if (!edited) return Promise.reject(new Error(`No review comment ${commentId}`))
+
+      return delay(undefined)
     },
 
     getFileAtHead(target: PrTarget, path: string): Promise<string | null> {
@@ -213,8 +306,19 @@ export function createFixturePrClient(): PrClient {
       return delay(syncViewed(progress))
     },
 
-    submitReview(_target: PrTarget, submission: ReviewSubmission): Promise<void> {
+    submitReview(target: PrTarget, submission: ReviewSubmission): Promise<void> {
       progress = { ...progress, verdict: submission.verdict }
+
+      // Play GitHub's half of the submit: the drafted comments are published, so the next read
+      // of the comment list must carry them. Without this, fixture mode could never show the
+      // just-submitted comments appearing in the diff — the very thing the refetch exists for.
+      if (target.number !== BIG_FIXTURE_NUMBER) {
+        // Index off the running list, not off this submission, so ids stay unique across submits.
+        for (const draft of submission.comments) {
+          publishedComments.push(toPublishedComment(draft, publishedComments.length))
+        }
+      }
+
       return delay(undefined)
     },
 

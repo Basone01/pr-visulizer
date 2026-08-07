@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { DEFAULT_DIFF_VIEW_SETTINGS, type DiffViewSettings } from "@/config/settings"
 
@@ -77,5 +77,46 @@ describe("useDiffViewSettings", () => {
 
     // Assert — the missing field defaults instead of failing the parse and resetting the rest.
     expect(result.current.settings).toEqual(expected)
+  })
+})
+
+// The DEFAULT store path (no injection) — the one the app actually runs on. It used to be a
+// fresh wrapper per call, so `useEffect([store])` re-ran on every render and a read that
+// resolved after a toggle put the old value back. The count is the guarantee: load once.
+
+describe("useDiffViewSettings — the default app storage", () => {
+  it("reads the persisted settings once, not on every render", async () => {
+    // Arrange
+    window.localStorage.clear()
+    const getItem = vi.spyOn(Storage.prototype, "getItem")
+    const settingsKey = "prv:diffViewSettings"
+
+    // Act — mount, let the load settle, then re-render several times.
+    const { result, rerender } = renderHook(() => useDiffViewSettings())
+    await waitFor(() => expect(result.current.isLoaded).toBe(true))
+    rerender()
+    rerender()
+    rerender()
+
+    // Assert
+    const expectedReads = 1
+    const settingsReads = getItem.mock.calls.filter(([key]) => key === settingsKey).length
+    expect(settingsReads).toBe(expectedReads)
+
+    getItem.mockRestore()
+  })
+
+  it("keeps a toggle made right after mount instead of reverting it", async () => {
+    // Arrange — the reported symptom: flip a toggle while the initial load is still in flight.
+    window.localStorage.clear()
+    const { result } = renderHook(() => useDiffViewSettings())
+
+    // Act
+    await act(async () => result.current.toggleIntraLineDiff())
+    await waitFor(() => expect(result.current.isLoaded).toBe(true))
+
+    // Assert — the toggle survives the load that lands after it.
+    const expected = true
+    expect(result.current.settings.intraLineDiff).toBe(expected)
   })
 })

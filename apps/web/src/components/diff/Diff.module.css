@@ -453,17 +453,51 @@
    read as too sharp. At 30% the edge is 2.86:1 dark / 1.74:1 light, still well ahead of the wash
    alone (1.44:1 / 1.20:1), so the run stays bounded without ruling a hard line around it.
    Same inset-outline idiom as .findCurrent above; the 3px radius keeps short runs from reading as
-   hard-cornered chips. */
+   hard-cornered chips.
+   The two sides differ ONLY by which hue they mix from, so they carry that as a custom property
+   and share every rule below — otherwise each of the run states would need a duplicate per
+   colour, with the color-mix repeated eight times. */
 .charAdd {
-  background: color-mix(in srgb, var(--added) 14%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--added) 30%, transparent);
-  border-radius: 3px;
+  --emph: var(--added);
 }
 
 .charDel {
-  background: color-mix(in srgb, var(--deleted) 14%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--deleted) 30%, transparent);
+  --emph: var(--deleted);
+}
+
+.charRun {
+  background: color-mix(in srgb, var(--emph) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--emph) 30%, transparent);
   border-radius: 3px;
+}
+
+/* A changed run that crosses token boundaries is several spans, because the emphasis is painted
+   inside each token (CodeContent) to keep syntax colour and anchor clicks intact. Left alone,
+   each piece drew its own ring and radius — `, "threads"` came out as two chips instead of one
+   highlight. So a piece that continues into its neighbour drops the edge and the corners where
+   they meet, and only the outer ends stay rounded. The sides are stated one at a time rather
+   than as a single ring, which is the only way to leave one of them off. */
+.charRun[data-run="start"] {
+  border-radius: 3px 0 0 3px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--emph) 30%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--emph) 30%, transparent),
+    inset 1px 0 0 color-mix(in srgb, var(--emph) 30%, transparent);
+}
+
+.charRun[data-run="mid"] {
+  border-radius: 0;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--emph) 30%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--emph) 30%, transparent);
+}
+
+.charRun[data-run="end"] {
+  border-radius: 0 3px 3px 0;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--emph) 30%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--emph) 30%, transparent),
+    inset -1px 0 0 color-mix(in srgb, var(--emph) 30%, transparent);
 }
 
 .flash {
