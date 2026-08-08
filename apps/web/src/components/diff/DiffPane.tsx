@@ -56,6 +56,7 @@ import { useDiffFind } from "@/hooks/useDiffFind"
 import { useDiffShortcuts } from "@/hooks/useDiffShortcuts"
 import { useDiffViewSettings } from "@/hooks/useDiffViewSettings"
 import { useEscapeKey } from "@/hooks/useEscapeKey"
+import { useInvalidateReviewComments } from "@/hooks/useInvalidateReviewComments"
 import { useLineSelection } from "@/hooks/useLineSelection"
 import { useLineTokenizer } from "@/hooks/useLineTokenizer"
 import type { PeekNavApi } from "@/hooks/usePeekNavigation"
@@ -195,6 +196,7 @@ export function DiffPane({
   // session-wide (staleTime Infinity), so it costs nothing to ask again.
   const viewerQuery = useQuery(viewerQueryOptions())
   const { saveEdit } = useUpdateReviewComment(target)
+  const invalidateComments = useInvalidateReviewComments(target)
   const tokenizer = useLineTokenizer(file?.language ?? null)
   const {
     settings,
@@ -563,11 +565,17 @@ export function DiffPane({
 
   // "Comment now" (§11): publish immediately instead of drafting. Success closes the
   // composer like a save; failure keeps it open with the error inline, text intact.
+  //
+  // The re-read is not optional here: this path posts a REAL comment straight to GitHub and
+  // nothing else refetches the list, so without it the comment the reviewer just published
+  // stays invisible until they press Refresh — measured against real GitHub, the POST answered
+  // 201 and the app issued no follow-up GET at all. Same invalidation the review submit uses.
   const commentNow = useMutation({
     mutationFn: (draft: DraftComment) => getPrClient().addCommentNow(target, draft),
     onSuccess: () => {
       selection.clear()
       setEditingKey(null)
+      invalidateComments()
     },
   })
 
