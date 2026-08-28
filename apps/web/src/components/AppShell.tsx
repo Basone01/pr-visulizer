@@ -28,6 +28,7 @@ import { type PaneId, usePaneCollapse } from "@/hooks/usePaneCollapse"
 import { usePanelSizes } from "@/hooks/usePanelSizes"
 import { usePeekNavigation } from "@/hooks/usePeekNavigation"
 import { useQueueMode } from "@/hooks/useQueueMode"
+import { useRecentFiles } from "@/hooks/useRecentFiles"
 import { useRefreshPr } from "@/hooks/useRefreshPr"
 import { useReviewProgress } from "@/hooks/useReviewProgress"
 import { type Verdict, useSubmitReview } from "@/hooks/useSubmitReview"
@@ -42,6 +43,7 @@ import { CollapsedStrip } from "./CollapsedStrip"
 import { ErrorBoundary } from "./ErrorBoundary"
 import { LocateRepoPrompt } from "./LocateRepoPrompt"
 import { PaneDivider } from "./PaneDivider"
+import { RecentFilesPalette } from "./RecentFilesPalette"
 import { TopBar } from "./TopBar"
 import { DiffPane } from "./diff/DiffPane"
 import { GhostFilePane } from "./diff/GhostFilePane"
@@ -244,11 +246,17 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
         : null,
     [view, progress]
   )
-  // Paths of the PR's changed files — the usages popover splits targets into in-PR vs ghost.
-  const changedPaths = useMemo(
-    () => new Set((analysis?.files ?? overview?.files ?? []).map((file) => file.path)),
+  // Paths of the PR's changed files — the ⌘P palette searches this list, and the usages popover
+  // splits targets into in-PR vs ghost by membership in it.
+  const filePaths = useMemo(
+    () => (analysis?.files ?? overview?.files ?? []).map((file) => file.path),
     [analysis, overview]
   )
+  const changedPaths = useMemo(() => new Set(filePaths), [filePaths])
+
+  // The files the reviewer has moved through — the ⌘P switcher's list. Tracked here (above the
+  // loading gate below) so a refetch that briefly drops the overview can't wipe the history.
+  const recentFiles = useRecentFiles(current.path)
 
   // Occurrences of changed symbols in the OPEN path — the ghost pane's highlight lines. Cheap
   // for changed files too (unused there), which keeps the hook above the early returns.
@@ -365,6 +373,8 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
       )}
 
       {repoSourceModal}
+
+      <RecentFilesPalette recentFiles={recentFiles} filePaths={filePaths} onOpenFile={selectFile} />
 
       {cloneModal && (
         <CloneRootModal

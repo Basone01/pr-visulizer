@@ -1,0 +1,85 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  /* Quick open sits near the top, not centered: the reviewer's eyes are already up at the file
+     header, and a centered box would cover the diff they are comparing against. */
+  align-items: flex-start;
+  padding-top: 12vh;
+  z-index: 60;
+}
+
+.card {
+  width: 520px;
+  max-width: calc(100vw - 32px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  /* Long folder paths must not push the file name out of the row. */
+  overflow: hidden;
+}
+
+.selected {
+  background: var(--accent-soft);
+}
+
+.name {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.dir {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.match {
+  color: var(--accent);
+  background: none;
+  font-weight: 700;
+}
+
+.empty {
+  margin: 10px 8px 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
