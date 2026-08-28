@@ -39,7 +39,11 @@ describe("createDeepEngine — TS unchanged caller of changed code", () => {
   it("emits the unchanged importer as a ghost using the changed symbol", async () => {
     // Arrange
     const engine = buildTsDeepEngine()
-    const expectedGhost = { path: ADMIN_PATH, usedChangedSymbols: [WITH_RATE_LIMIT_ID] }
+    const expectedGhost = {
+      path: ADMIN_PATH,
+      usedChangedSymbols: [WITH_RATE_LIMIT_ID],
+      usesChangedFiles: [PR42_PATHS.withRateLimit],
+    }
 
     // Act
     const result = await engine.analyze(target)

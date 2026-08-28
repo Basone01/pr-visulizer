@@ -19,7 +19,13 @@ const WITH_RATE_LIMIT_ID = `${pr42Paths.withRateLimit}#withRateLimit`
 const deepAnalysis: AnalysisResult = analysisResultSchema.parse({
   ...pr42Analysis,
   engine: "deep",
-  ghosts: [{ path: GHOST_PATH, usedChangedSymbols: [WITH_RATE_LIMIT_ID] }],
+  ghosts: [
+    {
+      path: GHOST_PATH,
+      usedChangedSymbols: [WITH_RATE_LIMIT_ID],
+      usesChangedFiles: [pr42Paths.withRateLimit],
+    },
+  ],
   // Deep ranking carries blastRadius per changed file; only withRateLimit has an unchanged
   // dependent here, so it is the one row that shows the badge.
   ranking: pr42Analysis.ranking.map((ranked) =>
@@ -61,12 +67,13 @@ describe("ReviewTray blast-radius badge (deep engine)", () => {
     expect(screen.queryByText(/⚠️ 0/)).toBeNull()
   })
 
-  it("derives the ghost with its used changed-symbol list", () => {
+  it("derives the ghost with its used changed-symbol list and the file it reaches", () => {
     // Arrange
     const expectedGhost = {
       path: GHOST_PATH,
       fileName: "admin.ts",
       usedChangedSymbols: [WITH_RATE_LIMIT_ID],
+      usesChangedFiles: [pr42Paths.withRateLimit],
     }
 
     // Act

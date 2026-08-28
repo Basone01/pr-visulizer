@@ -11,6 +11,7 @@ import "@xyflow/react/dist/style.css"
 import { useEffect, useMemo } from "react"
 
 import { NODE_HEIGHT, NODE_WIDTH, type NodePosition, nodeSize } from "@/utils/graph/elkLayout"
+import { buildGhostEdges } from "@/utils/graph/ghostEdges"
 import { layoutGhostGroup } from "@/utils/graph/ghostGroupLayout"
 import { DEFAULT_GRAPH_ZOOM_POLICY } from "@/utils/graph/graphViewport"
 import { rangeVisibleGraph } from "@/utils/graph/rangeFilter"
@@ -126,9 +127,10 @@ export function GraphPane({
     [visible]
   )
 
-  // Only CHANGED files go through the layered layout. Ghosts have no edges at all (§6), so elk
-  // used to drop them into the first column beside the isolated changed files — the two groups
-  // were indistinguishable. They get their own band below instead.
+  // Only CHANGED files go through the layered layout. A ghost's edges to the files it references
+  // are render-only (see rfEdges) and deliberately never reach elk — fed in, the layered algorithm
+  // pulls ghosts up into the file columns and the two groups become indistinguishable. They get
+  // their own band below instead.
   //
   // Filtering feeds straight in: a narrower node set is a new layout signature, so elk re-lays
   // out the subset and FitGraphOnLayout re-frames it — no separate "refit on range" machinery.
@@ -206,23 +208,40 @@ export function GraphPane({
     return [groupBackdrop, ...files, ...ghosts]
   }, [positions, ghostGroup, visible, ghostNodes])
 
-  const rfEdges = useMemo<Edge[]>(
-    () =>
-      visible.fileEdges.map((edge) => {
-        // Deep-confirmed edges (source lsp) draw in the accent color (edge-legend).
-        const color = edge.source === "lsp" ? "var(--accent)" : "var(--muted)"
+  const rfEdges = useMemo<Edge[]>(() => {
+    const fileEdges: Edge[] = visible.fileEdges.map((edge) => {
+      // Deep-confirmed edges (source lsp) draw in the accent color (edge-legend).
+      const color = edge.source === "lsp" ? "var(--accent)" : "var(--muted)"
 
-        return {
-          id: `${edge.from}->${edge.to}`,
-          type: "dependency",
-          source: edge.from,
-          target: edge.to,
-          style: { stroke: color },
-          markerEnd: { type: MarkerType.ArrowClosed, color },
-        }
-      }),
-    [visible]
-  )
+      return {
+        id: `${edge.from}->${edge.to}`,
+        type: "dependency",
+        source: edge.from,
+        target: edge.to,
+        style: { stroke: color },
+        markerEnd: { type: MarkerType.ArrowClosed, color },
+      }
+    })
+
+    // "a ghost node with a dashed edge" (§380). Dashed and muted — the same weight as the ghost
+    // node's own dashed border, because a ghost is context, not review work. React Flow is the
+    // only thing that ever sees these: elk laid the graph out without them, and the ranking never
+    // knew about them.
+    const ghostEdges: Edge[] = buildGhostEdges(ghostNodes, visible.paths).map((edge) => {
+      const color = "var(--muted)"
+
+      return {
+        id: edge.id,
+        type: "dependency",
+        source: edge.from,
+        target: edge.to,
+        style: { stroke: color, strokeDasharray: "4 4" },
+        markerEnd: { type: MarkerType.ArrowClosed, color },
+      }
+    })
+
+    return [...fileEdges, ...ghostEdges]
+  }, [visible, ghostNodes])
 
   const progressChip = (
     <ReviewedProgressChip

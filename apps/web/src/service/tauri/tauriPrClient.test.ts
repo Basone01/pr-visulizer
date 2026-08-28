@@ -151,7 +151,11 @@ describe("createTauriPrClient — deep-only pipeline (PR #42 fixture)", () => {
     const response = await client.getAnalysis(PR42, "deep")
 
     // Assert
-    const expectedGhost = { path: ADMIN_PATH, usedChangedSymbols: [WITH_RATE_LIMIT_ID] }
+    const expectedGhost = {
+      path: ADMIN_PATH,
+      usedChangedSymbols: [WITH_RATE_LIMIT_ID],
+      usesChangedFiles: [PR42_PATHS.withRateLimit],
+    }
     expect(response.status).toBe("ready")
     if (response.status !== "ready") throw new Error("expected a ready analysis")
 

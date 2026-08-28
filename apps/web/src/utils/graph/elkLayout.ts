@@ -57,9 +57,10 @@ export function nodeSize(variant: NodeSizeVariant): NodeSize {
 
 export type LayoutNode = { path: string } & NodeSizeVariant
 
-// Ghosts are laid out separately (ghostGroupLayout) and must never reach elk: they carry no edges,
-// so the layered algorithm scatters them through the first column among the isolated CHANGED files
-// and the two groups become impossible to tell apart. Filtering here — not just at the call site —
+// Ghosts are laid out separately (ghostGroupLayout) and must never reach elk. Their edges to the
+// changed files they reference exist, but as a render-only layer (utils/graph/ghostEdges) that
+// stops short of this module: laid out with the changed files, ghosts land in the same columns and
+// the two groups become impossible to tell apart. Filtering here — not just at the call site —
 // makes "elk never sees a ghost" an invariant of the layout module itself.
 export function buildElkGraph(nodes: LayoutNode[], edges: LayoutEdge[]): ElkNode {
   const laidOut = nodes.filter((node) => !node.ghost)

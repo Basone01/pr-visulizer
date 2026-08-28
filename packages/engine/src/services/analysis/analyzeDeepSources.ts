@@ -209,8 +209,24 @@ function buildBlastAndGhosts(
     addDependent(to, from)
   }
 
+  // The same fact read the other way round: ghost file → the changed files it reaches. Both
+  // loops above feed `dependents`, so an import-only ghost (no changed symbol referenced) still
+  // names the file it imports — that's the dashed edge the graph draws (§6, §380).
+  const usesChangedFiles = new Map<string, Set<string>>()
+  for (const [changedFile, unchangedFiles] of dependents) {
+    for (const unchangedFile of unchangedFiles) {
+      const uses = usesChangedFiles.get(unchangedFile) ?? new Set<string>()
+      uses.add(changedFile)
+      usesChangedFiles.set(unchangedFile, uses)
+    }
+  }
+
   const ghosts: GhostFile[] = [...usedSymbols.entries()]
-    .map(([path, ids]) => ({ path, usedChangedSymbols: [...ids].sort() }))
+    .map(([path, ids]) => ({
+      path,
+      usedChangedSymbols: [...ids].sort(),
+      usesChangedFiles: [...(usesChangedFiles.get(path) ?? [])].sort(),
+    }))
     .sort((a, b) => {
       const byCount = (refCount.get(b.path) ?? 0) - (refCount.get(a.path) ?? 0)
       return byCount !== 0 ? byCount : a.path < b.path ? -1 : 1

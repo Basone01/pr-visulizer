@@ -152,6 +152,7 @@ export function derivePrView(
     path: ghost.path,
     fileName: baseName(ghost.path),
     usedChangedSymbols: ghost.usedChangedSymbols,
+    usesChangedFiles: ghost.usesChangedFiles,
   }))
 
   return {

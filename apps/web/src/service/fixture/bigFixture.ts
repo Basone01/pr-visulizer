@@ -161,7 +161,8 @@ function bigSymbolsAndOccurrences(files: ChangedFile[]): {
 // One ghost (§6: unchanged file referencing changed code) so the ghost-view path is exercisable
 // in fixture mode: it uses two of file0's changed symbols at three known lines of GHOST_HEAD.
 export const GHOST_PATH = "src/module0/ghostConsumer.ts"
-const GHOST_SYMBOLS = ["src/module0/file0.ts#Symbol0", "src/module0/file0.ts#Symbol1"]
+const GHOST_CHANGED_FILE = "src/module0/file0.ts"
+const GHOST_SYMBOLS = [`${GHOST_CHANGED_FILE}#Symbol0`, `${GHOST_CHANGED_FILE}#Symbol1`]
 const GHOST_REF_LINES = [4, 9, 17]
 
 export const GHOST_HEAD = [
@@ -200,14 +201,32 @@ function ghostOccurrences(): SymbolOccurrence[] {
 // GHOST_PATH above serves head content.
 const EXTRA_GHOST_COUNT = 7
 
+// The changed files one extra ghost reaches — the dashed edges the graph draws (§380). Each extra
+// reaches the first changed file of its OWN module so the edges fan across the graph instead of
+// all landing on one node, and every other extra ALSO reaches file0 — the fixture then shows both
+// a single-edge ghost and one branching to two files.
+function extraGhostUses(index: number): string[] {
+  const ownModuleFile = `src/module${index % 3}/file${(index % 3) * 10}.ts`
+  const reached = index % 2 === 1 ? [ownModuleFile, GHOST_CHANGED_FILE] : [ownModuleFile]
+
+  return [...new Set(reached)].sort()
+}
+
 function ghostFiles(): GhostFile[] {
   const extras = Array.from({ length: EXTRA_GHOST_COUNT }, (_unused, index) => ({
     path: `src/module${index % 3}/ghostReader${index}.ts`,
     // Varying reference counts, so the band shows the same "N refs" spread a real deep run does.
     usedChangedSymbols: GHOST_SYMBOLS.slice(0, (index % GHOST_SYMBOLS.length) + 1),
+    usesChangedFiles: extraGhostUses(index),
   }))
 
-  return [{ path: GHOST_PATH, usedChangedSymbols: GHOST_SYMBOLS }, ...extras]
+  const consumer = {
+    path: GHOST_PATH,
+    usedChangedSymbols: GHOST_SYMBOLS,
+    usesChangedFiles: [GHOST_CHANGED_FILE],
+  }
+
+  return [consumer, ...extras]
 }
 
 export function buildBigAnalysis(owner: string, repo: string): AnalysisResult {

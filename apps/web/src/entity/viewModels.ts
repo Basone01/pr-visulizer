@@ -38,6 +38,8 @@ export type GhostNodeVM = {
   path: string
   fileName: string
   usedChangedSymbols: string[]
+  // The changed files this ghost reaches — one dashed graph edge each (§6, §380).
+  usesChangedFiles: string[]
 }
 
 // Which optional rows a FileNode renders. The single predicate shared by the node itself (what it
