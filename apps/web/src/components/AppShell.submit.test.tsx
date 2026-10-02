@@ -63,13 +63,31 @@ function renderShell() {
   )
 }
 
+// This journey waits on a real async pipeline — the fixture client's simulated latency, then the
+// diff pane's progressive row rendering. Under a full parallel suite that regularly outruns
+// testing-library's 1s default, which showed up as this file passing alone and failing in the
+// suite. The waits are for work that genuinely takes time, so they get a timeout to match.
+const PIPELINE_TIMEOUT = { timeout: 5000 }
+
+// …and the whole journey — analysis, two round trips, a submit, a refetch — outruns vitest's 5s
+// per-test default under that same load, which is what actually failed: not a missing element,
+// but the test budget expiring. Generous on purpose; a genuine miss still fails at the 5s wait
+// above, well inside this.
+const JOURNEY_TIMEOUT_MS = 20_000
+
 // Open the file, draft one comment on it, and submit the review carrying it.
 async function draftAndSubmitComment(user: UserEvent): Promise<void> {
-  await user.click(await screen.findByRole("button", { name: FILE_PATH }))
-  await user.click(await screen.findByRole("button", { name: `Comment on line ${COMMENTED_LINE}` }))
+  await user.click(await screen.findByRole("button", { name: FILE_PATH }, PIPELINE_TIMEOUT))
+  await user.click(
+    await screen.findByRole(
+      "button",
+      { name: `Comment on line ${COMMENTED_LINE}` },
+      PIPELINE_TIMEOUT
+    )
+  )
   await user.type(screen.getByLabelText("Comment body"), COMMENT_BODY)
   await user.click(screen.getByRole("button", { name: "Add" }))
-  await screen.findByText(DRAFT_PILL)
+  await screen.findByText(DRAFT_PILL, undefined, PIPELINE_TIMEOUT)
 
   await user.click(screen.getByRole("button", { name: "submit without reviewing all" }))
   await user.click(screen.getByRole("button", { name: "Comment" }))
@@ -82,43 +100,59 @@ describe("AppShell — the published comment lifecycle", () => {
     fixture.client = createFixturePrClient()
   })
 
-  it("shows a submitted comment as a thread and drops the local draft", async () => {
-    // Arrange
-    const user = userEvent.setup()
-    renderShell()
+  it(
+    "shows a submitted comment as a thread and drops the local draft",
+    async () => {
+      // Arrange
+      const user = userEvent.setup()
+      renderShell()
 
-    // Act
-    await draftAndSubmitComment(user)
+      // Act
+      await draftAndSubmitComment(user)
 
-    // Assert — the published thread is on the line straight away, and the draft that became it
-    // is gone, so the reviewer sees the comment once rather than twice.
-    const bubble = await screen.findByRole("button", { name: EXISTING_COMMENT })
-    expect(bubble).toHaveAttribute("aria-label", expect.stringContaining(`line ${COMMENTED_LINE}`))
-    await waitFor(() => expect(screen.queryByText(DRAFT_PILL)).toBeNull())
+      // Assert — the published thread is on the line straight away, and the draft that became it
+      // is gone, so the reviewer sees the comment once rather than twice.
+      const bubble = await screen.findByRole("button", { name: EXISTING_COMMENT }, PIPELINE_TIMEOUT)
+      expect(bubble).toHaveAttribute(
+        "aria-label",
+        expect.stringContaining(`line ${COMMENTED_LINE}`)
+      )
+      await waitFor(() => expect(screen.queryByText(DRAFT_PILL)).toBeNull(), PIPELINE_TIMEOUT)
 
-    await user.click(bubble)
-    expect(await screen.findByText(COMMENT_BODY)).toBeInTheDocument()
-  })
+      await user.click(bubble)
+      expect(await screen.findByText(COMMENT_BODY, undefined, PIPELINE_TIMEOUT)).toBeInTheDocument()
+    },
+    JOURNEY_TIMEOUT_MS
+  )
 
-  it("edits that comment in place and renders the new body", async () => {
-    // Arrange — the submitted comment is the viewer's own, so it carries the Edit affordance.
-    const user = userEvent.setup()
-    const editedBody = "On reflection: read this from the shared config module."
-    renderShell()
-    await draftAndSubmitComment(user)
-    await user.click(await screen.findByRole("button", { name: EXISTING_COMMENT }))
+  it(
+    "edits that comment in place and renders the new body",
+    async () => {
+      // Arrange — the submitted comment is the viewer's own, so it carries the Edit affordance.
+      const user = userEvent.setup()
+      const editedBody = "On reflection: read this from the shared config module."
+      renderShell()
+      await draftAndSubmitComment(user)
+      await user.click(
+        await screen.findByRole("button", { name: EXISTING_COMMENT }, PIPELINE_TIMEOUT)
+      )
 
-    // Act
-    await user.click(await screen.findByRole("button", { name: "Edit" }))
-    const editor = screen.getByLabelText("Edit comment body")
-    await user.clear(editor)
-    await user.type(editor, editedBody)
-    await user.click(screen.getByRole("button", { name: "Save" }))
+      // Act
+      await user.click(await screen.findByRole("button", { name: "Edit" }, PIPELINE_TIMEOUT))
+      const editor = screen.getByLabelText("Edit comment body")
+      await user.clear(editor)
+      await user.type(editor, editedBody)
+      await user.click(screen.getByRole("button", { name: "Save" }))
 
-    // Assert — wait for the editor to close FIRST: while it is open its textarea still holds
-    // the new text, so asserting the body before that would pass without anything being saved.
-    await waitFor(() => expect(screen.queryByLabelText("Edit comment body")).toBeNull())
-    expect(await screen.findByText(editedBody)).toBeInTheDocument()
-    expect(screen.queryByText(COMMENT_BODY)).toBeNull()
-  })
+      // Assert — wait for the editor to close FIRST: while it is open its textarea still holds
+      // the new text, so asserting the body before that would pass without anything being saved.
+      await waitFor(
+        () => expect(screen.queryByLabelText("Edit comment body")).toBeNull(),
+        PIPELINE_TIMEOUT
+      )
+      expect(await screen.findByText(editedBody, undefined, PIPELINE_TIMEOUT)).toBeInTheDocument()
+      expect(screen.queryByText(COMMENT_BODY)).toBeNull()
+    },
+    JOURNEY_TIMEOUT_MS
+  )
 })

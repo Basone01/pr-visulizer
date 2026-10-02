@@ -15,7 +15,14 @@ import {
 import type { AnalysisProgress, AnalysisProgressListener } from "@/entity/analysisProgress"
 import type { PrTarget, RepoRef } from "@/entity/pr"
 
-import type { AnalysisResponse, PrClient, ReviewSubmission } from "../prClient"
+import {
+  type AnalysisResponse,
+  type PrClient,
+  REVISION_PINNED_PR_REVISION_CHANGED_MESSAGE,
+  type ReviewSubmission,
+  RevisionPinnedPatchError,
+  type RevisionPinnedPatchSnapshotRequest,
+} from "../prClient"
 import {
   BIG_FIXTURE_NUMBER,
   BIG_MARKDOWN_HEAD,
@@ -43,6 +50,22 @@ const SIMULATED_ANALYSIS_MS = 1500
 
 function delay<T>(value: T, ms: number = SIMULATED_LATENCY_MS): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
+}
+
+function assertFixtureSnapshotRevision(
+  target: PrTarget,
+  request: RevisionPinnedPatchSnapshotRequest
+): void {
+  const revision =
+    target.number === BIG_FIXTURE_NUMBER
+      ? { baseSha: "base999", headSha: "head999" }
+      : pr42Analysis.pr
+  if (request.baseSha !== revision.baseSha || request.headSha !== revision.headSha) {
+    throw new RevisionPinnedPatchError(
+      "revision-changed",
+      REVISION_PINNED_PR_REVISION_CHANGED_MESSAGE
+    )
+  }
 }
 
 function emptyProgress(target: PrTarget): ReviewProgress {
@@ -238,6 +261,17 @@ export function createFixturePrClient(): PrClient {
       if (target.number === BIG_FIXTURE_NUMBER) return delay(bigPatch(path))
 
       return delay(pr42Patches[path] ?? "")
+    },
+
+    async getRevisionPinnedPatchSnapshot(target, request) {
+      assertFixtureSnapshotRevision(target, request)
+      const patches = Object.fromEntries(
+        await Promise.all(
+          [...new Set(request.paths)].map(async (path) => [path, await this.getPatch(target, path)])
+        )
+      )
+      assertFixtureSnapshotRevision(target, request)
+      return { baseSha: request.baseSha, headSha: request.headSha, patches }
     },
 
     // §10 commit-range picker. The big fixture has no commit history behind it, so it offers no

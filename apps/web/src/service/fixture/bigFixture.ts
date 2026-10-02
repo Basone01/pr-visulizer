@@ -201,7 +201,7 @@ function ghostOccurrences(): SymbolOccurrence[] {
 // GHOST_PATH above serves head content.
 const EXTRA_GHOST_COUNT = 7
 
-// The changed files one extra ghost reaches — the dashed edges the graph draws (§380). Each extra
+// The changed files one extra ghost reaches — the faded edges the graph draws (§380). Each extra
 // reaches the first changed file of its OWN module so the edges fan across the graph instead of
 // all landing on one node, and every other extra ALSO reaches file0 — the fixture then shows both
 // a single-edge ghost and one branching to two files.

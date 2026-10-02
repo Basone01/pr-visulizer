@@ -92,6 +92,13 @@ const STATUS_TAG: Record<ChangedFile["status"], string | undefined> = {
   renamed: styles.tagModified,
 }
 
+export type DiffPaneSelectionContext = {
+  path: string
+  side: "RIGHT"
+  startLine: number
+  endLine: number
+}
+
 type DiffPaneProps = {
   target: PrTarget
   file: ChangedFile | null
@@ -113,6 +120,9 @@ type DiffPaneProps = {
   onAddDraft: (draft: DraftComment) => void
   onUpdateDraft: (key: string, body: string) => void
   onDeleteDraft: (key: string) => void
+  // Lifts only the exact head-side line reference for desktop AI chat scope. It exposes no
+  // source text, process access, or write path, and remains optional for the ordinary diff.
+  onSelectionChange?: ((selection: DiffPaneSelectionContext | null) => void) | undefined
   // The commit-range lens (§10). With no range selected this changes nothing about the pane —
   // the whole-PR patch renders exactly as it did before the feature existed.
   commitRange: DiffCommitRangeApi
@@ -186,6 +196,7 @@ export function DiffPane({
   onAddDraft,
   onUpdateDraft,
   onDeleteDraft,
+  onSelectionChange,
   commitRange,
 }: DiffPaneProps) {
   const path = file?.path ?? ""
@@ -278,6 +289,18 @@ export function DiffPane({
     setExpandedCommentLine(null)
     setBucketOpen(false)
   }, [path, selection.clear])
+
+  useEffect(() => {
+    if (!onSelectionChange) return
+
+    if (path === "" || selection.selection === null) {
+      onSelectionChange(null)
+      return
+    }
+
+    const range = selectionRange(selection.selection)
+    onSelectionChange({ path, side: "RIGHT", ...range })
+  }, [onSelectionChange, path, selection.selection])
 
   // Both are pure view transforms layered over the parse (§10): neither renumbers the head side,
   // so anchors, drafts and find keep resolving in either mode. Full-file re-renders the patch

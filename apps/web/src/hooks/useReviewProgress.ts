@@ -1,6 +1,6 @@
 import type { DraftComment, ReviewProgress } from "@pr-visulizer/shared"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useCallback, useRef } from "react"
+import { useCallback } from "react"
 
 import {
   addDraft,
@@ -22,49 +22,57 @@ import { progressQueryOptions } from "@/service/queries"
 
 type OptimisticContext = { previous: ReviewProgress | undefined }
 
+// Identifies this PR's progress writes, so onSettled can ask whether a newer one is already in
+// flight. Same shape as the scope id, kept in one place so the two cannot drift apart.
+function progressMutationKey(target: PrTarget): [string, string] {
+  return ["progress", `${target.owner}/${target.repo}#${target.number}`]
+}
+
 export function useReviewProgress(target: PrTarget) {
   const queryClient = useQueryClient()
   const options = progressQueryOptions(target)
   const query = useQuery(options)
 
   // The PUT is full-state replacement, so overlapping mutations would race (the
-  // last-arriving snapshot wins and drops the others). Two rules prevent that:
-  // the mutation VARIABLE is a transform applied to the fresh cache at start time
-  // (not a state snapshot taken when the click happened), and same-scope mutations
-  // run serially — so each PUT carries the cumulative state.
+  // last-arriving snapshot wins and drops the others). The mutation VARIABLE is a transform
+  // applied to the fresh cache at start time — not a state snapshot taken when the click
+  // happened — so each PUT carries the cumulative state.
   type ProgressTransform = (current: ReviewProgress) => ReviewProgress
 
-  // The state THIS mutation's onMutate computed, handed to its own mutationFn. A v5 mutationFn
-  // cannot receive the mutation context, and re-reading the cache there is not safe: the
-  // previous mutation's onSettled invalidate can land its refetch between the two steps and put
-  // the pre-transform state back, which would then be PUT as if it were the new one (a submit
-  // that clears its published drafts hits exactly this). The `scope` below serializes same-PR
-  // mutations, so at most one of them sits between its onMutate and its mutationFn.
-  const pendingProgress = useRef<ReviewProgress | null>(null)
+  // One write's unit of work: the transform, plus the state this mutation's own onMutate
+  // computed from it. `next` rides on the VARIABLES rather than a hook-level ref because
+  // `scope` does NOT serialize onMutate — with two rapid toggles both onMutates run before
+  // either mutationFn (traced), so a shared ref hands the FIRST PUT the second toggle's state.
+  // Variables are per-mutation by construction, which makes that mix-up unrepresentable.
+  type ProgressWrite = { transform: ProgressTransform; next: ReviewProgress | null }
 
-  const mutation = useMutation<ReviewProgress, Error, ProgressTransform, OptimisticContext>({
+  const mutation = useMutation<ReviewProgress, Error, ProgressWrite, OptimisticContext>({
+    mutationKey: progressMutationKey(target),
     scope: { id: `progress:${target.owner}/${target.repo}#${target.number}` },
-    onMutate: async (transform) => {
+    onMutate: async (write) => {
       await queryClient.cancelQueries({ queryKey: options.queryKey })
       const previous = queryClient.getQueryData<ReviewProgress>(options.queryKey)
-      pendingProgress.current = previous ? transform(previous) : null
-      if (pendingProgress.current) {
-        queryClient.setQueryData(options.queryKey, pendingProgress.current)
-      }
+      write.next = previous ? write.transform(previous) : null
+      if (write.next) queryClient.setQueryData(options.queryKey, write.next)
 
       return { previous }
     },
-    // Runs directly after onMutate, so it PUTs exactly the state that was made optimistic.
-    mutationFn: () => {
-      const next = pendingProgress.current
-      if (!next) throw new Error("review progress not loaded yet")
+    // PUTs exactly the state its own onMutate made optimistic.
+    mutationFn: (write) => {
+      if (!write.next) throw new Error("review progress not loaded yet")
 
-      return getPrClient().putProgress(target, next)
+      return getPrClient().putProgress(target, write.next)
     },
-    onError: (_error, _transform, context) => {
+    onError: (_error, _write, context) => {
       if (context?.previous) queryClient.setQueryData(options.queryKey, context.previous)
     },
     onSettled: () => {
+      // Another toggle is already in flight — let IT settle the query. Refetching now would ask
+      // for state this mutation has already superseded, and that answer lands AFTER the newer
+      // optimistic update and reverts it: the checkbox flicks back to its old value on its own
+      // before a later read corrects it. Only the last write standing refetches.
+      if (queryClient.isMutating({ mutationKey: progressMutationKey(target) }) > 1) return
+
       void queryClient.invalidateQueries({ queryKey: options.queryKey })
     },
   })
@@ -79,7 +87,7 @@ export function useReviewProgress(target: PrTarget) {
     (transform: ProgressTransform): void => {
       if (!isLoaded) return
 
-      mutate(transform)
+      mutate({ transform, next: null })
     },
     [isLoaded, mutate]
   )

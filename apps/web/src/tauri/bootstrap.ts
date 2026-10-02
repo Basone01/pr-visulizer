@@ -8,6 +8,10 @@ import { createTauriKeyValueStore } from "@/utils/storage/keyValueStore"
 
 import { OPEN_TARGET_EVENT } from "@/entity/deepLink"
 
+import {
+  initTauriAiReviewClient,
+  recoverAndAcknowledgeCodexRuns,
+} from "@/service/aiReview/tauriAiReviewClient"
 import { initTauriClient } from "@/service/clientFactory"
 
 import { onSecondInstance, readCliUrlArg, targetFromForwardedArgv } from "./cliArgs"
@@ -36,6 +40,13 @@ function applyColdStartArg(raw: string | null): void {
 }
 
 export async function bootstrapTauri(): Promise<TauriBootResult> {
+  const storage = createTauriKeyValueStore()
+  // Recovery precedes authentication and React mounting. Rust has already resolved each Codex
+  // marker/PID/start record, so unresolved or PID-reused work remains visibly running instead of
+  // being falsely interrupted while its app-owned state is intentionally retained. Rust keeps the
+  // recovery evidence until this acknowledges the interruption it durably persisted.
+  await recoverAndAcknowledgeCodexRuns(storage)
+
   const tokenResult = await fetchGhToken()
   if (!tokenResult.ok) return { ok: false, error: tokenResult.error }
 
@@ -43,9 +54,10 @@ export async function bootstrapTauri(): Promise<TauriBootResult> {
   initTauriClient({
     token: tokenResult.token,
     fetch,
-    storage: createTauriKeyValueStore(),
+    storage,
     precision: resolvePrecisionPolicy(DESKTOP_PRECISION_PRESET),
   })
+  initTauriAiReviewClient({ storage })
 
   applyColdStartArg(await readCliUrlArg())
 

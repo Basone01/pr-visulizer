@@ -1,87 +1,225 @@
-// Dev-only bridge that lets the tauri-webview MCP server drive this WKWebView (which has no
-// CDP endpoint, so no external tool can drive it directly). It polls a local command bus for
-// {eval, click, text, wait} commands, runs them in-page, and posts back the result. Loaded
-// only in a dev build under Tauri (see main.tsx); it never ships in a release bundle.
-//
-// Canonical template + the MCP server live in dot-ai/tools/tauri-webview-mcp/ (shared across
-// projects). This is the app-local copy; keep it in sync with that template.
+// Copy into the frontend and load only behind import.meta.env.DEV and a Tauri check.
 const BRIDGE_URL = "http://127.0.0.1:7331"
+const MAX_QUEUED = 256
 
-type Command =
-  | { id: number; cmd: "eval"; expression: string }
-  | { id: number; cmd: "click"; selector: string }
-  | { id: number; cmd: "text"; max: number }
-  | { id: number; cmd: "wait"; expression: string; timeoutMs: number }
+type Command = { id: string; expiresAt: number } & (
+  | { cmd: "eval"; expression: string }
+  | { cmd: "click"; selector: string }
+  | { cmd: "text"; max: number }
+  | { cmd: "wait"; expression: string; timeoutMs: number }
+)
 
-async function runCommand(command: Command): Promise<unknown> {
+function isCommand(value: unknown): value is Command {
+  if (!value || typeof value !== "object") return false
+
+  const command = value as Record<string, unknown>
+  if (
+    typeof command.id !== "string" ||
+    typeof command.expiresAt !== "number" ||
+    !Number.isFinite(command.expiresAt)
+  )
+    return false
+
   switch (command.cmd) {
     case "eval":
-      // Indirect eval; the MCP caller is a trusted local dev tool.
+      return typeof command.expression === "string"
+    case "click":
+      return typeof command.selector === "string"
+    case "text":
+      return (
+        typeof command.max === "number" &&
+        Number.isInteger(command.max) &&
+        command.max >= 0 &&
+        command.max <= 100000
+      )
+    case "wait":
+      return (
+        typeof command.expression === "string" &&
+        typeof command.timeoutMs === "number" &&
+        Number.isInteger(command.timeoutMs) &&
+        command.timeoutMs >= 0 &&
+        command.timeoutMs <= 60000
+      )
+    default:
+      return false
+  }
+}
+
+async function runCommand(command: Command, running: () => boolean): Promise<unknown> {
+  switch (command.cmd) {
+    case "eval":
+      // Indirect eval runs in the webview's global scope, for trusted local dev callers.
       return await (0, eval)(`(async () => (${command.expression}))()`)
     case "click": {
-      const el = document.querySelector<HTMLElement>(command.selector)
-      if (!el) return false
-      el.click()
+      const element = document.querySelector<HTMLElement>(command.selector)
+      if (!element) return false
+
+      element.click()
       return true
     }
     case "text":
       return document.body.innerText.slice(0, command.max)
     case "wait": {
-      const deadline = Date.now() + command.timeoutMs
-      while (Date.now() < deadline) {
+      const deadline = Math.min(command.expiresAt, Date.now() + command.timeoutMs)
+      while (running() && Date.now() < deadline) {
         try {
           if (await (0, eval)(`(async () => (${command.expression}))()`)) return true
         } catch {
-          /* keep polling */
+          /* The condition may become valid on a later poll. */
         }
-        await new Promise((r) => setTimeout(r, 120))
+        await new Promise((resolve) => setTimeout(resolve, 120))
       }
       return false
     }
   }
 }
 
-async function pollOnce(): Promise<void> {
-  const res = await fetch(`${BRIDGE_URL}/poll`, { cache: "no-store" })
-  const commands = (await res.json()) as Command[]
+let stopCurrent: (() => void) | undefined
 
-  for (const command of commands) {
+export function startDevBridge(): () => void {
+  stopCurrent?.()
+  const appId = crypto.randomUUID()
+  const controller = new AbortController()
+  const queue: Command[] = []
+  let running = true
+  let executing = false
+
+  const stop = (): void => {
+    running = false
+    queue.length = 0
+    controller.abort()
+    window.removeEventListener("beforeunload", stop)
+    if (stopCurrent === stop) stopCurrent = undefined
+  }
+  stopCurrent = stop
+  window.addEventListener("beforeunload", stop)
+
+  const postResult = async (body: {
+    id: string
+    result?: unknown
+    error?: string
+  }): Promise<void> => {
+    if (!running) return
+
+    let serialized: string
     try {
-      const result = await runCommand(command)
-      void fetch(`${BRIDGE_URL}/result`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: command.id, result }),
-      })
+      serialized = JSON.stringify({ appId, ...body })
+      if (new TextEncoder().encode(serialized).length > 1024 * 1024) {
+        throw new Error("Result exceeds 1 MiB")
+      }
     } catch (error) {
-      void fetch(`${BRIDGE_URL}/result`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: command.id, error: String(error) }),
+      serialized = JSON.stringify({
+        appId,
+        id: body.id,
+        error: `Result serialization failed: ${String(error)}`,
       })
     }
-  }
-}
 
-export function startDevBridge(): void {
-  let running = true
+    try {
+      const response = await fetch(`${BRIDGE_URL}/result`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: serialized,
+        signal: controller.signal,
+      })
+      if (!response.ok && response.status !== 409) {
+        // Report rejection without executing the command a second time.
+        await fetch(`${BRIDGE_URL}/result`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            appId,
+            id: body.id,
+            error: `Result rejected: HTTP ${response.status}`,
+          }),
+          signal: controller.signal,
+        })
+      }
+    } catch {
+      /* Never replay commands when a result cannot be delivered. */
+    }
+  }
+
+  const executeBeforeExpiry = async (command: Command): Promise<unknown> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let abort: (() => void) | undefined
+    const expiry = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("Command expired during execution")),
+        Math.max(0, command.expiresAt - Date.now())
+      )
+      abort = () => reject(new Error("Bridge stopped"))
+      controller.signal.addEventListener("abort", abort, { once: true })
+    })
+    try {
+      // A timed-out promise cannot block later commands. Already-started JS cannot be undone.
+      return await Promise.race([runCommand(command, () => running), expiry])
+    } finally {
+      clearTimeout(timer)
+      if (abort) controller.signal.removeEventListener("abort", abort)
+    }
+  }
+
+  const drain = async (): Promise<void> => {
+    if (executing) return
+
+    executing = true
+    try {
+      while (running && queue.length) {
+        const command = queue.shift()
+        if (!command || command.expiresAt <= Date.now()) continue
+
+        try {
+          const result = await executeBeforeExpiry(command)
+          await postResult({ id: command.id, result })
+        } catch (error) {
+          await postResult({ id: command.id, error: String(error) })
+        }
+      }
+    } finally {
+      executing = false
+    }
+  }
+
   const loop = async (): Promise<void> => {
     while (running) {
+      let delay = 100
       try {
-        await pollOnce()
-        await new Promise((r) => setTimeout(r, 100))
+        const query = new URLSearchParams({
+          appId,
+          name: document.title,
+          url: location.origin + location.pathname,
+        })
+        const response = await fetch(`${BRIDGE_URL}/poll?${query}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        })
+        if (!response.ok) throw new Error(`Bridge HTTP ${response.status}`)
+
+        const commands: unknown = await response.json()
+        if (!Array.isArray(commands) || !commands.every(isCommand))
+          throw new Error("Invalid bridge commands")
+        if (!running) return
+
+        for (const command of commands) {
+          if (queue.length >= MAX_QUEUED) {
+            void postResult({
+              id: command.id,
+              error: "App command queue is full",
+            })
+            continue
+          }
+          queue.push(command)
+        }
+        void drain()
       } catch {
-        // Server not up yet (or stopped) — back off and keep trying so it reconnects
-        // whenever the MCP server starts.
-        await new Promise((r) => setTimeout(r, 1000))
+        delay = 1000
       }
+      if (running) await new Promise((resolve) => setTimeout(resolve, delay))
     }
   }
   void loop()
-  window.addEventListener("beforeunload", () => {
-    running = false
-  })
-
-  // eslint-disable-next-line no-console
-  console.info("[dev-bridge] polling", BRIDGE_URL)
+  return stop
 }
+
+if (import.meta.hot) import.meta.hot.dispose(() => stopCurrent?.())

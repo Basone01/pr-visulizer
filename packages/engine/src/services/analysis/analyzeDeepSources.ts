@@ -211,7 +211,7 @@ function buildBlastAndGhosts(
 
   // The same fact read the other way round: ghost file → the changed files it reaches. Both
   // loops above feed `dependents`, so an import-only ghost (no changed symbol referenced) still
-  // names the file it imports — that's the dashed edge the graph draws (§6, §380).
+  // names the file it imports — that's the faded edge the graph draws (§6, §380).
   const usesChangedFiles = new Map<string, Set<string>>()
   for (const [changedFile, unchangedFiles] of dependents) {
     for (const unchangedFile of unchangedFiles) {

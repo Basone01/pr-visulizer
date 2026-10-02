@@ -1,3 +1,16 @@
+mod ai_broker;
+mod ai_snapshot;
+mod app_tool_mcp;
+mod codex_answer;
+mod codex_terminal;
+
+pub fn run_render_mcp() -> Result<(), String> {
+    app_tool_mcp::run_from_environment()
+}
+
+#[cfg(test)]
+mod ai_broker_test_child;
+
 use tauri::{Emitter, Manager};
 
 // Deep-mode checkout reads (docs/tauri-architecture.md §6). The fs plugin's dialog-granted
@@ -83,6 +96,55 @@ fn git_stdout(root: &std::path::Path, args: &[&str]) -> Result<Vec<u8>, String> 
     }
 
     Ok(output.stdout)
+}
+
+// AI context reads must stop a local Git producer before its output becomes a webview string.
+// Keep the cap at the broker's single-patch admission boundary; callers receive only a bounded
+// omission, never a partially decoded patch.
+const MAX_REPO_FILE_DIFF_BYTES: usize = 128 * 1024;
+
+fn git_stdout_bounded(
+    root: &std::path::Path,
+    args: &[&str],
+    max_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    use std::process::Stdio;
+
+    let mut child = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .stdout(Stdio::piped())
+        // Git diagnostics are not context and must not create another unbounded pipe.
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("failed to run git: {error}"))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "git stdout was unavailable".to_string())?;
+    let mut bytes = Vec::with_capacity(max_bytes.saturating_add(1));
+    stdout
+        .by_ref()
+        .take((max_bytes.saturating_add(1)) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("failed to read git output: {error}"))?;
+
+    if bytes.len() > max_bytes {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("git diff exceeded the bounded patch byte limit".into());
+    }
+
+    let status = child
+        .wait()
+        .map_err(|error| format!("failed to wait for git: {error}"))?;
+    if !status.success() {
+        return Err(format!("git {} failed", args.first().unwrap_or(&"")));
+    }
+
+    Ok(bytes)
 }
 
 // Every path in the tree at `rev` — repo-relative, no working-tree access. `-z`
@@ -184,8 +246,12 @@ fn repo_read_many_at_rev(
         results.push((path.clone(), String::from_utf8(body).ok()));
     }
 
-    writer.join().map_err(|_| "stdin writer panicked".to_string())?;
-    let status = child.wait().map_err(|error| format!("git cat-file: {error}"))?;
+    writer
+        .join()
+        .map_err(|_| "stdin writer panicked".to_string())?;
+    let status = child
+        .wait()
+        .map_err(|error| format!("git cat-file: {error}"))?;
     if !status.success() {
         return Err("git cat-file exited with an error".into());
     }
@@ -252,7 +318,9 @@ fn parse_name_status(stdout: &[u8]) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
 
     while let Some(status) = tokens.next() {
-        let Some(letter) = status.chars().next() else { continue };
+        let Some(letter) = status.chars().next() else {
+            continue;
+        };
 
         // A rename/copy spends an extra token on the old path; the new path is what we key on.
         let path = if letter == 'R' || letter == 'C' {
@@ -319,11 +387,25 @@ fn repo_changed_files(
 
     let name_status = git_stdout(
         &root,
-        &["diff", DIFF_ALGORITHM, "--name-status", "--find-renames", "-z", &range],
+        &[
+            "diff",
+            DIFF_ALGORITHM,
+            "--name-status",
+            "--find-renames",
+            "-z",
+            &range,
+        ],
     )?;
     let numstat = git_stdout(
         &root,
-        &["diff", DIFF_ALGORITHM, "--numstat", "--find-renames", "-z", &range],
+        &[
+            "diff",
+            DIFF_ALGORITHM,
+            "--numstat",
+            "--find-renames",
+            "-z",
+            &range,
+        ],
     )?;
 
     let counts = parse_numstat(&numstat);
@@ -361,8 +443,12 @@ fn repo_file_diff(
     }
 
     let range = three_dot_range(base, head);
-    let stdout = git_stdout(&root, &["diff", DIFF_ALGORITHM, &range, "--", &path])?;
-    Ok(String::from_utf8_lossy(&stdout).to_string())
+    let stdout = git_stdout_bounded(
+        &root,
+        &["diff", DIFF_ALGORITHM, &range, "--", &path],
+        MAX_REPO_FILE_DIFF_BYTES,
+    )?;
+    String::from_utf8(stdout).map_err(|_| "git diff was not valid UTF-8".into())
 }
 
 // Protocol tests for the object-DB reads: a scratch git repo (never this project's repo)
@@ -383,7 +469,11 @@ mod tests {
             .env("GIT_COMMITTER_EMAIL", "t@t")
             .output()
             .expect("git runs");
-        assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         String::from_utf8_lossy(&output.stdout).trim().to_string()
     }
 
@@ -421,8 +511,14 @@ mod tests {
         ];
         let reads = repo_read_many_at_rev(root, sha, paths).expect("batch read");
 
-        assert_eq!(reads[0], ("src/a.ts".into(), Some("export const a = 1\n".into())));
-        assert_eq!(reads[1], ("src/b.ts".into(), Some("line1\nline2\nline3\n".into())));
+        assert_eq!(
+            reads[0],
+            ("src/a.ts".into(), Some("export const a = 1\n".into()))
+        );
+        assert_eq!(
+            reads[1],
+            ("src/b.ts".into(), Some("line1\nline2\nline3\n".into()))
+        );
         assert_eq!(reads[2], ("bin.dat".into(), None)); // binary → None
         assert_eq!(reads[3], ("src/gone.ts".into(), None)); // missing → None
 
@@ -501,8 +597,37 @@ mod tests {
         // Assert — a real unified diff for a.txt with the added line, and nothing about c.txt.
         assert!(patch.contains("@@"), "expected a hunk header in: {patch}");
         assert!(patch.contains("+b"), "expected the added line in: {patch}");
-        assert!(!patch.contains("c.txt"), "diff must be scoped to a.txt: {patch}");
+        assert!(
+            !patch.contains("c.txt"),
+            "diff must be scoped to a.txt: {patch}"
+        );
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn repo_file_diff_enforces_byte_cap_before_utf8_conversion() {
+        // Arrange
+        let (dir, base_sha, _head_sha) = scratch_diff_repo("bounded-patch");
+        let oversized = "x\n".repeat(MAX_REPO_FILE_DIFF_BYTES);
+        std::fs::write(dir.join("a.txt"), oversized).expect("write oversized patch");
+        git_in(&dir, &["add", "a.txt"]);
+        git_in(&dir, &["commit", "-q", "-m", "oversized patch"]);
+        let head_sha = git_in(&dir, &["rev-parse", "HEAD"]);
+
+        // Act
+        let result = repo_file_diff(
+            dir.to_string_lossy().to_string(),
+            base_sha,
+            head_sha,
+            "a.txt".to_string(),
+        );
+
+        // Assert — no oversized Git bytes reach lossy/string conversion in the command boundary.
+        assert_eq!(
+            result.expect_err("oversized output must be omitted"),
+            "git diff exceeded the bounded patch byte limit"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
@@ -528,9 +653,13 @@ fn adopt_login_shell_path() {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let Some(start) = stdout.find("__PATH__") else { return };
+    let Some(start) = stdout.find("__PATH__") else {
+        return;
+    };
     let rest = &stdout[start + "__PATH__".len()..];
-    let Some(end) = rest.find("__PATH__") else { return };
+    let Some(end) = rest.find("__PATH__") else {
+        return;
+    };
 
     let path = &rest[..end];
     if !path.is_empty() {
@@ -543,7 +672,27 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     adopt_login_shell_path();
 
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default()
+        .manage(ai_broker::CodexSafeProfileBroker::capture_adopted_login_shell_path())
+        .manage(ai_broker::CodexSafeProfileActiveRuns::default())
+        .manage(ai_broker::CodexSafeProfileStartupRecovery::default())
+        .manage(codex_terminal::CodexTerminalSessions::default())
+        .manage(codex_answer::CodexAnswerSessions::default())
+        // A browser reload discards the terminal listeners, so end any PTY owned by the prior
+        // document before the replacement UI starts listening.
+        .on_page_load(|webview, payload| {
+            if payload.event() != tauri::webview::PageLoadEvent::Started
+                || webview.label() != "main"
+            {
+                return;
+            }
+
+            if let Some(terminal_sessions) =
+                webview.try_state::<codex_terminal::CodexTerminalSessions>()
+            {
+                terminal_sessions.shutdown();
+            }
+        });
 
     // Single Instance must be registered FIRST (plugin ordering requirement). A second
     // `pr-visualizer <url>` focuses the open window and hands it the argv; the webview parses
@@ -558,13 +707,26 @@ pub fn run() {
         }));
     }
 
-    builder
+    let app = builder
         .invoke_handler(tauri::generate_handler![
             repo_path_exists,
             repo_read_text,
             repo_list_at_rev,
             repo_read_many_at_rev,
             repo_origin_url,
+            ai_broker::codex_safe_profile_capability,
+            ai_broker::codex_safe_profile_safely_recovered_run_ids,
+            ai_broker::codex_safe_profile_acknowledge_recovered_runs,
+            ai_broker::codex_safe_profile_start,
+            ai_broker::codex_safe_profile_cancel,
+            codex_terminal::codex_terminal_start,
+            codex_terminal::codex_terminal_attach,
+            codex_terminal::codex_terminal_write,
+            codex_terminal::codex_terminal_resize,
+            codex_terminal::codex_terminal_stop,
+            codex_answer::codex_terminal_update_context,
+            codex_answer::codex_answer_window_state,
+            codex_answer::codex_answer_window_open_file,
             repo_changed_files,
             repo_file_diff
         ])
@@ -579,6 +741,38 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_persisted_scope::init())
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        // This runs before the webview starts. Rust alone inspects the app-data root, validates
+        // marker-bound PID/start evidence, and either terminates/waits owned live work or leaves
+        // unresolved state untouched. The webview can later read only safely resolved opaque IDs.
+        .setup(|app| {
+            let app_owned_root = app.path().app_data_dir()?;
+            let safely_resolved_run_ids =
+                ai_broker::recover_codex_safe_profile_transients(&app_owned_root)
+                    .map_err(std::io::Error::other)?;
+            app.state::<ai_broker::CodexSafeProfileStartupRecovery>()
+                .replace_safely_resolved_run_ids(safely_resolved_run_ids);
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building Tauri application");
+
+    app.run(|app_handle, event| {
+        if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+            if let Some(active_runs) =
+                app_handle.try_state::<ai_broker::CodexSafeProfileActiveRuns>()
+            {
+                let _ = active_runs.shutdown();
+            }
+            if let Some(terminal_sessions) =
+                app_handle.try_state::<codex_terminal::CodexTerminalSessions>()
+            {
+                terminal_sessions.shutdown();
+            }
+            if let Some(answer_sessions) =
+                app_handle.try_state::<codex_answer::CodexAnswerSessions>()
+            {
+                answer_sessions.shutdown();
+            }
+        }
+    });
 }

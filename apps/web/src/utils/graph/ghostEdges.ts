@@ -1,6 +1,6 @@
 import type { GhostNodeVM } from "@/entity/viewModels"
 
-// The dashed ghost → changed-file links the graph draws (docs/architecture.md §6, §380). They are
+// The faded ghost → changed-file links the graph draws (docs/architecture.md §6, §380). They are
 // a RENDER-ONLY layer: they never reach elk (buildElkGraph drops ghosts, and these edges with
 // them) and they are not part of `analysis.edges`, so neither the layered layout nor the ranking
 // can shift because an unchanged file happens to import a changed one.

@@ -57,7 +57,7 @@ export type RankedFile = z.infer<typeof rankedFileSchema>
 export const ghostFileSchema = z.object({
   path: z.string(),
   usedChangedSymbols: z.array(z.string()),
-  // The CHANGED files this ghost reaches — the dashed edges the graph draws (§6, §380). Symbol
+  // The CHANGED files this ghost reaches — the faded edges the graph draws (§6, §380). Symbol
   // references AND plain imports both count, so an import-only ghost (empty usedChangedSymbols)
   // still names its files. Sorted and deduped. These edges never enter `edges` above: the ranking
   // is about changed files only, and a ghost must not shift it.

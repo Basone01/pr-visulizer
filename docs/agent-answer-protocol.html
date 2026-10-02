@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent answers in app windows</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f7f8fa;
+        --surface: #ffffff;
+        --text: #20242c;
+        --muted: #626b79;
+        --line: #d9dee7;
+        --accent: #6456d9;
+        --code: #f0f2f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111318;
+          --surface: #191c23;
+          --text: #edf0f5;
+          --muted: #aab1bd;
+          --line: #353b47;
+          --accent: #a99eff;
+          --code: #232731;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.65 ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        width: min(980px, calc(100% - 32px));
+        margin: 32px auto;
+        padding: clamp(24px, 5vw, 64px);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.08);
+      }
+      h1,
+      h2,
+      h3 {
+        line-height: 1.22;
+        scroll-margin-top: 20px;
+      }
+      h1 {
+        margin-top: 0;
+        font-size: clamp(2rem, 5vw, 3.2rem);
+        letter-spacing: -0.04em;
+      }
+      h2 {
+        margin-top: 3rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--line);
+        font-size: 1.65rem;
+      }
+      h3 {
+        margin-top: 2rem;
+        font-size: 1.2rem;
+      }
+      p,
+      li {
+        max-width: 78ch;
+      }
+      p:first-of-type {
+        color: var(--muted);
+      }
+      li + li {
+        margin-top: 0.35rem;
+      }
+      code {
+        padding: 0.12rem 0.35rem;
+        background: var(--code);
+        border-radius: 5px;
+        font:
+          0.9em ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      pre {
+        overflow: auto;
+        padding: 18px;
+        background: var(--code);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+      pre code {
+        padding: 0;
+        background: transparent;
+      }
+      .table-wrap {
+        overflow-x: auto;
+        margin: 1rem 0 1.5rem;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+      }
+      th,
+      td {
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: var(--code);
+      }
+      hr {
+        margin: 2.5rem 0;
+        border: 0;
+        border-top: 1px solid var(--line);
+      }
+      strong {
+        color: var(--accent);
+      }
+      @media print {
+        body {
+          background: white;
+        }
+        main {
+          width: 100%;
+          margin: 0;
+          padding: 0;
+          border: 0;
+          box-shadow: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Agent answers in app windows</h1>
+      <p>
+        The terminal remains the interactive Codex session. The agent can send a formatted answer to
+        a separate PR Visualizer window through app-provided MCP tools. The app receives structured
+        data directly rather than extracting text from terminal output.
+      </p>
+      <h2>Agent tools</h2>
+      <ol>
+        <li>
+          <code>get_pr_context</code> returns the PR metadata and selected file for this terminal
+          session.
+        </li>
+        <li>
+          <code>open_file</code> shows a repository-relative file in the main app&#x27;s diff
+          viewer.
+        </li>
+        <li><code>render_answer</code> opens or updates the session&#x27;s answer window.</li>
+      </ol>
+      <p>
+        For a longer summary or explanation, the agent calls <code>render_answer</code> and leaves a
+        short confirmation in the terminal. The existing repository access, model selection,
+        conversation, and live terminal output remain available.
+      </p>
+      <h2>Version 1 answer</h2>
+      <pre><code>{
+  &quot;version&quot;: 1,
+  &quot;title&quot;: &quot;PR summary&quot;,
+  &quot;markdown&quot;: &quot;## What changed\n\n- Added request validation.\n- Covered invalid inputs with tests.\n\n| Area | Status |\n| --- | --- |\n| Validation | Reviewed |&quot;,
+  &quot;fileRefs&quot;: [
+    {
+      &quot;path&quot;: &quot;src/validation.ts&quot;,
+      &quot;line&quot;: 42,
+      &quot;label&quot;: &quot;Open validation&quot;
+    }
+  ]
+}</code></pre>
+      <p>
+        Markdown uses the app&#x27;s existing renderer for headings, emphasis, lists, tables, links,
+        and fenced code blocks. Raw HTML is not executed. File references are app actions that open
+        the named file in the main window. The app supplies the session ID and update timestamp, so
+        the agent cannot choose another session&#x27;s destination.
+      </p>
+      <p>
+        Each successful update replaces the current answer for that session. The window reads the
+        latest stored snapshot and listens for updates. There is no need to copy terminal output
+        into the viewer.
+      </p>
+      <h2>Lifecycle</h2>
+      <p>
+        The app registers the MCP tools only for the Codex process it launches. It does not edit the
+        user&#x27;s global Codex configuration. The user&#x27;s existing CLI configuration and MCP
+        tools remain available. The three internal app tools are approved for this launch, without a
+        consent prompt or a global settings change.
+      </p>
+      <p>
+        PR identity belongs to the terminal session. Selecting another file updates the context
+        without restarting Codex. Changing the PR ends the old terminal session and prevents its
+        tools from navigating the new PR. The native bridge validates session identity, report size,
+        and repository-relative file paths. The terminal still starts with a read-only repository
+        sandbox.
+      </p>
+      <h2>Implementation references</h2>
+      <p>
+        Codex supports local MCP servers configured with a command, arguments, and environment
+        variables. See the
+        <a href="https://learn.chatgpt.com/docs/extend/mcp?surface=cli"
+          >official MCP configuration documentation</a
+        >.
+      </p>
+      <p>
+        Codex supports per-invocation configuration overrides through <code>-c</code>. See the
+        <a href="https://learn.chatgpt.com/docs/config-file/config-advanced"
+          >official advanced configuration documentation</a
+        >.
+      </p>
+      <p>
+        The desktop app creates the answer window with Tauri&#x27;s webview window builder. See the
+        <a href="https://docs.rs/tauri/2.11.5/tauri/webview/struct.WebviewWindowBuilder.html"
+          >Tauri WebviewWindowBuilder API</a
+        >.
+      </p>
+    </main>
+  </body>
+</html>

@@ -1,6 +1,6 @@
 import type { ChangedFile } from "@pr-visulizer/shared"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -15,7 +15,7 @@ import { getAppStorage } from "@/service/clientFactory"
 
 import { usePeekNavigation } from "@/hooks/usePeekNavigation"
 
-import { DiffPane } from "./DiffPane"
+import { DiffPane, type DiffPaneSelectionContext } from "./DiffPane"
 import { NO_COMMIT_RANGE } from "./diffPaneTestProps"
 
 // Multi-line comment ranges are picked with TWO CLICKS (§11): the first gutter click anchors
@@ -60,7 +60,13 @@ const addedFile: ChangedFile = {
   language: null,
 }
 
-function Harness({ onAddDraft }: { onAddDraft: (draft: unknown) => void }) {
+function Harness({
+  onAddDraft,
+  onSelectionChange,
+}: {
+  onAddDraft: (draft: unknown) => void
+  onSelectionChange?: (selection: DiffPaneSelectionContext | null) => void
+}) {
   const nav = usePeekNavigation("src/range.ts", 15)
   return (
     <DiffPane
@@ -79,6 +85,7 @@ function Harness({ onAddDraft }: { onAddDraft: (draft: unknown) => void }) {
       onAddDraft={onAddDraft}
       onUpdateDraft={() => {}}
       onDeleteDraft={() => {}}
+      onSelectionChange={onSelectionChange}
       commitRange={NO_COMMIT_RANGE}
     />
   )
@@ -94,6 +101,28 @@ describe("DiffPane click-click range selection", () => {
   // rather than inheriting the previous one's split mode.
   beforeEach(async () => {
     await getAppStorage().set("diffViewSettings", JSON.stringify(DEFAULT_DIFF_VIEW_SETTINGS))
+  })
+
+  it("lifts the exact current head-side selection for a scoped AI chat", async () => {
+    // Arrange
+    const onSelectionChange = vi.fn()
+    renderWithQuery(<Harness onAddDraft={() => {}} onSelectionChange={onSelectionChange} />)
+    const startGutter = await screen.findByLabelText("Comment on line 2")
+    const endGutter = await screen.findByLabelText("Comment on line 4")
+
+    // Act
+    await userEvent.click(startGutter)
+    await userEvent.click(endGutter)
+
+    // Assert
+    await waitFor(() =>
+      expect(onSelectionChange).toHaveBeenLastCalledWith({
+        path: "src/range.ts",
+        side: "RIGHT",
+        startLine: 2,
+        endLine: 4,
+      })
+    )
   })
 
   it("opens the composer on the first gutter click, still a single line", async () => {

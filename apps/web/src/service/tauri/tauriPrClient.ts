@@ -49,7 +49,15 @@ import {
 } from "@/tauri/repoSource"
 import { type AnalysisSources, runAnalysisInWorker } from "@/workers/runAnalysisInWorker"
 
-import type { AnalysisResponse, PrClient, ReviewSubmission } from "../prClient"
+import {
+  type AnalysisResponse,
+  type PrClient,
+  REVISION_PINNED_PR_REVISION_CHANGED_MESSAGE,
+  type ReviewSubmission,
+  RevisionPinnedPatchError,
+  type RevisionPinnedPatchSnapshot,
+  type RevisionPinnedPatchSnapshotRequest,
+} from "../prClient"
 
 // The desktop data boundary (docs/tauri-architecture.md §6): the third PrClient, mapping
 // every method to an in-webview implementation. The desktop is DEEP-ONLY — opening a PR runs
@@ -111,6 +119,66 @@ const viewedBaseSchema = z.array(z.string())
 // bookkeeping, not the reviewer's state, and it must not ride the contract.
 function viewedBaseKey(target: PrTarget, headSha: string): string {
   return `viewedBase:${progressKey(target, headSha)}`
+}
+
+function assertSnapshotRevision(meta: PrMeta, request: RevisionPinnedPatchSnapshotRequest): void {
+  if (meta.baseSha !== request.baseSha || meta.headSha !== request.headSha) {
+    throw new RevisionPinnedPatchError(
+      "revision-changed",
+      REVISION_PINNED_PR_REVISION_CHANGED_MESSAGE
+    )
+  }
+}
+
+// The AI patch seam may read PR IDENTITY from GitHub and nothing else. Narrowing the gateway to
+// that one method is what makes "no unbounded full-PR fallback" structural rather than a habit:
+// the heavy paginated `getPullRequest` is not reachable through this type.
+type PrIdentityGateway = Pick<GithubGateway, "getPullMeta">
+
+// Deliberately at MODULE scope, outside createTauriPrClient: the AI snapshot must not share the
+// display path's PR-keyed prepared-reader cache or its GitHub full-PR fallback, and out here
+// neither one is in scope. A fresh identity read before AND after collection means a concurrent
+// push fails the whole snapshot closed instead of yielding mixed-revision context.
+async function readRevisionPinnedPatchSnapshot(input: {
+  gateway: PrIdentityGateway
+  resolveRepoSource: (target: PrTarget) => Promise<RepoSource>
+  target: PrTarget
+  request: RevisionPinnedPatchSnapshotRequest
+}): Promise<RevisionPinnedPatchSnapshot> {
+  const { gateway, target, request } = input
+  assertSnapshotRevision(await gateway.getPullMeta(target), request)
+
+  const source = await input.resolveRepoSource(target)
+  const prepared = await source.prepare(target, request.baseSha, request.headSha)
+
+  // AI context never falls back to the gateway's paginated full-PR response. Its local reader is
+  // revision-pinned and byte-bounded by the Rust `repo_file_diff` command; when that reader is
+  // unavailable, the bounded assembler discloses every requested path as an explicit omission
+  // rather than materializing GitHub's unbounded file list.
+  if (!prepared.baseReady) {
+    throw new RevisionPinnedPatchError(
+      "patch-unavailable",
+      "Revision-pinned local patch reader was unavailable"
+    )
+  }
+
+  // `readFileDiff` is the Rust `repo_file_diff` invoke: bounded at 128 KiB, refusing over-limit
+  // bytes before UTF-8 conversion. Its bare-string refusal is classified by the shared contract.
+  const paths = [...new Set(request.paths)]
+  const entries = await Promise.all(
+    paths.map(async (path): Promise<[string, string]> => [path, await prepared.readFileDiff(path)])
+  )
+  const patches = Object.fromEntries(entries)
+
+  assertSnapshotRevision(await gateway.getPullMeta(target), request)
+  if (Object.keys(patches).length !== paths.length) {
+    throw new RevisionPinnedPatchError(
+      "patch-unavailable",
+      "A requested patch was unavailable from the revision-pinned snapshot"
+    )
+  }
+
+  return { baseSha: request.baseSha, headSha: request.headSha, patches }
 }
 
 function resolveGateway(deps: TauriPrClientDeps): GithubGateway {
@@ -427,6 +495,12 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
       if (patch === null) throw new Error(`no diff available for ${path}`)
 
       return patch
+    },
+
+    // AI context and draft-anchor revalidation delegate to the module-scope reader above, which
+    // cannot see this closure's heavy gateway call or its PR-keyed display caches.
+    getRevisionPinnedPatchSnapshot(target, request) {
+      return readRevisionPinnedPatchSnapshot({ gateway, resolveRepoSource, target, request })
     },
 
     // The desktop half of the refresh button. Three memos here are keyed by PR with NO head SHA

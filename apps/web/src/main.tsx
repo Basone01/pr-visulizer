@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client"
 import { env } from "@/config/env"
 
 import { App } from "@/components/App"
+import { AnswerWindow } from "@/components/aiReview/AnswerWindow"
 
 import "@/styles/global.css"
 
@@ -20,6 +21,7 @@ const container = document.getElementById("root")
 if (!container) throw new Error("Missing #root element")
 
 const root = createRoot(container)
+const answerSessionId = new URLSearchParams(window.location.search).get("answerSession")
 
 function render(tree: ReactNode): void {
   root.render(
@@ -40,11 +42,10 @@ if (import.meta.env.DEV && env.tauriMode) {
 }
 
 // Whole-app zoom (Cmd/Ctrl +/-/0, Ctrl+wheel) in the desktop webview.
-if (env.tauriMode) {
+if (answerSessionId) {
+  render(<AnswerWindow sessionId={answerSessionId} />)
+} else if (env.tauriMode) {
   void import("@/tauri/webviewZoom").then(({ startZoomControls }) => startZoomControls())
-}
-
-if (env.tauriMode) {
   import("@/components/TauriGate")
     .then(({ TauriGate }) =>
       render(

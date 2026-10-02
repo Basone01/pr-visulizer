@@ -1,6 +1,7 @@
 import { type Engine, suggestNextInOrder } from "@pr-visulizer/shared"
 import { useQuery } from "@tanstack/react-query"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { z } from "zod"
 
 import { env } from "@/config/env"
 import { DEFAULT_SETTINGS, DESKTOP_PRECISION_PRESET } from "@/config/settings"
@@ -45,6 +46,7 @@ import { LocateRepoPrompt } from "./LocateRepoPrompt"
 import { PaneDivider } from "./PaneDivider"
 import { RecentFilesPalette } from "./RecentFilesPalette"
 import { TopBar } from "./TopBar"
+import { AiReviewPanel } from "./aiReview/AiReviewPanel"
 import { DiffPane } from "./diff/DiffPane"
 import { GhostFilePane } from "./diff/GhostFilePane"
 import { GraphPane } from "./graph/GraphPane"
@@ -54,6 +56,10 @@ import { ReviewTray } from "./tray/ReviewTray"
 // "precise-linking" step the worker actually reports; tier off must not render a dead step.
 const TAURI_ANALYSIS_STEPS =
   DESKTOP_PRECISION_PRESET === "off" ? ANALYSIS_STEPS : DEEP_V2_ANALYSIS_STEPS
+const answerOpenFileEventSchema = z.object({
+  sessionId: z.string().min(1),
+  path: z.string().min(1),
+})
 
 // Which clone-folder modal is open: the "Clone it for me" path (auto-retry the analysis after
 // picking) or the gear settings path (just save). Null = closed.
@@ -65,6 +71,12 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   // query keyed by PR (not engine), so checkmarks/drafts are engine-independent.
   const engine: Engine = env.tauriMode ? "deep" : "fast"
   const [cloneModal, setCloneModal] = useState<CloneModal>(null)
+  const [activeTerminalSessionId, setActiveTerminalSessionId] = useState<string | null>(null)
+  const handleTerminalSessionEnded = useCallback((sessionId: string) => {
+    setActiveTerminalSessionId((currentSessionId) =>
+      currentSessionId === sessionId ? null : currentSessionId
+    )
+  }, [])
   const [cloneRoot, setCloneRoot] = useState<string | null>(null)
   const [locateError, setLocateError] = useState<string | null>(null)
   const [locating, setLocating] = useState(false)
@@ -72,7 +84,6 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   // so the clone's phases have somewhere to show — without it the modal closes the instant the
   // repo source resolves and the wait moves to the panel behind it.
   const [cloning, setCloning] = useState(false)
-
   // The overview is a separate, fast query (§9): meta + file list, rendered the moment it lands
   // while the (slower) analysis is still computing. Live step progress rides its own seam.
   const overviewQuery = useQuery(overviewQueryOptions(target))
@@ -210,6 +221,31 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   const { current } = nav.state
   const { selectFile } = nav
 
+  useEffect(() => {
+    if (!env.tauriMode) return
+
+    let active = true
+    let unlisten: (() => void) | null = null
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen("codex-answer://open-file", (event: { payload: unknown }) => {
+          const payload = answerOpenFileEventSchema.safeParse(event.payload)
+          if (payload.success && payload.data.sessionId === activeTerminalSessionId) {
+            selectFile(payload.data.path)
+          }
+        })
+      )
+      .then((stop) => {
+        if (active) unlisten = stop
+        else stop()
+      })
+
+    return () => {
+      active = false
+      unlisten?.()
+    }
+  }, [activeTerminalSessionId, selectFile])
+
   // Clicking a graph node opens its diff — expanding the diff pane if the reviewer had it
   // collapsed, so a click never selects a file whose diff is hidden.
   function openFromGraph(path: string): void {
@@ -291,12 +327,17 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
     else restoreAll()
   })
 
+  const pr = analysis?.pr ?? overview?.pr ?? null
+  const shownEngine = analysis?.engine ?? engine
+  const files = analysis?.files ?? overview?.files ?? []
+  const currentFile = files.find((file) => file.path === current.path) ?? null
+
   // Gate on the OVERVIEW (a fast gateway read), not the full analysis (task 4): the shell
   // renders the instant it has the PR meta + file list; the graph and ranking fill in later.
   // While even the overview is still loading, show the fetch/analysis TIMELINE (not a bare
   // spinner) so the reviewer sees what's happening — fetching PR → reading files → … — rather
   // than waiting on a blank screen.
-  if (!overview || !view || !progress) {
+  if (!overview || !view || !progress || !pr) {
     return (
       <div className={styles.root}>
         {repoSourceModal}
@@ -310,11 +351,6 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
       </div>
     )
   }
-
-  const pr = analysis?.pr ?? overview.pr
-  const shownEngine = analysis?.engine ?? engine
-  const files = analysis?.files ?? overview.files
-  const currentFile = files.find((file) => file.path === current.path) ?? null
 
   // The open path can be a GHOST node (unchanged file referencing changed code) — those aren't
   // in `files`, so they render the read-only GhostFilePane instead of the diff.
@@ -384,161 +420,176 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
         />
       )}
 
-      <div
-        className={styles.shell}
-        data-shell
-        style={
-          {
-            "--graph-width": `${panels.sizes.graph}px`,
-            "--tray-width": `${panels.sizes.tray}px`,
-          } as React.CSSProperties
-        }
-      >
-        {collapse.collapsed.graph ? (
-          <CollapsedStrip title="Dependency graph" onExpand={() => collapse.toggle("graph")} />
-        ) : (
-          <div
-            className={`${styles.pane} ${styles.sidePane} ${styles.graphPane}`}
-            style={fillerPane === "graph" ? { flex: "1 1 0", width: "auto" } : undefined}
-          >
-            <div className={styles.paneHeader}>
-              Dependency graph
-              <span className={styles.paneHeaderHint + " mono"}>A → B = depends on</span>
-              <button
-                type="button"
-                className={styles.hideButton}
-                aria-label="Hide dependency graph"
-                title="Hide panel"
-                onClick={() => collapse.toggle("graph")}
-              >
-                －
-              </button>
-            </div>
-            {analysis ? (
-              <GraphPane
-                fileNodes={view.fileNodes}
-                ghostNodes={view.ghostNodes}
-                edges={analysis.edges}
-                currentPath={current.path}
-                onSelect={openFromGraph}
-                reviewedCount={view.reviewedCount}
-                totalCount={view.totalCount}
-                firstUnreviewedPath={firstUnreviewedPath}
-                rangeTouchedPaths={commitRange.touchedPaths}
-              />
-            ) : (
-              <AnalysisProgressPanel
-                progress={analysisProgress}
-                indeterminate={indeterminateProgress}
-                steps={env.tauriMode ? TAURI_ANALYSIS_STEPS : BROWSER_ANALYSIS_STEPS}
-              />
-            )}
-          </div>
-        )}
-
-        {!collapse.collapsed.graph && !collapse.collapsed.diff && (
-          <PaneDivider
-            ariaLabel="Resize graph pane"
-            cssVar="--graph-width"
-            direction={1}
-            onCommit={(px) => panels.commit({ graph: px })}
-            onReset={panels.reset}
+      <div className={styles.workspace} data-workspace>
+        {env.tauriMode && (
+          <AiReviewPanel
+            target={target}
+            storage={getAppStorage()}
+            title={pr.title}
+            baseSha={pr.baseSha}
+            headSha={pr.headSha}
+            currentFilePath={current.path || null}
+            onTerminalSessionStarted={setActiveTerminalSessionId}
+            onTerminalSessionEnded={handleTerminalSessionEnded}
           />
         )}
 
-        {collapse.collapsed.diff ? (
-          <CollapsedStrip title="Diff" onExpand={() => collapse.toggle("diff")} />
-        ) : (
-          <div className={`${styles.pane} ${styles.centerPane}`}>
-            <ErrorBoundary
-              key={current.path}
-              fallback={(error) => (
-                <div className={styles.diffError} role="alert">
-                  <p>Couldn't render this diff.</p>
-                  <p className={styles.diffErrorDetail}>{error.message}</p>
-                  <button onClick={() => nextFilePath && selectFile(nextFilePath)}>
-                    Open next file
-                  </button>
-                </div>
-              )}
+        <div
+          className={styles.shell}
+          data-shell
+          style={
+            {
+              "--graph-width": `${panels.sizes.graph}px`,
+              "--tray-width": `${panels.sizes.tray}px`,
+            } as React.CSSProperties
+          }
+        >
+          {collapse.collapsed.graph ? (
+            <CollapsedStrip title="Dependency graph" onExpand={() => collapse.toggle("graph")} />
+          ) : (
+            <div
+              className={`${styles.pane} ${styles.sidePane} ${styles.graphPane}`}
+              style={fillerPane === "graph" ? { flex: "1 1 0", width: "auto" } : undefined}
             >
-              {currentGhost ? (
-                <GhostFilePane
-                  target={target}
-                  path={currentGhost.path}
-                  headSha={pr.headSha}
-                  refs={ghostRefs}
-                  suggestedNextPath={nextFilePath}
-                  onOpenFile={selectFile}
-                  onHide={() => collapse.toggle("diff")}
+              <div className={styles.paneHeader}>
+                Dependency graph
+                <span className={styles.paneHeaderHint + " mono"}>A → B = depends on</span>
+                <button
+                  type="button"
+                  className={styles.hideButton}
+                  aria-label="Hide dependency graph"
+                  title="Hide panel"
+                  onClick={() => collapse.toggle("graph")}
+                >
+                  －
+                </button>
+              </div>
+              {analysis ? (
+                <GraphPane
+                  fileNodes={view.fileNodes}
+                  ghostNodes={view.ghostNodes}
+                  edges={analysis.edges}
+                  currentPath={current.path}
+                  onSelect={openFromGraph}
+                  reviewedCount={view.reviewedCount}
+                  totalCount={view.totalCount}
+                  firstUnreviewedPath={firstUnreviewedPath}
+                  rangeTouchedPaths={commitRange.touchedPaths}
                 />
               ) : (
-                <DiffPane
-                  target={target}
-                  file={currentFile}
-                  symbols={analysis?.symbols ?? []}
-                  anchorIndex={anchorIndex}
-                  nav={nav}
-                  reviewed={progress.reviewedFiles.includes(current.path)}
-                  onToggleReviewed={toggleReviewed}
-                  suggestedNextPath={nextFilePath}
-                  changedPaths={changedPaths}
-                  onOpenFile={selectFile}
-                  onHide={() => collapse.toggle("diff")}
-                  drafts={progress.drafts}
-                  onAddDraft={saveDraft}
-                  onUpdateDraft={editDraft}
-                  onDeleteDraft={removeDraft}
-                  commitRange={commitRange}
+                <AnalysisProgressPanel
+                  progress={analysisProgress}
+                  indeterminate={indeterminateProgress}
+                  steps={env.tauriMode ? TAURI_ANALYSIS_STEPS : BROWSER_ANALYSIS_STEPS}
                 />
               )}
-            </ErrorBoundary>
-          </div>
-        )}
+            </div>
+          )}
 
-        {!collapse.collapsed.tray && !collapse.collapsed.diff && (
-          <PaneDivider
-            ariaLabel="Resize review tray"
-            cssVar="--tray-width"
-            direction={-1}
-            onCommit={(px) => panels.commit({ tray: px })}
-            onReset={panels.reset}
-          />
-        )}
-
-        {collapse.collapsed.tray ? (
-          <CollapsedStrip title="Review queue" onExpand={() => collapse.toggle("tray")} />
-        ) : (
-          <div
-            className={`${styles.pane} ${styles.sidePane} ${styles.trayPane}`}
-            style={fillerPane === "tray" ? { flex: "1 1 0", width: "auto" } : undefined}
-          >
-            <ReviewTray
-              view={view}
-              activePath={current.path}
-              queueMode={queueMode.mode}
-              onChooseQueueMode={queueMode.choose}
-              chosenVerdict={chosenVerdict}
-              approveDisabled={approveDisabled}
-              onToggleReviewed={toggleReviewed}
-              onOpenFile={selectFile}
-              onHide={() => collapse.toggle("tray")}
-              onChooseVerdict={(verdict: Verdict) => setChosenVerdict(verdict)}
-              onSubmit={submit}
-              commentCount={progress.drafts.length}
-              isSubmitting={isSubmitting}
-              isSubmitted={isSubmitted}
-              submitError={submitError}
-              onResetSubmit={resetSubmit}
-              viewedSyncError={
-                progress.viewedSync?.status === "degraded"
-                  ? (progress.viewedSync.reason ?? "GitHub sync failed")
-                  : null
-              }
-              rangeTouchedPaths={commitRange.touchedPaths}
+          {!collapse.collapsed.graph && !collapse.collapsed.diff && (
+            <PaneDivider
+              ariaLabel="Resize graph pane"
+              cssVar="--graph-width"
+              direction={1}
+              onCommit={(px) => panels.commit({ graph: px })}
+              onReset={panels.reset}
             />
-          </div>
-        )}
+          )}
+
+          {collapse.collapsed.diff ? (
+            <CollapsedStrip title="Diff" onExpand={() => collapse.toggle("diff")} />
+          ) : (
+            <div className={`${styles.pane} ${styles.centerPane}`}>
+              <ErrorBoundary
+                key={current.path}
+                fallback={(error) => (
+                  <div className={styles.diffError} role="alert">
+                    <p>Couldn't render this diff.</p>
+                    <p className={styles.diffErrorDetail}>{error.message}</p>
+                    <button onClick={() => nextFilePath && selectFile(nextFilePath)}>
+                      Open next file
+                    </button>
+                  </div>
+                )}
+              >
+                {currentGhost ? (
+                  <GhostFilePane
+                    target={target}
+                    path={currentGhost.path}
+                    headSha={pr.headSha}
+                    refs={ghostRefs}
+                    suggestedNextPath={nextFilePath}
+                    onOpenFile={selectFile}
+                    onHide={() => collapse.toggle("diff")}
+                  />
+                ) : (
+                  <DiffPane
+                    target={target}
+                    file={currentFile}
+                    symbols={analysis?.symbols ?? []}
+                    anchorIndex={anchorIndex}
+                    nav={nav}
+                    reviewed={progress.reviewedFiles.includes(current.path)}
+                    onToggleReviewed={toggleReviewed}
+                    suggestedNextPath={nextFilePath}
+                    changedPaths={changedPaths}
+                    onOpenFile={selectFile}
+                    onHide={() => collapse.toggle("diff")}
+                    drafts={progress.drafts}
+                    onAddDraft={saveDraft}
+                    onUpdateDraft={editDraft}
+                    onDeleteDraft={removeDraft}
+                    commitRange={commitRange}
+                  />
+                )}
+              </ErrorBoundary>
+            </div>
+          )}
+
+          {!collapse.collapsed.tray && !collapse.collapsed.diff && (
+            <PaneDivider
+              ariaLabel="Resize review tray"
+              cssVar="--tray-width"
+              direction={-1}
+              onCommit={(px) => panels.commit({ tray: px })}
+              onReset={panels.reset}
+            />
+          )}
+
+          {collapse.collapsed.tray ? (
+            <CollapsedStrip title="Review queue" onExpand={() => collapse.toggle("tray")} />
+          ) : (
+            <div
+              className={`${styles.pane} ${styles.sidePane} ${styles.trayPane}`}
+              style={fillerPane === "tray" ? { flex: "1 1 0", width: "auto" } : undefined}
+            >
+              <ReviewTray
+                view={view}
+                activePath={current.path}
+                queueMode={queueMode.mode}
+                onChooseQueueMode={queueMode.choose}
+                chosenVerdict={chosenVerdict}
+                approveDisabled={approveDisabled}
+                onToggleReviewed={toggleReviewed}
+                onOpenFile={selectFile}
+                onHide={() => collapse.toggle("tray")}
+                onChooseVerdict={(verdict: Verdict) => setChosenVerdict(verdict)}
+                onSubmit={submit}
+                commentCount={progress.drafts.length}
+                isSubmitting={isSubmitting}
+                isSubmitted={isSubmitted}
+                submitError={submitError}
+                onResetSubmit={resetSubmit}
+                viewedSyncError={
+                  progress.viewedSync?.status === "degraded"
+                    ? (progress.viewedSync.reason ?? "GitHub sync failed")
+                    : null
+                }
+                rangeTouchedPaths={commitRange.touchedPaths}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Embedded Codex terminal</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f7f8fa;
+        --surface: #ffffff;
+        --text: #20242c;
+        --muted: #626b79;
+        --line: #d9dee7;
+        --accent: #6456d9;
+        --code: #f0f2f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111318;
+          --surface: #191c23;
+          --text: #edf0f5;
+          --muted: #aab1bd;
+          --line: #353b47;
+          --accent: #a99eff;
+          --code: #232731;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.65 ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        width: min(980px, calc(100% - 32px));
+        margin: 32px auto;
+        padding: clamp(24px, 5vw, 64px);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.08);
+      }
+      h1,
+      h2,
+      h3 {
+        line-height: 1.22;
+        scroll-margin-top: 20px;
+      }
+      h1 {
+        margin-top: 0;
+        font-size: clamp(2rem, 5vw, 3.2rem);
+        letter-spacing: -0.04em;
+      }
+      h2 {
+        margin-top: 3rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--line);
+        font-size: 1.65rem;
+      }
+      h3 {
+        margin-top: 2rem;
+        font-size: 1.2rem;
+      }
+      p,
+      li {
+        max-width: 78ch;
+      }
+      p:first-of-type {
+        color: var(--muted);
+      }
+      li + li {
+        margin-top: 0.35rem;
+      }
+      code {
+        padding: 0.12rem 0.35rem;
+        background: var(--code);
+        border-radius: 5px;
+        font:
+          0.9em ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      pre {
+        overflow: auto;
+        padding: 18px;
+        background: var(--code);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+      pre code {
+        padding: 0;
+        background: transparent;
+      }
+      .table-wrap {
+        overflow-x: auto;
+        margin: 1rem 0 1.5rem;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+      }
+      th,
+      td {
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: var(--code);
+      }
+      hr {
+        margin: 2.5rem 0;
+        border: 0;
+        border-top: 1px solid var(--line);
+      }
+      strong {
+        color: var(--accent);
+      }
+      @media print {
+        body {
+          background: white;
+        }
+        main {
+          width: 100%;
+          margin: 0;
+          padding: 0;
+          border: 0;
+          box-shadow: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Embedded Codex terminal</h1>
+      <p>
+        The desktop AI panel runs the interactive Codex CLI inside the linked local repository. It
+        replaces the custom chat interface and its per-message diff packaging. The graph, diff
+        viewer, review queue, and GitHub submission flow are unchanged.
+      </p>
+      <h2>Context</h2>
+      <p>
+        The app passes a small initial prompt containing the PR URL, title, base commit, head
+        commit, and selected file when available. Codex can then inspect repository files and Git
+        objects through its normal tools. The prompt identifies the PR revisions explicitly because
+        the linked checkout may be on a different branch. The app does not switch branches or reset
+        the working tree.
+      </p>
+      <p>
+        The app does not build a bounded patch snapshot for each turn. It does not add GitHub
+        comments or Jira issues automatically. The CLI owns conversation history and renders its own
+        live output. Existing review records remain stored, but the terminal does not turn replies
+        into structured app findings.
+      </p>
+      <h2>Interface</h2>
+      <p>
+        The panel offers a model choice and terminal controls. Luna remains the default. Collapsing
+        the panel keeps the terminal session alive behind the vertical tab. Changing the PR ends the
+        old terminal session so another PR cannot inherit its context. Selecting a different diff
+        file does not restart the conversation.
+      </p>
+      <p>
+        The terminal uses the installed Codex login and configuration. The app launches it with a
+        read-only sandbox. This is a normal interactive CLI session, not the legacy prompt-only
+        broker&#x27;s restricted execution profile. The hosted web app cannot start local terminal
+        processes.
+      </p>
+      <h2>Implementation references</h2>
+      <p>
+        The native process uses portable-pty 0.9.0 to create a pseudoterminal, spawn a child
+        process, and connect input and output. See the
+        <a href="https://docs.rs/portable-pty/0.9.0/portable_pty/">portable-pty API</a>.
+      </p>
+      <p>
+        The webview renders terminal bytes and forwards keyboard input using a narrow wrapper around
+        xterm.js. See the
+        <a href="https://xtermjs.org/docs/api/terminal/classes/terminal/">xterm Terminal API</a>.
+      </p>
+      <p>
+        The installed Codex CLI help was checked for the optional initial prompt, working-directory,
+        model, and sandbox options. See the
+        <a href="https://learn.chatgpt.com/docs/developer-commands?surface=cli"
+          >official CLI reference</a
+        >.
+      </p>
+    </main>
+  </body>
+</html>

@@ -28,6 +28,70 @@ export type ReviewSubmission = {
   comments: DraftComment[]
 }
 
+// A patch snapshot is usable for AI context only when the client verifies that every returned
+// patch belongs to these exact PR revisions both before and after collection. Callers cannot
+// combine lazy, revision-unknown diff reads into a prompt.
+export type RevisionPinnedPatchSnapshot = {
+  baseSha: string
+  headSha: string
+  patches: Record<string, string>
+}
+
+export type RevisionPinnedPatchSnapshotRequest = {
+  baseSha: string
+  headSha: string
+  paths: readonly string[]
+}
+
+// Why a tagged error rather than prose: the bounded AI assembler must decide between "abort the
+// whole assembly" and "disclose this one path as omitted", and every revision-pinned reader must
+// mean the same thing by that decision. Matching each other's message text let the two sides
+// drift silently — a reader reworded to "patch too large" would have been disclosed as merely
+// unavailable, understating the omission. The reason is the contract; the message is only prose.
+export type RevisionPinnedPatchFailureReason =
+  // A PR revision moved between the reads, so old and new context would be mixed. Fail closed.
+  | "revision-changed"
+  // A body was refused on bytes before it was decoded or parsed into a patch string.
+  | "patch-byte-limit"
+  // No bounded reader answered for this path (no repo source, no local base, no diff).
+  | "patch-unavailable"
+
+// Both revision checks a reader performs — PR identity before/after collection, and the returned
+// snapshot's own revisions — carry these exact messages, so a rejection still reads plainly.
+export const REVISION_PINNED_PR_REVISION_CHANGED_MESSAGE =
+  "PR revisions changed while collecting the revision-pinned patch snapshot"
+export const REVISION_PINNED_SNAPSHOT_REVISION_MISMATCH_MESSAGE =
+  "Patch snapshot revisions do not match the admitted review revisions"
+
+// The Rust `repo_file_diff` cap (apps/desktop/src-tauri/src/lib.rs) refuses over-limit bytes
+// before UTF-8 conversion and crosses the Tauri invoke boundary as this bare string, never as an
+// Error, so an untagged refusal still has to be recognized once. This is the ONLY place on the
+// TypeScript side that reads that text — no caller matches Rust's prose.
+const BOUNDED_PATCH_BYTE_LIMIT_MARKER = "bounded patch byte limit"
+
+export class RevisionPinnedPatchError extends Error {
+  readonly reason: RevisionPinnedPatchFailureReason
+
+  constructor(reason: RevisionPinnedPatchFailureReason, message: string) {
+    super(message)
+    this.name = "RevisionPinnedPatchError"
+    this.reason = reason
+  }
+}
+
+// Normalize whatever a reader rejected with into the tagged contract. An already-tagged error is
+// returned untouched; a bare invoke string or an untagged Error is classified once, here.
+export function toRevisionPinnedPatchError(error: unknown): RevisionPinnedPatchError {
+  if (error instanceof RevisionPinnedPatchError) return error
+
+  const message = error instanceof Error ? error.message : String(error)
+  const reason: RevisionPinnedPatchFailureReason = message.includes(BOUNDED_PATCH_BYTE_LIMIT_MARKER)
+    ? "patch-byte-limit"
+    : "patch-unavailable"
+
+  return new RevisionPinnedPatchError(reason, message)
+}
+
 export interface PrClient {
   // The instant-open payload (docs/architecture.md §9): PR meta + changed-file list, with no
   // analysis. http → the meta route; fixture + tauri → the gateway direct. The shell renders
@@ -40,6 +104,12 @@ export interface PrClient {
   // implementation is a no-op. Returns an unsubscribe.
   subscribeAnalysisProgress(target: PrTarget, listener: AnalysisProgressListener): () => void
   getPatch(target: PrTarget, path: string): Promise<string>
+  // Collect an all-or-nothing patch snapshot at explicit displayed PR revisions. This is the
+  // only patch seam permitted to assemble AI review context or revalidate an AI draft anchor.
+  getRevisionPinnedPatchSnapshot(
+    target: PrTarget,
+    request: RevisionPinnedPatchSnapshotRequest
+  ): Promise<RevisionPinnedPatchSnapshot>
   // The PR's commits, for the diff pane's commit-range picker (§10). Whole-PR and read-only —
   // picking a range narrows the DIFF only; ranking, the graph and the queue stay whole-PR.
   listCommits(target: PrTarget): Promise<PrCommitList>

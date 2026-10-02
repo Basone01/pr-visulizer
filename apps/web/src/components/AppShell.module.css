@@ -4,17 +4,25 @@
   height: 100vh;
 }
 
+.workspace {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 .shell {
   /* Side-pane widths are inline styles driven by usePanelSizes (drag-resizable,
      persisted); the center diff pane flexes between them. */
   display: flex;
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 
 .sidePane {
-  flex: 0 0 auto;
-  min-width: 0;
+  flex: 0 1 auto;
+  min-width: 160px;
 }
 
 /* Widths come from CSS vars on the shell so a divider drag can update them imperatively
@@ -29,7 +37,20 @@
 
 .centerPane {
   flex: 1;
-  min-width: 0;
+  min-width: 320px;
+}
+
+@media (max-width: 1000px) {
+  .workspace {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .shell {
+    flex: 1 1 auto;
+    min-height: 320px;
+    overflow-x: auto;
+  }
 }
 
 .errorBar {

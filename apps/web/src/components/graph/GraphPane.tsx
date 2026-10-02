@@ -31,6 +31,13 @@ import { type GraphFocus, GraphFocusProvider, focusAroundPath } from "./graphFoc
 const nodeTypes = { file: FileNode, ghost: GhostNode, ghostGroup: GhostGroupNode }
 const edgeTypes = { dependency: DependencyEdge }
 
+// How a ghost edge reads as context rather than review work (see rfEdges). The design system has
+// colour tokens only — no opacity or stroke scale — so these are named here rather than invented
+// as tokens. Half opacity against React Flow's default stroke-width of 1 for file edges.
+const GHOST_EDGE_OPACITY = 0.5
+const GHOST_EDGE_WIDTH = 0.75
+const GHOST_EDGE_MARKER_COLOR = "color-mix(in srgb, var(--muted) 50%, transparent)"
+
 // Pans the graph to center the active file whenever it changes — so selecting a file from the
 // tray, the "next" button, or a jump-to-definition never leaves its node offscreen. Keeps the
 // current zoom (setCenter, not fitView) so it's a smooth pan, not a zoom-bomb onto one node.
@@ -223,22 +230,27 @@ export function GraphPane({
       }
     })
 
-    // "a ghost node with a dashed edge" (§380). Dashed and muted — the same weight as the ghost
-    // node's own dashed border, because a ghost is context, not review work. React Flow is the
+    // "a ghost node with a faded edge" (§380). SOLID and faded, never dashed: WebKit rasterizes
+    // `stroke-dasharray` on these full-graph-height paths at ~7x the frame cost (measured on the
+    // real WKWebView: 190 ms/frame dashed vs 28 ms/frame solid; Chrome is unaffected, which is why
+    // it shipped dashed). The fade is what now carries "context, not review work" — a plain muted
+    // solid edge would be indistinguishable from an ordinary file dependency. React Flow is the
     // only thing that ever sees these: elk laid the graph out without them, and the ranking never
     // knew about them.
-    const ghostEdges: Edge[] = buildGhostEdges(ghostNodes, visible.paths).map((edge) => {
-      const color = "var(--muted)"
-
-      return {
-        id: edge.id,
-        type: "dependency",
-        source: edge.from,
-        target: edge.to,
-        style: { stroke: color, strokeDasharray: "4 4" },
-        markerEnd: { type: MarkerType.ArrowClosed, color },
-      }
-    })
+    const ghostEdges: Edge[] = buildGhostEdges(ghostNodes, visible.paths).map((edge) => ({
+      id: edge.id,
+      type: "dependency",
+      source: edge.from,
+      target: edge.to,
+      style: {
+        stroke: "var(--muted)",
+        strokeOpacity: GHOST_EDGE_OPACITY,
+        strokeWidth: GHOST_EDGE_WIDTH,
+      },
+      // A marker takes a colour, not an opacity, so the arrowhead fades by mixing the same muted
+      // token with transparent — otherwise a full-strength arrow lands on a half-strength line.
+      markerEnd: { type: MarkerType.ArrowClosed, color: GHOST_EDGE_MARKER_COLOR },
+    }))
 
     return [...fileEdges, ...ghostEdges]
   }, [visible, ghostNodes])

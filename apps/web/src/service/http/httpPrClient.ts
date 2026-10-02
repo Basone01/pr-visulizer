@@ -19,11 +19,18 @@ import {
 } from "@pr-visulizer/shared"
 import { z } from "zod"
 
-import { parseJson, requestJson, requestOk } from "@/utils/api/http"
+import { ApiError, parseJson, requestJson, requestOk } from "@/utils/api/http"
 
 import type { Engine, PrTarget, RepoRef } from "@/entity/pr"
 
-import type { AnalysisResponse, PrClient, ReviewSubmission } from "../prClient"
+import {
+  type AnalysisResponse,
+  type PrClient,
+  REVISION_PINNED_PR_REVISION_CHANGED_MESSAGE,
+  type ReviewSubmission,
+  RevisionPinnedPatchError,
+  type RevisionPinnedPatchSnapshotRequest,
+} from "../prClient"
 
 // The real BFF client (docs/architecture.md §9). Every response is parsed through a
 // shared schema at the boundary. Unused until the BFF lands — fixture mode runs today.
@@ -32,11 +39,64 @@ function base(target: PrTarget): string {
   return `/api/prs/${target.owner}/${target.repo}/${target.number}`
 }
 
+function assertSnapshotRevision(
+  overview: PrOverview,
+  request: RevisionPinnedPatchSnapshotRequest
+): void {
+  if (overview.pr.baseSha !== request.baseSha || overview.pr.headSha !== request.headSha) {
+    throw new RevisionPinnedPatchError(
+      "revision-changed",
+      REVISION_PINNED_PR_REVISION_CHANGED_MESSAGE
+    )
+  }
+}
+
 // The files endpoint returns { path, sha, content, patch } — patch is the unified
 // diff for the renderer, null when GitHub omits it (binary, too large, pure rename);
 // content is the file at the head sha, the full-file view's input (§10).
 const patchResponseSchema = z.object({ patch: z.string().nullable() })
 const contentResponseSchema = z.object({ content: z.string().nullable() })
+// Keep API patch bytes bounded before JSON/UTF-8 materialization. This matches the desktop Git
+// reader cap and leaves the AI assembler a path/reason omission rather than an oversized string.
+const MAX_REVISION_PINNED_PATCH_RESPONSE_BYTES = 128 * 1024
+const OVER_CAP_PATCH_MESSAGE = "API patch exceeded the bounded patch byte limit"
+
+async function parseBoundedPatchResponse(url: string): Promise<{ patch: string | null }> {
+  const response = await fetch(url)
+  if (!response.ok)
+    throw new ApiError(response.status, `Request to ${url} failed with ${response.status}`)
+  const declaredLength = Number(response.headers.get("content-length"))
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_REVISION_PINNED_PATCH_RESPONSE_BYTES
+  ) {
+    throw new RevisionPinnedPatchError("patch-byte-limit", OVER_CAP_PATCH_MESSAGE)
+  }
+  if (response.body === null) throw new Error("API patch response body was unavailable")
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    totalBytes += value.byteLength
+    if (totalBytes > MAX_REVISION_PINNED_PATCH_RESPONSE_BYTES) {
+      await reader.cancel()
+      throw new RevisionPinnedPatchError("patch-byte-limit", OVER_CAP_PATCH_MESSAGE)
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return patchResponseSchema.parse(
+    JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes))
+  )
+}
 
 const prSummaryListSchema = z.array(prSummarySchema)
 const reviewCommentListSchema = z.array(reviewCommentSchema)
@@ -68,11 +128,25 @@ export function createHttpPrClient(): PrClient {
 
     async getPatch(target: PrTarget, path: string): Promise<string> {
       const url = `${base(target)}/files/${encodeURI(path)}`
-      const parsed = await parseJson(url, patchResponseSchema)
+      const parsed = await parseBoundedPatchResponse(url)
 
       if (parsed.patch === null) throw new Error(`no diff available for ${path}`)
 
       return parsed.patch
+    },
+
+    async getRevisionPinnedPatchSnapshot(target, request) {
+      // The HTTP files route has no revision parameter, so an unchanged PR identity on both
+      // sides of the read is the minimum all-or-nothing contract: a push during collection
+      // rejects rather than allowing a prompt to combine two revisions.
+      assertSnapshotRevision(await parseJson(base(target), prOverviewSchema), request)
+      const patches = Object.fromEntries(
+        await Promise.all(
+          [...new Set(request.paths)].map(async (path) => [path, await this.getPatch(target, path)])
+        )
+      )
+      assertSnapshotRevision(await parseJson(base(target), prOverviewSchema), request)
+      return { baseSha: request.baseSha, headSha: request.headSha, patches }
     },
 
     async listCommits(target: PrTarget): Promise<PrCommitList> {

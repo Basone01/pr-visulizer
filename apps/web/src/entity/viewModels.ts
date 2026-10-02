@@ -38,7 +38,7 @@ export type GhostNodeVM = {
   path: string
   fileName: string
   usedChangedSymbols: string[]
-  // The changed files this ghost reaches — one dashed graph edge each (§6, §380).
+  // The changed files this ghost reaches — one faded graph edge each (§6, §380).
   usesChangedFiles: string[]
 }
 

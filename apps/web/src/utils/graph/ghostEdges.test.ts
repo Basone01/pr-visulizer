@@ -4,7 +4,7 @@ import type { GhostNodeVM } from "@/entity/viewModels"
 
 import { buildGhostEdges } from "./ghostEdges"
 
-// The dashed ghost → changed-file links (§6, §380). They exist only for React Flow, so the two
+// The faded ghost → changed-file links (§6, §380). They exist only for React Flow, so the two
 // rules that matter are: one edge per changed file a ghost reaches, and never an edge to a file
 // the commit-range filter took off the canvas.
 

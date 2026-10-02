@@ -27,8 +27,14 @@ import type { AnalysisProgress } from "@/entity/analysisProgress"
 import type { PrTarget } from "@/entity/pr"
 import { CLONE_ROOT_KEY, NeedsRepoSourceError } from "@/entity/repoSource"
 
+import {
+  MAX_CODEX_SAFE_PROFILE_PATCH_RESPONSE_BYTES,
+  assembleBoundedRevisionPinnedPatches,
+} from "@/service/aiReview/codexReviewContext"
+
 import type { RepoSource } from "@/tauri/repoSource"
 
+import { type PrClient, RevisionPinnedPatchError } from "../prClient"
 import { type AnalysisRunner, createTauriPrClient } from "./tauriPrClient"
 
 const requireFromHere = createRequire(import.meta.url)
@@ -316,6 +322,38 @@ describe("createTauriPrClient — local git diff (deep path)", () => {
     expect(heavyCalls()).toBe(0)
   })
 
+  it("revision_pinned_patch_snapshot_rejects_pr_revision_change_during_context_assembly", async () => {
+    // Arrange — the first identity read admits the requested revision; the post-read check sees
+    // a force-push, which must reject the whole snapshot instead of returning mixed patches.
+    const base = createFakeGithubGateway()
+    let metaReads = 0
+    const gateway: GithubGateway = {
+      ...base,
+      async getPullMeta(target) {
+        metaReads += 1
+        const meta = await base.getPullMeta(target)
+        return metaReads === 1 ? meta : { ...meta, headSha: "force-pushed-head" }
+      },
+    }
+    const client = createTauriPrClient({
+      gateway,
+      storage: createMemoryKeyValueStore(),
+      repoSource: inMemoryRepoSource(PR42_CONTENTS, PR42_FILES),
+    })
+
+    // Act
+    const snapshot = client.getRevisionPinnedPatchSnapshot(PR42, {
+      baseSha: "base0042cafebabe",
+      headSha: "head0042deadbeef",
+      paths: [PR42_PATHS.http],
+    })
+
+    // Assert
+    await expect(snapshot).rejects.toThrow(
+      "PR revisions changed while collecting the revision-pinned patch snapshot"
+    )
+  })
+
   it("falls back to the API patch when the base object is unavailable", async () => {
     // Arrange — baseReady false: the local base...head diff can't be computed.
     const { gateway, heavyCalls } = recordingGateway()
@@ -441,5 +479,160 @@ describe("createTauriPrClient — invalidatePr", () => {
     // Assert — two opens cost one read; the drop makes the third one hit GitHub again.
     const expected = { memoizedReads: 1, readsAfterInvalidate: 2 }
     expect({ memoizedReads, readsAfterInvalidate: metaReads() }).toEqual(expected)
+  })
+})
+
+// The AI review seam: the bounded assembler reading through PrClient, and nothing else. Its own
+// rule is that no requested path may fall back to the gateway's paginated full-PR response — the
+// desktop client's display `getPatch` still holds that fallback, and the AI path must not reach it
+// however the local revision-pinned reader fails.
+describe("createTauriPrClient — AI revision-pinned patch reader", () => {
+  const httpFile = PR42_FILES.find((file) => file.path === PR42_PATHS.http)
+  const loginFile = PR42_FILES.find((file) => file.path === PR42_PATHS.login)
+  if (!httpFile?.patch || !loginFile?.patch) {
+    throw new Error("fixture: the modified files must carry patches")
+  }
+
+  const BASE_SHA = "base0042cafebabe"
+  const HEAD_SHA = "head0042deadbeef"
+
+  // The Rust `repo_file_diff` cap refuses over-limit bytes BEFORE UTF-8 conversion
+  // (apps/desktop/src-tauri/src/lib.rs, pinned there by its own
+  // repo_file_diff_enforces_byte_cap_before_utf8_conversion test) and `invoke` surfaces that
+  // refusal as a BARE STRING, never an Error — which is what this reproduces.
+  const GIT_DIFF_BYTE_CAP_REJECTION = "git diff exceeded the bounded patch byte limit"
+
+  // Exactly how AppShell's createCodexSafeProfileLaunchContext drives the seam: the real bounded
+  // assembler over the real client's getRevisionPinnedPatchSnapshot, one path per request.
+  function assembleAiContextPatches(client: PrClient, paths: readonly string[]) {
+    return assembleBoundedRevisionPinnedPatches({
+      baseSha: BASE_SHA,
+      headSha: HEAD_SHA,
+      paths,
+      maxResponseBytes: MAX_CODEX_SAFE_PROFILE_PATCH_RESPONSE_BYTES,
+      loadSnapshot: (requestedPaths) =>
+        client.getRevisionPinnedPatchSnapshot(PR42, {
+          baseSha: BASE_SHA,
+          headSha: HEAD_SHA,
+          paths: requestedPaths,
+        }),
+    })
+  }
+
+  function byteCappedRepoSource(oversizedPath: string): RepoSource {
+    const local = inMemoryRepoSource(PR42_CONTENTS, PR42_FILES)
+
+    return {
+      kind: "linked",
+      async prepare(target, baseSha, headSha, onProgress) {
+        const prepared = await local.prepare(target, baseSha, headSha, onProgress)
+
+        return {
+          ...prepared,
+          readFileDiff: (path: string) =>
+            path === oversizedPath
+              ? Promise.reject(GIT_DIFF_BYTE_CAP_REJECTION)
+              : prepared.readFileDiff(path),
+        }
+      },
+    }
+  }
+
+  // A force push landing between the reader's two identity reads.
+  function forcePushAfterFirstMetaRead(): GithubGateway {
+    const base = createFakeGithubGateway()
+    let metaReads = 0
+
+    return {
+      ...base,
+      async getPullMeta(target) {
+        metaReads += 1
+        const meta = await base.getPullMeta(target)
+
+        return metaReads === 1 ? meta : { ...meta, headSha: "force-pushed-head" }
+      },
+    }
+  }
+
+  it("ai_revision_pinned_api_patch_reader_never_materializes_unbounded_full_pr_response", async () => {
+    // Arrange
+    const contextPaths = [PR42_PATHS.login, PR42_PATHS.http]
+    const oversizedPath = PR42_PATHS.login
+    const admittedPath = PR42_PATHS.http
+    const noRepoSource = recordingGateway()
+    const noRepoSourceClient = createTauriPrClient({
+      gateway: noRepoSource.gateway,
+      storage: createMemoryKeyValueStore(),
+    })
+    const baseUnavailable = recordingGateway()
+    const baseUnavailableClient = createTauriPrClient({
+      gateway: baseUnavailable.gateway,
+      storage: createMemoryKeyValueStore(),
+      repoSource: inMemoryRepoSource(PR42_CONTENTS, PR42_FILES, false),
+    })
+    const byteCapped = recordingGateway()
+    const byteCappedClient = createTauriPrClient({
+      gateway: byteCapped.gateway,
+      storage: createMemoryKeyValueStore(),
+      repoSource: byteCappedRepoSource(oversizedPath),
+    })
+    const forcePushedClient = createTauriPrClient({
+      gateway: forcePushAfterFirstMetaRead(),
+      storage: createMemoryKeyValueStore(),
+      repoSource: inMemoryRepoSource(PR42_CONTENTS, PR42_FILES),
+    })
+
+    // Act
+    const withoutRepoSource = await assembleAiContextPatches(noRepoSourceClient, contextPaths)
+    const withoutLocalBase = await assembleAiContextPatches(baseUnavailableClient, contextPaths)
+    const heavyCallsAfterAiReads = baseUnavailable.heavyCalls()
+    // The DISPLAY fallback on that same client, to prove the counter above can move at all.
+    const displayPatch = await baseUnavailableClient.getPatch(PR42, admittedPath)
+    const heavyCallsAfterDisplayRead = baseUnavailable.heavyCalls()
+    const overLimitBytes = await assembleAiContextPatches(byteCappedClient, contextPaths)
+    const forcePushedFailure = await assembleAiContextPatches(forcePushedClient, contextPaths).then(
+      () => null,
+      (error: unknown) => error
+    )
+
+    // Assert
+    const unavailableOmissions = [
+      { path: oversizedPath, reason: "patch-unavailable" },
+      { path: admittedPath, reason: "patch-unavailable" },
+    ]
+    const expected = {
+      // No repo source and no local base are DISCLOSED omissions, never a full-PR read.
+      withoutRepoSource: { patches: {}, omissions: unavailableOmissions },
+      withoutLocalBase: { patches: {}, omissions: unavailableOmissions },
+      aiHeavyCalls: 0,
+      byteCappedHeavyCalls: 0,
+      // Over-limit Git bytes are refused before any patch string exists for that path.
+      overLimitBytes: {
+        patches: { [admittedPath]: httpFile.patch },
+        omissions: [{ path: oversizedPath, reason: "patch-byte-limit" }],
+      },
+      // A revision change aborts the WHOLE assembly; it is never disclosed as an omission.
+      forcePushedFailure: { reason: "revision-changed", omissions: undefined },
+    }
+    expect({
+      withoutRepoSource: {
+        patches: withoutRepoSource.patches,
+        omissions: withoutRepoSource.omissions,
+      },
+      withoutLocalBase: {
+        patches: withoutLocalBase.patches,
+        omissions: withoutLocalBase.omissions,
+      },
+      aiHeavyCalls: noRepoSource.heavyCalls() + heavyCallsAfterAiReads,
+      byteCappedHeavyCalls: byteCapped.heavyCalls(),
+      overLimitBytes: { patches: overLimitBytes.patches, omissions: overLimitBytes.omissions },
+      forcePushedFailure: {
+        reason:
+          forcePushedFailure instanceof RevisionPinnedPatchError ? forcePushedFailure.reason : null,
+        omissions: (forcePushedFailure as { omissions?: unknown }).omissions,
+      },
+    }).toEqual(expected)
+    expect(displayPatch).toBe(httpFile.patch)
+    expect(heavyCallsAfterDisplayRead).toBeGreaterThanOrEqual(1)
   })
 })

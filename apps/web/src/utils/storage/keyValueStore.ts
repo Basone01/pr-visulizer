@@ -6,6 +6,7 @@
 export interface KeyValueStore {
   get(key: string): Promise<string | null>
   set(key: string, value: string): Promise<void>
+  delete(key: string): Promise<void>
 }
 
 // In-memory: no persistence, no platform — the store tests inject so the client is
@@ -19,6 +20,9 @@ export function createMemoryKeyValueStore(): KeyValueStore {
     },
     async set(key, value) {
       entries.set(key, value)
+    },
+    async delete(key) {
+      entries.delete(key)
     },
   }
 }
@@ -35,6 +39,9 @@ export function createLocalStorageKeyValueStore(namespace = "prv"): KeyValueStor
     async set(key, value) {
       window.localStorage.setItem(scopedKey(key), value)
     },
+    async delete(key) {
+      window.localStorage.removeItem(scopedKey(key))
+    },
   }
 }
 
@@ -42,6 +49,7 @@ export function createLocalStorageKeyValueStore(namespace = "prv"): KeyValueStor
 type TauriStore = {
   get<T>(key: string): Promise<T | null>
   set(key: string, value: unknown): Promise<void>
+  delete(key: string): Promise<boolean>
   save(): Promise<void>
 }
 
@@ -71,6 +79,11 @@ export function createTauriKeyValueStore(fileName = "prv-store.json"): KeyValueS
     async set(key, value) {
       const opened = await store()
       await opened.set(key, value)
+      await opened.save()
+    },
+    async delete(key) {
+      const opened = await store()
+      await opened.delete(key)
       await opened.save()
     },
   }

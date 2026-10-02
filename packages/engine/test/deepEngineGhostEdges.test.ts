@@ -11,7 +11,7 @@ import {
 import { createNodeGrammarSource } from "../src/node.js"
 
 // `GhostFile.usesChangedFiles` — which CHANGED files each ghost reaches (docs/architecture.md
-// §6, §380). It is the graph's dashed ghost→file edge, so both ways a ghost can reach changed
+// §6, §380). It is the graph's faded ghost→file edge, so both ways a ghost can reach changed
 // code have to land in it: a symbol reference, and a bare import that references nothing.
 
 const SYMBOL_GHOST_PATH = "src/api/routes/admin.ts"
@@ -36,7 +36,7 @@ export function healthHandler() {
 }
 `
 
-// Reaches TWO changed files, so the ghost draws two dashed edges.
+// Reaches TWO changed files, so the ghost draws two faded edges.
 const twoFileGhostSource = `import { withRateLimit } from "../../middleware/withRateLimit.js"
 import { checkLimit } from "../../lib/rateLimiter.js"
 

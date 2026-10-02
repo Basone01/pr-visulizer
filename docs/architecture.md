@@ -377,7 +377,8 @@ The `Edge.source` enum is deliberately not widened; the result's `engine: 'deep'
 
 On PR #42 (§7), suppose an **unchanged** file `src/api/routes/admin.ts` also calls `withRateLimit`.
 The fast engine cannot see it — it never reads unchanged files.
-The deep engine emits it as a ghost node with a dashed edge, and `withRateLimit.ts` gets `blastRadius: 1`.
+The deep engine emits it as a ghost node with a faded edge, and `withRateLimit.ts` gets `blastRadius: 1`.
+(The edge is solid-but-faded rather than dashed because WebKit rasterizes `stroke-dasharray` on these full-graph-height paths at ~7x the frame cost — measured on the real WKWebView.)
 The reviewer now knows: _this middleware change affects a route that is not in the diff_ — often the exact thing that makes a "small PR" risky.
 The Go struct-field case above is the same story with an even sharper point: there, the ghost referrers are the **only** signal, because a field-only change produces no call edges whatsoever.
 
