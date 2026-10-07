@@ -11,6 +11,22 @@
   min-height: 0;
 }
 
+/* Codex is ordered after the review shell. Its divider is a direct workspace child, while the
+   graph and tray dividers remain inside the shell. */
+.workspace > [role="separator"] {
+  order: 1;
+}
+
+.codexHeightDivider {
+  display: none;
+}
+
+/* A collapsed Codex is a fixed 40px strip. Its adjacent handles would otherwise resize the
+   saved hidden pane width, which has no visible effect and is confusing. */
+.workspace:has([data-codex-collapsed]) > [role="separator"] {
+  display: none;
+}
+
 .shell {
   /* Side-pane widths are inline styles driven by usePanelSizes (drag-resizable,
      persisted); the center diff pane flexes between them. */
@@ -21,8 +37,8 @@
 }
 
 .sidePane {
-  flex: 0 1 auto;
-  min-width: 160px;
+  flex: 0 0 auto;
+  min-width: 220px;
 }
 
 /* Widths come from CSS vars on the shell so a divider drag can update them imperatively
@@ -40,10 +56,19 @@
   min-width: 320px;
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1100px) {
   .workspace {
     flex-direction: column;
     overflow-y: auto;
+  }
+
+  .workspace > [role="separator"] {
+    display: none;
+  }
+
+  .workspace > .codexHeightDivider {
+    display: block;
+    flex: 0 0 6px;
   }
 
   .shell {

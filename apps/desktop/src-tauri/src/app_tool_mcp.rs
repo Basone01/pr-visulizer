@@ -135,7 +135,7 @@ impl AppToolServer {
             .map(|value| value.to_string())
     }
 
-    #[tool(description = "Render the final Markdown answer in the PR Visualizer answer window.")]
+    #[tool(description = "Render the final Markdown answer in the PR Visualizer answer window. Required whenever the answer mentions files or lines the reviewer may need to open, even for a short answer. Include every mentioned file in fileRefs with its line when known.")]
     fn render_answer(
         &self,
         Parameters(request): Parameters<RenderAnswerRequest>,
@@ -166,7 +166,7 @@ impl AppToolServer {
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for AppToolServer {
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions("Use app tools for this one PR session. Call render_answer only for the final response.")
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions("Use app tools for this one PR session. Whenever an answer mentions a file or line the reviewer may need to open, you must call render_answer successfully before finishing, even for a short answer. Include every mentioned file in fileRefs, with its line when known, and use repo-relative Markdown links or inline paths. If rendering fails, correct the request and retry, then report any unresolved failure. Use the terminal for progress, questions, and answers without file references. Call render_answer only for the final response, then give a brief terminal confirmation.")
     }
 }
 

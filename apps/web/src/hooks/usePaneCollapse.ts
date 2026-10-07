@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { getAppStorage } from "@/service/clientFactory"
 
@@ -42,13 +42,13 @@ export function usePaneCollapse() {
     }, 300)
   }
 
-  function toggle(pane: PaneId): void {
+  const toggle = useCallback((pane: PaneId): void => {
     setCollapsed((current) => {
       const next = { ...current, [pane]: !current[pane] }
       persist(next)
       return next
     })
-  }
+  }, [])
 
   function restoreAll(): void {
     setCollapsed(() => {

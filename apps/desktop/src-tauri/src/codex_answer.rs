@@ -46,6 +46,7 @@ pub struct CodexAnswerSessionRequest {
 pub struct CodexAnswerOpenFileRequest {
     pub session_id: String,
     pub path: String,
+    pub line: Option<u32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -326,15 +327,9 @@ fn handle_socket_request<R: Runtime>(
                 let request: OpenFilePayload = serde_json::from_value(request.payload)
                     .map_err(|_| "open_file requires a path".to_string())?;
                 validate_relative_path(&request.path)?;
+                validate_optional_line(request.line)?;
                 sessions.active_context(session_id)?;
-                app.emit(
-                    "codex-answer://open-file",
-                    OpenFileEvent {
-                        session_id,
-                        path: &request.path,
-                    },
-                )
-                .map_err(|error| error.to_string())?;
+                open_file_in_main_window(app, session_id, &request.path, request.line)?;
                 Ok(serde_json::json!({ "opened": true }))
             }
             "render_answer" => {
@@ -369,6 +364,7 @@ fn handle_socket_request<R: Runtime>(
 #[derive(Deserialize)]
 struct OpenFilePayload {
     path: String,
+    line: Option<u32>,
 }
 
 #[derive(Clone, Serialize)]
@@ -376,6 +372,31 @@ struct OpenFilePayload {
 struct OpenFileEvent<'a> {
     session_id: &'a str,
     path: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<u32>,
+}
+
+fn open_file_in_main_window<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    session_id: &str,
+    path: &str,
+    line: Option<u32>,
+) -> Result<(), String> {
+    let main_window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_string())?;
+    main_window.show().map_err(|error| error.to_string())?;
+    main_window.set_focus().map_err(|error| error.to_string())?;
+
+    app.emit(
+        "codex-answer://open-file",
+        OpenFileEvent {
+            session_id,
+            path,
+            line,
+        },
+    )
+    .map_err(|error| error.to_string())
 }
 
 fn show_report_window<R: Runtime>(
@@ -420,15 +441,9 @@ pub fn codex_answer_window_open_file<R: Runtime>(
     request: CodexAnswerOpenFileRequest,
 ) -> Result<(), String> {
     validate_relative_path(&request.path)?;
+    validate_optional_line(request.line)?;
     sessions.active_context(&request.session_id)?;
-    app.emit(
-        "codex-answer://open-file",
-        OpenFileEvent {
-            session_id: &request.session_id,
-            path: &request.path,
-        },
-    )
-    .map_err(|error| error.to_string())
+    open_file_in_main_window(&app, &request.session_id, &request.path, request.line)
 }
 
 fn validate_context(context: &CodexAnswerContext) -> Result<(), String> {
@@ -460,10 +475,16 @@ fn validate_render_request(request: &RenderAnswerRequest) -> Result<(), String> 
     }
     for reference in refs {
         validate_relative_path(&reference.path)?;
-        if reference.line == Some(0) {
-            return Err("file reference lines must be greater than zero".into());
-        }
+        validate_optional_line(reference.line)?;
     }
+    Ok(())
+}
+
+fn validate_optional_line(line: Option<u32>) -> Result<(), String> {
+    if line == Some(0) {
+        return Err("file reference lines must be greater than zero".into());
+    }
+
     Ok(())
 }
 
@@ -659,5 +680,58 @@ mod tests {
         // Assert
         assert!(value["fileRefs"][0].get("line").is_none());
         assert!(value["fileRefs"][0].get("label").is_none());
+    }
+
+    #[test]
+    fn opening_a_file_emits_its_optional_line_after_focusing_main_window() {
+        // Arrange
+        use tauri::Listener;
+
+        let app = tauri::test::mock_app();
+        WebviewWindowBuilder::new(&app, "main", WebviewUrl::default())
+            .build()
+            .expect("create main window");
+        let received = Arc::new(Mutex::new(None));
+        let recorded_event = Arc::clone(&received);
+        app.handle()
+            .listen("codex-answer://open-file", move |event| {
+                let payload = serde_json::from_str::<serde_json::Value>(event.payload())
+                    .expect("decode open-file event");
+                *recorded_event.lock().expect("lock recorded event") = Some(payload);
+            });
+        let session_id = "answer-window-test";
+        let path = "src/cache.rs";
+        let line = Some(42);
+
+        // Act
+        open_file_in_main_window(&app.handle(), session_id, path, line)
+            .expect("open file in the main window");
+
+        // Assert
+        let expected = serde_json::json!({
+            "sessionId": session_id,
+            "path": path,
+            "line": 42,
+        });
+        assert_eq!(
+            *received.lock().expect("read recorded event"),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn file_reference_lines_must_be_positive_when_present() {
+        // Arrange
+        let zero_line = Some(0);
+
+        // Act
+        let result = validate_optional_line(zero_line);
+
+        // Assert
+        let expected = "file reference lines must be greater than zero";
+        assert_eq!(
+            result.expect_err("zero is not a valid line number"),
+            expected
+        );
     }
 }

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>macOS desktop releases</title>
+    <style>
+      body {
+        max-width: 760px;
+        margin: 40px auto;
+        padding: 0 24px;
+        font: 16px/1.6 system-ui;
+        color: #1b2430;
+        background: #fff;
+      }
+      code {
+        font-size: 0.9em;
+        background: #f0f2f4;
+        padding: 2px 4px;
+      }
+      a {
+        color: #174ea6;
+      }
+      li {
+        margin: 8px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>macOS desktop releases</h1>
+    <p>
+      Run <code>pnpm desktop:build</code> for every macOS release. The command must finish
+      successfully before sharing its DMG. Development remains available through
+      <code>pnpm desktop:dev</code>.
+    </p>
+    <h2>Credentials</h2>
+    <p>
+      The release script uses the installed Developer ID Application certificate and the existing
+      <code>MemiosCamNotary</code> keychain profile. Set <code>DEV_ID</code> or
+      <code>NOTARY_PROFILE</code> to use a different configured identity or profile. Credentials
+      stay in the keychain, not in the repository.
+    </p>
+    <h2>Required release checks</h2>
+    <ol>
+      <li>Build the app with the Developer ID Application signing identity.</li>
+      <li>Verify its signature and hardened runtime.</li>
+      <li>Submit the release to Apple&#x27;s notarization service and require acceptance.</li>
+      <li>Staple the notarization ticket and verify the app and DMG with Gatekeeper.</li>
+      <li>Copy only the verified release to iCloud Drive <code>MacOSBuiltApps</code>.</li>
+    </ol>
+    <p>
+      Missing credentials, rejected notarization, or failed verification must stop the release. Do
+      not share an unsigned fallback or copy an intermediate DMG manually. A completed local copy
+      does not prove that iCloud has finished uploading it.
+    </p>
+    <p>
+      Use the DMG matching the destination Mac&#x27;s processor architecture. The
+      <code>aarch64</code> release is for Apple silicon.
+    </p>
+    <h2>References</h2>
+    <p>
+      Tauri supports Developer ID signing through <code>APPLE_SIGNING_IDENTITY</code>. See
+      <a href="https://v2.tauri.app/distribute/sign/macos/">Tauri macOS code signing</a>.
+    </p>
+    <p>
+      Apple requires Developer ID signing and hardened runtime for notarization. Its workflow uses
+      <code>notarytool</code> and <code>stapler</code>. See
+      <a
+        href="https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution"
+        >Apple notarization</a
+      >
+      and
+      <a
+        href="https://developer.apple.com/documentation/security/customizing-the-notarization-workflow"
+        >customizing the notarization workflow</a
+      >.
+    </p>
+  </body>
+</html>

@@ -61,7 +61,18 @@ export function AnswerWindow({ sessionId }: { sessionId: string }) {
         <h1>{report.title}</h1>
         <time dateTime={report.updatedAt}>{new Date(report.updatedAt).toLocaleTimeString()}</time>
       </header>
-      <MarkdownContent source={report.markdown} />
+      <MarkdownContent
+        source={report.markdown}
+        fileReferences={report.fileRefs}
+        onOpenFile={(fileReference) => {
+          setFileError(null)
+          void openAnswerFile(sessionId, fileReference.path, fileReference.line).catch(
+            (openError: unknown) => {
+              setFileError(openError instanceof Error ? openError.message : String(openError))
+            }
+          )
+        }}
+      />
       {report.fileRefs.length > 0 && (
         <section className={styles.references} aria-label="Referenced files">
           <h2>Referenced files</h2>
@@ -72,11 +83,13 @@ export function AnswerWindow({ sessionId }: { sessionId: string }) {
                   type="button"
                   onClick={() => {
                     setFileError(null)
-                    void openAnswerFile(sessionId, fileRef.path).catch((openError: unknown) => {
-                      setFileError(
-                        openError instanceof Error ? openError.message : String(openError)
-                      )
-                    })
+                    void openAnswerFile(sessionId, fileRef.path, fileRef.line).catch(
+                      (openError: unknown) => {
+                        setFileError(
+                          openError instanceof Error ? openError.message : String(openError)
+                        )
+                      }
+                    )
                   }}
                 >
                   {fileRef.label ?? fileRef.path}

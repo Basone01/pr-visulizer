@@ -26,7 +26,13 @@ import { useAnalysisProgress } from "@/hooks/useAnalysisProgress"
 import { useDiffCommitRange } from "@/hooks/useDiffCommitRange"
 import { useEscapeKey } from "@/hooks/useEscapeKey"
 import { type PaneId, usePaneCollapse } from "@/hooks/usePaneCollapse"
-import { usePanelSizes } from "@/hooks/usePanelSizes"
+import {
+  MIN_CENTER_PANE,
+  MIN_CODEX_HEIGHT,
+  MIN_CODEX_PANE,
+  MIN_SIDE_PANE,
+  usePanelSizes,
+} from "@/hooks/usePanelSizes"
 import { usePeekNavigation } from "@/hooks/usePeekNavigation"
 import { useQueueMode } from "@/hooks/useQueueMode"
 import { useRecentFiles } from "@/hooks/useRecentFiles"
@@ -59,6 +65,7 @@ const TAURI_ANALYSIS_STEPS =
 const answerOpenFileEventSchema = z.object({
   sessionId: z.string().min(1),
   path: z.string().min(1),
+  line: z.number().int().positive().optional(),
 })
 
 // Which clone-folder modal is open: the "Clone it for me" path (auto-retry the analysis after
@@ -219,7 +226,9 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   // Default-open the suggested file once the analysis lands (the app-shell design
   // opens straight onto the "next" file).
   const { current } = nav.state
-  const { selectFile } = nav
+  const { jumpTo, selectFile } = nav
+  const isDiffCollapsedRef = useRef(collapse.collapsed.diff)
+  isDiffCollapsedRef.current = collapse.collapsed.diff
 
   useEffect(() => {
     if (!env.tauriMode) return
@@ -231,7 +240,10 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
         listen("codex-answer://open-file", (event: { payload: unknown }) => {
           const payload = answerOpenFileEventSchema.safeParse(event.payload)
           if (payload.success && payload.data.sessionId === activeTerminalSessionId) {
-            selectFile(payload.data.path)
+            if (isDiffCollapsedRef.current) collapse.toggle("diff")
+
+            if (payload.data.line) jumpTo({ path: payload.data.path, line: payload.data.line })
+            else selectFile(payload.data.path)
           }
         })
       )
@@ -244,7 +256,7 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
       active = false
       unlisten?.()
     }
-  }, [activeTerminalSessionId, selectFile])
+  }, [activeTerminalSessionId, collapse.toggle, jumpTo, selectFile])
 
   // Clicking a graph node opens its diff — expanding the diff pane if the reviewer had it
   // collapsed, so a click never selects a file whose diff is hidden.
@@ -381,6 +393,16 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
     : !collapse.collapsed.graph
       ? "graph"
       : "tray"
+  const graphReservedWidth =
+    collapse.collapsed.graph || fillerPane === "graph" ? 34 : panels.sizes.graph
+  const trayReservedWidth =
+    collapse.collapsed.tray || fillerPane === "tray" ? 34 : panels.sizes.tray
+  const minimumShellWidth =
+    graphReservedWidth +
+    (collapse.collapsed.diff ? 34 : MIN_CENTER_PANE) +
+    trayReservedWidth +
+    (!collapse.collapsed.graph && !collapse.collapsed.diff ? 6 : 0) +
+    (!collapse.collapsed.tray && !collapse.collapsed.diff ? 6 : 0)
 
   return (
     <div className={styles.root}>
@@ -420,23 +442,21 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
         />
       )}
 
-      <div className={styles.workspace} data-workspace>
-        {env.tauriMode && (
-          <AiReviewPanel
-            target={target}
-            storage={getAppStorage()}
-            title={pr.title}
-            baseSha={pr.baseSha}
-            headSha={pr.headSha}
-            currentFilePath={current.path || null}
-            onTerminalSessionStarted={setActiveTerminalSessionId}
-            onTerminalSessionEnded={handleTerminalSessionEnded}
-          />
-        )}
-
+      <div
+        className={styles.workspace}
+        data-workspace
+        style={
+          {
+            "--codex-width": `${panels.sizes.codex}px`,
+            "--codex-height": `${panels.sizes.codexHeight}px`,
+          } as React.CSSProperties
+        }
+      >
         <div
           className={styles.shell}
           data-shell
+          data-pane-min-width={minimumShellWidth}
+          data-pane-min-height={MIN_CENTER_PANE}
           style={
             {
               "--graph-width": `${panels.sizes.graph}px`,
@@ -449,6 +469,9 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
           ) : (
             <div
               className={`${styles.pane} ${styles.sidePane} ${styles.graphPane}`}
+              data-pane-id="graph"
+              data-pane-min-width={MIN_SIDE_PANE}
+              data-pane-fixed={fillerPane === "diff" ? "true" : undefined}
               style={fillerPane === "graph" ? { flex: "1 1 0", width: "auto" } : undefined}
             >
               <div className={styles.paneHeader}>
@@ -499,7 +522,11 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
           {collapse.collapsed.diff ? (
             <CollapsedStrip title="Diff" onExpand={() => collapse.toggle("diff")} />
           ) : (
-            <div className={`${styles.pane} ${styles.centerPane}`}>
+            <div
+              className={`${styles.pane} ${styles.centerPane}`}
+              data-pane-id="diff"
+              data-pane-min-width={MIN_CENTER_PANE}
+            >
               <ErrorBoundary
                 key={current.path}
                 fallback={(error) => (
@@ -561,6 +588,9 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
           ) : (
             <div
               className={`${styles.pane} ${styles.sidePane} ${styles.trayPane}`}
+              data-pane-id="tray"
+              data-pane-min-width={MIN_SIDE_PANE}
+              data-pane-fixed={fillerPane === "diff" ? "true" : undefined}
               style={fillerPane === "tray" ? { flex: "1 1 0", width: "auto" } : undefined}
             >
               <ReviewTray
@@ -590,6 +620,43 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
             </div>
           )}
         </div>
+
+        {env.tauriMode && (
+          <PaneDivider
+            ariaLabel="Resize Codex pane"
+            cssVar="--codex-width"
+            direction={-1}
+            minWidth={MIN_CODEX_PANE}
+            onCommit={(px) => panels.commit({ codex: px })}
+            onReset={panels.reset}
+          />
+        )}
+
+        {env.tauriMode && (
+          <PaneDivider
+            ariaLabel="Resize Codex height"
+            cssVar="--codex-height"
+            direction={-1}
+            minWidth={MIN_CODEX_HEIGHT}
+            orientation="horizontal"
+            className={styles.codexHeightDivider}
+            onCommit={(px) => panels.commit({ codexHeight: px })}
+            onReset={panels.reset}
+          />
+        )}
+
+        {env.tauriMode && (
+          <AiReviewPanel
+            target={target}
+            storage={getAppStorage()}
+            title={pr.title}
+            baseSha={pr.baseSha}
+            headSha={pr.headSha}
+            currentFilePath={current.path || null}
+            onTerminalSessionStarted={setActiveTerminalSessionId}
+            onTerminalSessionEnded={handleTerminalSessionEnded}
+          />
+        )}
       </div>
     </div>
   )

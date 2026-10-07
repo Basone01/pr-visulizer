@@ -121,6 +121,67 @@ describe("MarkdownContent", () => {
     expect(openExternalUrl).not.toHaveBeenCalled()
   })
 
+  it("opens_only_recognized_file_mentions_and_keeps_fenced_code_literal", async () => {
+    // Arrange
+    const user = userEvent.setup()
+    const onOpenFile = vi.fn()
+    const source = [
+      "Plain mention: bff/.env.",
+      "",
+      "[Docker configuration](docker-compose.yml#L66)",
+      "",
+      "~~~text",
+      "bff/.env:6",
+      "~~~",
+      "",
+      "```text",
+      "bff/.env:6",
+      "```",
+    ].join("\n")
+    const fileReferences = [{ path: "bff/.env", line: 6 }, { path: "docker-compose.yml" }]
+    render(
+      <MarkdownContent source={source} fileReferences={fileReferences} onOpenFile={onOpenFile} />
+    )
+
+    // Act
+    await user.click(screen.getByRole("button", { name: "bff/.env" }))
+    await user.click(screen.getByRole("button", { name: "Docker configuration" }))
+
+    // Assert
+    expect(onOpenFile).toHaveBeenNthCalledWith(1, { path: "bff/.env", line: 6 })
+    expect(onOpenFile).toHaveBeenNthCalledWith(2, { path: "docker-compose.yml", line: 66 })
+    expect(screen.getAllByText("bff/.env:6", { selector: "code" })).toHaveLength(2)
+  })
+
+  it("does_not_turn_partial_paths_or_code_inside_existing_links_into_file_buttons", () => {
+    // Arrange
+    const onOpenFile = vi.fn()
+    const source = [
+      "src/foo.ts.extra",
+      "",
+      "[`src/foo.ts:42`](https://example.com/docs)",
+      "",
+      "[malformed](https://example.com/%)",
+    ].join("\n")
+    render(
+      <MarkdownContent
+        source={source}
+        fileReferences={[{ path: "src/foo.ts", line: 42 }]}
+        onOpenFile={onOpenFile}
+      />
+    )
+
+    // Act
+    const buttons = screen.queryAllByRole("button")
+
+    // Assert
+    expect(buttons).toHaveLength(0)
+    expect(screen.getByRole("link", { name: "src/foo.ts:42" })).toHaveAttribute(
+      "href",
+      "https://example.com/docs"
+    )
+  })
+
   it("renders an https image but replaces a relative one with its alt text", () => {
     // Arrange — a repo-relative path is the common README case and cannot resolve: the app
     // serves no repo assets, so emitting the <img> would request the SPA's own origin.

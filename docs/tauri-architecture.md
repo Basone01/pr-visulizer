@@ -127,7 +127,9 @@ Official plugins only (verified against the Tauri 2 plugin registry); custom Rus
 
 ### Install vs CLI — both, same binary
 
-`tauri build` produces a normal installable desktop app (`.app`/`.dmg` on macOS, installers elsewhere).
+`pnpm desktop:build` produces the signed and notarized macOS release (`.app`/`.dmg`).
+Release verification must pass before the DMG is copied to iCloud.
+See [desktop releases](desktop-releases.md) for the required workflow.
 Double-clicking it from Applications/Dock opens the home screen — the terminal is never required.
 The CLI is an _optional accelerator_ over the same binary: `pr-visualizer` on PATH is a tiny shim that execs the installed app's executable with your args, and the Single Instance plugin makes a CLI invocation focus the already-running window instead of spawning a second app.
 

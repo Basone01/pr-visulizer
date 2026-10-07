@@ -1,23 +1,23 @@
 #!/bin/sh
-# Copies the built DMG(s) to iCloud Drive after every desktop build (owner convention:
-# MacOSBuiltApps). Skips quietly on machines without iCloud Drive so the build never
-# fails elsewhere. Runs again after notarization stapling, overwriting with the stapled file.
+# Publishes one already-validated DMG to iCloud Drive (owner convention:
+# MacOSBuiltApps). Release builds must not publish a file that lacks a stapled ticket.
 set -e
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DMG_DIR="$REPO_ROOT/apps/desktop/src-tauri/target/release/bundle/dmg"
-DEST="$HOME/Library/Mobile Documents/com~apple~CloudDocs/MacOSBuiltApps"
+DMG_PATH="${1:?usage: copy-dmg-to-icloud.sh <notarized-dmg>}"
+DEST="${ICLOUD_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/MacOSBuiltApps}"
+XCRUN_BIN="${XCRUN_BIN:-xcrun}"
+DITTO_BIN="${DITTO_BIN:-ditto}"
 
-[ -d "$DMG_DIR" ] || exit 0
-[ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ] || exit 0
+[ -f "$DMG_PATH" ] || { echo "error: DMG not found: $DMG_PATH" >&2; exit 1; }
+if [ -z "${ICLOUD_DIR:-}" ] && [ ! -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ]; then
+  echo "error: iCloud Drive is unavailable" >&2
+  exit 1
+fi
 
 mkdir -p "$DEST"
-copied=0
-for dmg in "$DMG_DIR"/*.dmg; do
-  [ -f "$dmg" ] || continue
-  cp -f "$dmg" "$DEST/"
-  copied=1
-done
+"$XCRUN_BIN" stapler validate "$DMG_PATH"
+"$DITTO_BIN" "$DMG_PATH" "$DEST/$(basename "$DMG_PATH")"
+"$XCRUN_BIN" stapler validate "$DEST/$(basename "$DMG_PATH")"
 
-[ "$copied" = "1" ] && echo "DMG copied to iCloud Drive: $DEST"
+echo "DMG copied to iCloud Drive: $DEST"
 exit 0

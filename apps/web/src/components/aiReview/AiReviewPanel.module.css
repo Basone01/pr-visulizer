@@ -2,9 +2,9 @@
   position: static;
   order: 2;
   z-index: 30;
-  width: min(clamp(320px, 26vw, 390px), calc(100vw - 32px));
+  width: var(--codex-width, min(clamp(320px, 26vw, 390px), calc(100vw - 32px)));
   height: 100%;
-  flex: 0 0 min(clamp(320px, 26vw, 390px), calc(100vw - 32px));
+  flex: 0 0 var(--codex-width, min(clamp(320px, 26vw, 390px), calc(100vw - 32px)));
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -29,11 +29,13 @@
   display: none;
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1100px) {
   .panel {
     width: 100%;
-    height: min(45%, 390px);
-    flex: 0 0 min(45%, 390px);
+    /* Leave the stacked review workspace at least its 320px working area plus the divider. */
+    height: min(var(--codex-height, min(45%, 390px)), calc(100% - 326px));
+    max-height: calc(100% - 326px);
+    flex: 0 1 min(var(--codex-height, min(45%, 390px)), calc(100% - 326px));
     border-top: 1px solid var(--border);
     border-left: 0;
   }
@@ -289,7 +291,7 @@
 
 .terminalHost {
   flex: 1;
-  min-height: 180px;
+  min-height: 0;
   padding: 6px;
 }
 

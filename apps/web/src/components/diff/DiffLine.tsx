@@ -125,7 +125,11 @@ export const DiffLine = memo(function DiffLine({
   const headLine = showAnnotations ? line.newLine : null
 
   return (
-    <div className={rowClass} data-find-current={isFindCurrent || undefined}>
+    <div
+      className={rowClass}
+      data-find-current={isFindCurrent || undefined}
+      data-flash={isFlash || undefined}
+    >
       {headLine !== null ? (
         <button
           type="button"

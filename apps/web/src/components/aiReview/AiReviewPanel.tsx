@@ -42,7 +42,8 @@ function createInitialPrompt(input: {
     `Selected file: ${selectedFile}`,
     "The current checkout may not be the PR head. Do not change branches, checkout commits, edit files, or run destructive commands.",
     `Inspect the PR with git diff ${input.baseSha}...${input.headSha} and git show ${input.headSha}:<path> as needed.`,
-    "Keep terminal replies brief. For a longer explanation, summary, or review result, call render_answer with a title, Markdown, and optional changed-file references.",
+    "Whenever an answer mentions a file or line the reviewer may need to open, you must call render_answer successfully before finishing, even for a short answer. Include every mentioned file in fileRefs, with its line when known. Use repo-relative Markdown links or inline paths so the references are clickable. If rendering fails, correct the request and retry, then report any unresolved failure instead of claiming the preview is ready.",
+    "Use the terminal for progress, questions, and answers without file references. For longer explanations, summaries, or review results, also prefer render_answer with a title and Markdown. After rendering, keep the terminal reply to a brief confirmation that the answer is in the preview window.",
     "Start by briefly confirming the PR context, then wait for the reviewer’s question.",
   ].join("\n")
 }
@@ -117,7 +118,12 @@ export function AiReviewPanel({
   }
 
   return (
-    <aside className={`${styles.panel} ${collapsed ? styles.collapsed : ""}`} aria-label="Codex">
+    <aside
+      className={`${styles.panel} ${collapsed ? styles.collapsed : ""}`}
+      aria-label="Codex"
+      data-codex-collapsed={collapsed ? "true" : undefined}
+      data-pane-min-height="220"
+    >
       <button
         type="button"
         className={styles.toggle}

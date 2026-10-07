@@ -101,6 +101,16 @@
   background: var(--code-bg);
 }
 
+.fileLink {
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
 .markdownPreview pre {
   padding: 12px 14px;
   border-radius: 6px;

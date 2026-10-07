@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -428,6 +428,7 @@ describe("AppShell — Codex safe profile through its production composition", (
     expect(document.querySelector("aside")?.parentElement).toBe(workspace)
     expect(screen.getByText("Dependency graph")).toBeInTheDocument()
     expect(screen.getByText("Review queue")).toBeInTheDocument()
+    expect(screen.queryByRole("separator", { name: "Resize Codex pane" })).toBeNull()
     const showAiReview = screen.getByRole("button", { name: "Show Codex" })
     expect(showAiReview).toHaveAttribute("aria-expanded", "false")
     await user.click(showAiReview)
@@ -459,5 +460,79 @@ describe("AppShell — Codex safe profile through its production composition", (
     await new Promise((resolve) => window.setTimeout(resolve, 20))
     expect(broker.terminalStarts).toHaveLength(1)
     expect(broker.terminalStops).toEqual([])
+  })
+
+  it("resizes_every_workspace_pane_and_persists_the_docked_widths_without_restarting_codex", async () => {
+    // Arrange
+    await addRepoLink(desktop.storage, { path: "/repo", owner: TARGET.owner, repo: TARGET.repo })
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1700 })
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 1000 })
+    renderShell()
+    await waitFor(() => expect(broker.terminalStarts).toHaveLength(1), { timeout: WAIT_TIMEOUT })
+
+    const workspace = document.querySelector<HTMLElement>("[data-workspace]")
+    const shell = document.querySelector<HTMLElement>("[data-shell]")
+    const codexPane = screen.getByLabelText("Codex")
+    const graphPane = document.querySelector<HTMLElement>('[data-pane-id="graph"]')
+    const trayPane = document.querySelector<HTMLElement>('[data-pane-id="tray"]')
+    const codexHeightDivider = document.querySelector<HTMLElement>(
+      '[aria-label="Resize Codex height"]'
+    )
+    if (!workspace || !shell || !graphPane || !trayPane || !codexHeightDivider) {
+      throw new Error("Workspace panes are missing")
+    }
+
+    Object.defineProperty(workspace, "clientWidth", { configurable: true, value: 1700 })
+    Object.defineProperty(workspace, "clientHeight", { configurable: true, value: 860 })
+    Object.defineProperty(shell, "clientWidth", { configurable: true, value: 1310 })
+    vi.spyOn(codexPane, "getBoundingClientRect").mockReturnValue(new DOMRect(1122, 0, 390, 390))
+    vi.spyOn(graphPane, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 400, 916))
+    vi.spyOn(trayPane, "getBoundingClientRect").mockReturnValue(new DOMRect(822, 0, 300, 916))
+
+    const codexDivider = screen.getByRole("separator", { name: "Resize Codex pane" })
+    const graphDivider = screen.getByRole("separator", { name: "Resize graph pane" })
+    const trayDivider = screen.getByRole("separator", { name: "Resize review tray" })
+
+    // Act
+    fireEvent.keyDown(graphDivider, { key: "ArrowRight" })
+    expect(shell.style.getPropertyValue("--graph-width")).toBe("410px")
+
+    fireEvent.pointerDown(codexDivider, { pointerId: 1, clientX: 1122 })
+    fireEvent.pointerMove(codexDivider, { pointerId: 1, clientX: 1022 })
+    fireEvent.pointerUp(codexDivider, { pointerId: 1, clientX: 1022 })
+
+    fireEvent.pointerDown(graphDivider, { pointerId: 2, clientX: 400 })
+    fireEvent.pointerMove(graphDivider, { pointerId: 2, clientX: 450 })
+    fireEvent.pointerUp(graphDivider, { pointerId: 2, clientX: 450 })
+
+    fireEvent.pointerDown(trayDivider, { pointerId: 3, clientX: 822 })
+    fireEvent.pointerMove(trayDivider, { pointerId: 3, clientX: 772 })
+    fireEvent.pointerUp(trayDivider, { pointerId: 3, clientX: 772 })
+
+    fireEvent.pointerDown(codexHeightDivider, { pointerId: 4, clientY: 500 })
+    fireEvent.pointerMove(codexHeightDivider, { pointerId: 4, clientY: 400 })
+    fireEvent.pointerUp(codexHeightDivider, { pointerId: 4, clientY: 400 })
+
+    // Assert
+    expect(workspace.style.getPropertyValue("--codex-width")).toBe("490px")
+    expect(workspace.style.getPropertyValue("--codex-height")).toBe("490px")
+    expect(shell.style.getPropertyValue("--graph-width")).toBe("450px")
+    expect(shell.style.getPropertyValue("--tray-width")).toBe("350px")
+    expect(screen.getByTestId("diff-pane")).toBeInTheDocument()
+    expect(shell.style.getPropertyValue("--diff-width")).toBe("")
+    expect(codexDivider).toHaveAttribute("aria-orientation", "vertical")
+    expect(codexHeightDivider).toHaveAttribute("aria-orientation", "horizontal")
+    expect(broker.terminalStarts).toHaveLength(1)
+    expect(broker.terminalStops).toEqual([])
+
+    await waitFor(async () => {
+      const persisted = await desktop.storage.get("panelSizes")
+      expect(JSON.parse(persisted ?? "{}")).toEqual({
+        codex: 490,
+        codexHeight: 490,
+        graph: 450,
+        tray: 350,
+      })
+    })
   })
 })

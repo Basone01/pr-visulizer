@@ -38,7 +38,26 @@ describe("AnswerWindow", () => {
     expect(screen.getByRole("heading", { name: "Finding" })).toBeInTheDocument()
     expect(screen.getByRole("table")).toBeInTheDocument()
     expect(screen.getByText("const safe = true")).toBeInTheDocument()
-    expect(bridge.openFile).toHaveBeenCalledWith(REPORT.sessionId, "src/auth.ts")
+    expect(bridge.openFile).toHaveBeenCalledWith(REPORT.sessionId, "src/auth.ts", 42)
+  })
+
+  it("opens_a_file_mentioned_in_the_markdown_at_its_cited_line", async () => {
+    // Arrange
+    const user = userEvent.setup()
+    const report = {
+      ...REPORT,
+      markdown: "The guard is in `src/auth.ts:18`. See [the configuration](src/auth.ts#L42).",
+    }
+    bridge.load.mockResolvedValue(report)
+    bridge.subscribe.mockResolvedValue(() => {})
+    bridge.openFile.mockResolvedValue(undefined)
+    render(<AnswerWindow sessionId={REPORT.sessionId} />)
+
+    // Act
+    await user.click(await screen.findByRole("button", { name: "src/auth.ts:18" }))
+
+    // Assert
+    expect(bridge.openFile).toHaveBeenCalledWith(REPORT.sessionId, "src/auth.ts", 18)
   })
 
   it("keeps_a_newer_event_when_the_initial_snapshot_arrives_late", async () => {

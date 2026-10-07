@@ -15,8 +15,12 @@ export async function loadAnswerReport(sessionId: string): Promise<AnswerReport 
   return answerReportSchema.parse(answerReportPayloadSchema.parse(state))
 }
 
-export async function openAnswerFile(sessionId: string, path: string): Promise<void> {
-  await invoke("codex_answer_window_open_file", { request: { sessionId, path } })
+export async function openAnswerFile(
+  sessionId: string,
+  path: string,
+  line?: number
+): Promise<void> {
+  await invoke("codex_answer_window_open_file", { request: { sessionId, path, line } })
 }
 
 export async function subscribeAnswerReports(

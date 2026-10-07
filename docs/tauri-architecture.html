@@ -506,9 +506,11 @@
 
       <h2>2 · Three entry paths, one review screen</h2>
       <p class="note">
-        <b>It's a normal installed app first.</b> <span class="mono">tauri build</span> ships a
-        standard <span class="mono">.app</span>/installer — double-click from the Dock and you land
-        on the home screen; no terminal required. The CLI is an optional shim over the same binary.
+        <b>It's a normal installed app first.</b> <span class="mono">pnpm desktop:build</span> ships a
+        signed and notarized macOS <span class="mono">.app</span>/installer — double-click from the Dock and you land
+        on the home screen, no terminal required. The CLI is an optional shim over the same binary.
+        Release verification must pass before the DMG is copied to iCloud.
+        See <a href="desktop-releases.html">desktop releases</a> for the required workflow.
       </p>
       <div class="panel">
         <div class="cards" style="margin-bottom: 14px">

@@ -388,15 +388,10 @@ export function DiffPane({
   const currentPath = nav.state.current.path
   useEffect(() => setUsagesAnchor(null), [currentPath])
 
-  // Clear the flash highlight after the animation so a later jump can re-trigger it.
+  // The flash remains live until its row is mounted and scrolled into view. A cold diff load can
+  // outlast the animation duration, so starting this timer before the row exists loses the cue.
   const { flash } = nav.state
   const { clearFlash } = nav
-  useEffect(() => {
-    if (!flash) return
-
-    const timer = setTimeout(clearFlash, 1200)
-    return () => clearTimeout(timer)
-  }, [flash, clearFlash])
 
   // An overlay (peek popup, usages list, flash after a jump) can target a row past the first
   // chunk, so growth must reach it immediately rather than a few frames later.
@@ -462,6 +457,17 @@ export function DiffPane({
     const row = diffScrollRef.current?.querySelector("[data-find-current]")
     row?.scrollIntoView({ block: "center" })
   }, [findOpen, findCurrentRow, mountedRows])
+
+  useEffect(() => {
+    if (!flash || flash.path !== shownDiff?.path) return
+
+    const row = diffScrollRef.current?.querySelector("[data-flash]")
+    if (!row) return
+
+    row.scrollIntoView({ block: "center" })
+    const timer = setTimeout(clearFlash, 1200)
+    return () => clearTimeout(timer)
+  }, [clearFlash, flash, mountedRows, shownDiff?.path])
 
   // The row callbacks are hoisted and memoized: a fresh closure per render would defeat
   // DiffLine's memo and re-render (and re-tokenize) every row on any pane state change.
