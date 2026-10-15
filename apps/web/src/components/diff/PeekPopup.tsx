@@ -1,4 +1,3 @@
-import { languageForPath } from "@pr-visulizer/engine"
 import { useQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
 
@@ -52,7 +51,7 @@ export function PeekPopup({
   const headQuery = useQuery(fileAtHeadQueryOptions(target, definition.path, true))
   // The definition can live in another file than the open one — and the engine now analyses Go,
   // PHP and Python too, so the grammar follows the DEFINITION's path, not the diff's.
-  const tokenizer = useLineTokenizer(languageForPath(definition.path))
+  const tokenizer = useLineTokenizer(definition.path)
 
   // null = the client has no head content for this file (or the read failed).
   const headText = headQuery.data ?? null

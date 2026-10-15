@@ -418,6 +418,18 @@ fn show_report_window<R: Runtime>(
     Ok(())
 }
 
+fn show_stored_report<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    sessions: &CodexAnswerSessions,
+    session_id: &str,
+) -> Result<(), String> {
+    let Some(report) = sessions.report(session_id)? else {
+        return Err("no answer has been rendered for this terminal session".into());
+    };
+
+    show_report_window(app, &report)
+}
+
 #[tauri::command]
 pub fn codex_terminal_update_context(
     sessions: tauri::State<'_, CodexAnswerSessions>,
@@ -444,6 +456,15 @@ pub fn codex_answer_window_open_file<R: Runtime>(
     validate_optional_line(request.line)?;
     sessions.active_context(&request.session_id)?;
     open_file_in_main_window(&app, &request.session_id, &request.path, request.line)
+}
+
+#[tauri::command]
+pub fn codex_answer_window_show<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    sessions: tauri::State<'_, CodexAnswerSessions>,
+    request: CodexAnswerSessionRequest,
+) -> Result<(), String> {
+    show_stored_report(&app, sessions.inner(), &request.session_id)
 }
 
 fn validate_context(context: &CodexAnswerContext) -> Result<(), String> {
@@ -624,6 +645,25 @@ mod tests {
             std::os::unix::net::UnixStream::connect(&socket_path).is_err(),
             "revoking a terminal must remove its app-tool socket"
         );
+    }
+
+    #[test]
+    fn show_stored_report_reports_a_session_without_an_answer() {
+        // Arrange
+        let app = tauri::test::mock_app();
+        let sessions = CodexAnswerSessions::default();
+        let session_id = "answer-show-without-report";
+        sessions
+            .start(app.handle().clone(), session_id, context())
+            .expect("start answer session");
+
+        // Act
+        let result = show_stored_report(app.handle(), &sessions, session_id);
+        sessions.revoke(session_id);
+
+        // Assert
+        let expected = Err("no answer has been rendered for this terminal session".to_string());
+        assert_eq!(result, expected);
     }
 
     #[test]

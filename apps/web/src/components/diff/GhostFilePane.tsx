@@ -1,4 +1,3 @@
-import { languageForPath } from "@pr-visulizer/engine"
 import type { SymbolOccurrence } from "@pr-visulizer/shared"
 import { useQuery } from "@tanstack/react-query"
 import { useEffect, useMemo, useRef } from "react"
@@ -69,7 +68,7 @@ export function GhostFilePane({
   onHide,
 }: GhostFilePaneProps) {
   const contentQuery = useQuery(fileAtHeadQueryOptions(target, path, true))
-  const tokenizer = useLineTokenizer(languageForPath(path))
+  const tokenizer = useLineTokenizer(path)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const lines = useMemo(

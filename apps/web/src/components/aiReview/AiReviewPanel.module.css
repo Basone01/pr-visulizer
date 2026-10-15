@@ -261,13 +261,52 @@
 .terminalHeader {
   display: flex;
   min-height: 36px;
+  gap: 8px;
   align-items: center;
-  justify-content: space-between;
   padding: 0 8px;
   color: #e2e8f0;
   background: #172033;
   font-size: 12px;
   font-weight: 700;
+}
+
+.terminalTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminalControls {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Prompt chips get their own strip so adding shortcuts never reflows the session controls.
+   It scrolls sideways when full, and the scrollbar is hidden because focusing a chip
+   scrolls it into view. */
+.terminalShortcuts {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  overflow-x: auto;
+  border-top: 1px solid #475569;
+  background: #172033;
+  scrollbar-width: none;
+}
+
+.terminalShortcuts::-webkit-scrollbar {
+  display: none;
+}
+
+.terminalShortcutsCaption {
+  flex-shrink: 0;
+  color: #cbd5e1;
+  font-size: 11px;
 }
 
 .terminalAction {
@@ -279,6 +318,15 @@
   background: transparent;
   cursor: pointer;
   font-size: 11px;
+}
+
+/* After .terminalAction so the compact sizing wins at equal specificity. */
+.terminalChip {
+  min-height: 24px;
+  flex-shrink: 0;
+  padding: 2px 6px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .terminalMessage {

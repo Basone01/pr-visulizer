@@ -6,6 +6,7 @@ import { openExternalUrl } from "@/utils/externalLink/openExternal"
 import { safeMarkdownImageUrl, safeMarkdownLinkUrl } from "@/utils/markdown/markdownUrl"
 
 import styles from "./MarkdownContent.module.css"
+import { MermaidDiagram } from "./MermaidDiagram"
 
 // The ONLY module in the app that imports a markdown renderer (external-library rule): every call
 // site depends on <MarkdownContent source={...} />, so the library — and the security policy
@@ -23,6 +24,10 @@ import styles from "./MarkdownContent.module.css"
 //   2. NO webview navigation. Links open through openExternalUrl (the OS browser / Tauri opener),
 //      never by following an href — the desktop shell's webview must stay on the app.
 //   3. NO surprise URLs. `javascript:` and friends are stripped by the url policy before render.
+//
+// One contained exception to "never touches innerHTML": a ```mermaid fence renders through
+// MermaidDiagram, which attaches the SVG mermaid builds (securityLevel "strict", so labels are
+// HTML-encoded and click bindings are off). That component is the only place it happens.
 
 type MarkdownContentProps = {
   source: string
@@ -42,6 +47,20 @@ export type MarkdownFileReference = {
 type LinkProps = {
   href?: string | undefined
   children?: ReactNode
+}
+
+type PreProps = {
+  node?: MarkdownHastNode | undefined
+  children?: ReactNode
+}
+
+// The slice of a hast element `pre` needs: a fence is <pre><code class="language-x">text</code>.
+type MarkdownHastNode = {
+  type: string
+  tagName?: string
+  value?: string
+  properties?: { className?: unknown }
+  children?: MarkdownHastNode[]
 }
 
 type ImageProps = {
@@ -231,6 +250,16 @@ function referenceForHref(
   }
 }
 
+function mermaidFenceSource(pre: MarkdownHastNode): string | null {
+  const code = pre.children?.find((child) => child.type === "element")
+  const className = code?.properties?.className
+  const isMermaid =
+    code?.tagName === "code" && Array.isArray(className) && className.includes("language-mermaid")
+  if (!isMermaid) return null
+
+  return (code.children ?? []).map((child) => child.value ?? "").join("")
+}
+
 function createComponents(
   references: ReadonlyArray<MarkdownFileReference>,
   onOpenFile?: (reference: MarkdownFileReference) => void
@@ -284,9 +313,19 @@ function createComponents(
     return <img className={styles.image} src={url} alt={alt ?? ""} loading="lazy" />
   }
 
+  // Overridden at `pre`, not `code`: a diagram must replace the whole fenced block, not render
+  // inside a monospace <pre>.
+  function MarkdownPre({ node, children }: PreProps): ReactElement {
+    const mermaidSource = node ? mermaidFenceSource(node) : null
+    if (mermaidSource !== null) return <MermaidDiagram source={mermaidSource} />
+
+    return <pre>{children}</pre>
+  }
+
   return {
     a: MarkdownLink,
     img: MarkdownImage,
+    pre: MarkdownPre,
   }
 }
 

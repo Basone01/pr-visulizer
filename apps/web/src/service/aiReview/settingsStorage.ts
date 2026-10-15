@@ -6,12 +6,20 @@ import {
   type AiReviewSettings,
   DEFAULT_AI_REVIEW_SETTINGS,
   type SelectableAiProviderId,
+  TERMINAL_PROVIDERS,
   aiReviewSettingsSchema,
 } from "@/entity/aiReviewSettings"
 
 import { serializeStorageMutation } from "./storageMutationQueue"
 
 const AI_REVIEW_SETTINGS_KEY = "ai-review:settings"
+
+// The stored flag that records each provider's one-time fastest-model migration.
+// Key names are persisted, so they never change.
+const MODEL_DEFAULT_APPLIED_FLAG = {
+  codex: "codexModelDefaultApplied",
+  claude: "claudeModelDefaultApplied",
+} as const satisfies Record<SelectableAiProviderId, keyof AiReviewSettings>
 
 function cloneDefaultSettings(): AiReviewSettings {
   return structuredClone(DEFAULT_AI_REVIEW_SETTINGS)
@@ -33,23 +41,35 @@ export async function loadAiReviewSettings(store: KeyValueStore): Promise<AiRevi
   try {
     const parsed = aiReviewSettingsSchema.safeParse(JSON.parse(raw))
     if (!parsed.success) return cloneDefaultSettings()
-    if (parsed.data.codexModelDefaultApplied) return parsed.data
 
-    return {
-      ...parsed.data,
-      providers: {
-        ...parsed.data.providers,
-        codex: {
-          ...parsed.data.providers.codex,
-          selectedModel:
-            parsed.data.providers.codex.selectedModel ??
-            DEFAULT_AI_REVIEW_SETTINGS.providers.codex.selectedModel,
-        },
-      },
-      codexModelDefaultApplied: true,
-    }
+    const withCodexDefault = applyFastestModelDefaultOnce(parsed.data, "codex")
+    return applyFastestModelDefaultOnce(withCodexDefault, "claude")
   } catch {
     return cloneDefaultSettings()
+  }
+}
+
+// Settings saved before a provider had a default store null, the old implicit CLI default.
+// Replace that null once. After the flag is set, null means the reviewer chose CLI default.
+function applyFastestModelDefaultOnce(
+  settings: AiReviewSettings,
+  provider: SelectableAiProviderId
+): AiReviewSettings {
+  const flag = MODEL_DEFAULT_APPLIED_FLAG[provider]
+  if (settings[flag]) return settings
+
+  const providerSettings = settings.providers[provider]
+  return {
+    ...settings,
+    providers: {
+      ...settings.providers,
+      [provider]: {
+        ...providerSettings,
+        selectedModel:
+          providerSettings.selectedModel ?? TERMINAL_PROVIDERS[provider].fastestModelId,
+      },
+    },
+    [flag]: true,
   }
 }
 
@@ -71,6 +91,13 @@ export function createAiReviewSettingsStorage(store: KeyValueStore) {
       return mutate(async () => {
         const settings = await loadAiReviewSettings(store)
         return saveAiReviewSettings(store, { ...settings, defaultProfile: profile })
+      })
+    },
+
+    saveTerminalProvider(provider: SelectableAiProviderId): Promise<AiReviewSettings> {
+      return mutate(async () => {
+        const settings = await loadAiReviewSettings(store)
+        return saveAiReviewSettings(store, { ...settings, terminalProvider: provider })
       })
     },
 

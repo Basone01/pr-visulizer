@@ -23,6 +23,11 @@ export async function openAnswerFile(
   await invoke("codex_answer_window_open_file", { request: { sessionId, path, line } })
 }
 
+// Rejects when the agent has not rendered an answer for this session yet.
+export async function showAnswerWindow(sessionId: string): Promise<void> {
+  await invoke("codex_answer_window_show", { request: { sessionId } })
+}
+
 export async function subscribeAnswerReports(
   sessionId: string,
   onReport: (report: AnswerReport) => void

@@ -208,7 +208,7 @@ export function DiffPane({
   const viewerQuery = useQuery(viewerQueryOptions())
   const { saveEdit } = useUpdateReviewComment(target)
   const invalidateComments = useInvalidateReviewComments(target)
-  const tokenizer = useLineTokenizer(file?.language ?? null)
+  const tokenizer = useLineTokenizer(file?.path ?? null)
   const {
     settings,
     toggleWrap,

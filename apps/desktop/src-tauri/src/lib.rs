@@ -727,6 +727,7 @@ pub fn run() {
             codex_answer::codex_terminal_update_context,
             codex_answer::codex_answer_window_state,
             codex_answer::codex_answer_window_open_file,
+            codex_answer::codex_answer_window_show,
             repo_changed_files,
             repo_file_diff
         ])

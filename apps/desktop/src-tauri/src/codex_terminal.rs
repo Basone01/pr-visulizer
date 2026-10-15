@@ -21,10 +21,18 @@ const MAX_TERMINAL_ROWS: u16 = 200;
 const MAX_PREATTACH_OUTPUT_BYTES: usize = 1024 * 1024;
 const DISPATCH_QUEUE_CAPACITY: usize = 64;
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TerminalProvider {
+    Codex,
+    Claude,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexTerminalStartRequest {
     pub session_id: String,
+    pub provider: TerminalProvider,
     pub repository_path: String,
     pub initial_prompt: String,
     pub model: Option<String>,
@@ -231,7 +239,7 @@ fn stop_terminal_process(
             .lock()
             .map_err(|_| "terminal process is unavailable".to_string())?
             .kill()
-            .map_err(|error| format!("could not stop Codex terminal: {error}"));
+            .map_err(|error| format!("could not stop terminal: {error}"));
     };
 
     signal_terminal_process_group(process_group, libc::SIGTERM)?;
@@ -256,7 +264,7 @@ fn stop_terminal_process(
         .lock()
         .map_err(|_| "terminal process is unavailable".to_string())?
         .kill()
-        .map_err(|error| format!("could not stop Codex terminal: {error}"))
+        .map_err(|error| format!("could not stop terminal: {error}"))
 }
 
 fn validated_session_id(session_id: &str) -> Result<&str, String> {
@@ -359,6 +367,67 @@ fn codex_command(
     command.arg("--no-alt-screen");
     command.arg(initial_prompt);
     command.cwd(repository_root);
+    command.env("PR_VISUALIZER_RENDER_SOCKET", render_socket);
+    command.env("PR_VISUALIZER_RENDER_TOKEN", render_token);
+    command
+}
+
+// Claude has no read-only OS sandbox flag like Codex's. The posture is: editing tools removed,
+// every other mutation goes through the CLI's own interactive permission prompt.
+fn claude_command(
+    repository_root: &Path,
+    model: Option<&str>,
+    initial_prompt: &str,
+    render_socket: &str,
+    render_token: &str,
+) -> CommandBuilder {
+    let mut command = CommandBuilder::new("claude");
+    let executable = std::env::current_exe()
+        .expect("desktop executable path must be available to launch the MCP helper");
+    let mcp_config = serde_json::json!({
+        "mcpServers": {
+            "pr_visualizer": {
+                "type": "stdio",
+                "command": executable.to_string_lossy(),
+                "args": ["--render-mcp"],
+                "env": {
+                    "PR_VISUALIZER_RENDER_SOCKET": render_socket,
+                    "PR_VISUALIZER_RENDER_TOKEN": render_token,
+                },
+            },
+        },
+    });
+    command.arg("--mcp-config");
+    command.arg(mcp_config.to_string());
+    // Server-wide allow rule, so the app's own MCP tools never interrupt the session,
+    // matching Codex's `default_tools_approval_mode = "approve"`. `sem diff` is pre-approved
+    // because every flag it has only changes output format or filtering (checked 2026-10-14).
+    // No git rule is pre-approved: `git diff --output` / `--ext-diff` could write files or run
+    // programs.
+    command.arg("--allowedTools");
+    command.arg("mcp__pr_visualizer");
+    command.arg("Bash(sem diff *)");
+    command.arg("--disallowedTools");
+    command.arg("Edit");
+    command.arg("Write");
+    command.arg("NotebookEdit");
+    // Newer CLIs start interactive sessions in `auto` mode, so prompt-on-first-use must be explicit.
+    command.arg("--permission-mode");
+    command.arg("manual");
+    if let Some(model) = model {
+        command.arg("--model");
+        command.arg(model);
+    }
+    command.arg(initial_prompt);
+    command.cwd(repository_root);
+    // Keep the transcript in the terminal's scrollback instead of an alternate screen.
+    // Claude has no CLI flag for this, the env var forces the classic renderer.
+    command.env("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN", "1");
+    // When the desktop app itself was launched from inside a Claude Code session (dev),
+    // the child would inherit the nested-session markers and run with transcript saving off.
+    command.env_remove("CLAUDE_CODE_CHILD_SESSION");
+    command.env_remove("CLAUDECODE");
+    command.env_remove("CLAUDE_CODE_ENTRYPOINT");
     command.env("PR_VISUALIZER_RENDER_SOCKET", render_socket);
     command.env("PR_VISUALIZER_RENDER_TOKEN", render_token);
     command
@@ -487,15 +556,15 @@ fn launch_terminal<R: Runtime>(
     let reader = pair
         .master
         .try_clone_reader()
-        .map_err(|error| format!("could not read Codex terminal output: {error}"))?;
+        .map_err(|error| format!("could not read terminal output: {error}"))?;
     let writer = pair
         .master
         .take_writer()
-        .map_err(|error| format!("could not write Codex terminal input: {error}"))?;
+        .map_err(|error| format!("could not write terminal input: {error}"))?;
     let mut child = pair
         .slave
         .spawn_command(command)
-        .map_err(|error| format!("could not start Codex terminal: {error}"))?;
+        .map_err(|error| format!("could not start terminal: {error}"))?;
     #[cfg(unix)]
     let process_group = child
         .process_id()
@@ -569,7 +638,7 @@ fn launch_terminal<R: Runtime>(
             },
             Err(error) => TerminalDispatchEvent::Exit {
                 code: None,
-                error: Some(format!("Codex terminal did not exit cleanly: {error}")),
+                error: Some(format!("terminal did not exit cleanly: {error}")),
             },
         };
         let _ = dispatch_sender.send(event);
@@ -586,6 +655,7 @@ pub fn codex_terminal_start<R: Runtime>(
     request: CodexTerminalStartRequest,
 ) -> Result<CodexTerminalStartResponse, String> {
     let session_id = validated_session_id(&request.session_id)?.to_string();
+    let provider = request.provider;
     if request.initial_prompt.is_empty() || request.initial_prompt.len() > MAX_INITIAL_PROMPT_BYTES
     {
         return Err("terminal initial prompt must be 1-65536 bytes".into());
@@ -605,7 +675,11 @@ pub fn codex_terminal_start<R: Runtime>(
                 return Err(error);
             }
         };
-    let command = codex_command(
+    let build_command = match provider {
+        TerminalProvider::Codex => codex_command,
+        TerminalProvider::Claude => claude_command,
+    };
+    let command = build_command(
         &repository_root,
         model.as_deref(),
         &request.initial_prompt,
@@ -837,6 +911,115 @@ mod tests {
             rendered.contains("/tmp/linked-repository"),
             "Codex must run in linked repo: {rendered}"
         );
+    }
+
+    #[test]
+    fn claude_command_registers_app_mcp_blocks_edits_and_uses_literal_pr_prompt() {
+        // Arrange
+        let repository_root = Path::new("/tmp/linked-repository");
+        let model = Some("opus");
+        let initial_prompt = "Review https://github.com/acme/widgets/pull/42";
+        let render_socket = "/tmp/answer.sock";
+        let render_token = "token";
+
+        // Act
+        let command = claude_command(
+            repository_root,
+            model,
+            initial_prompt,
+            render_socket,
+            render_token,
+        );
+        let rendered = format!("{command:?}");
+
+        // Assert
+        let expected_fragments = [
+            "--mcp-config",
+            "mcpServers",
+            "pr_visualizer",
+            "--render-mcp",
+            "PR_VISUALIZER_RENDER_SOCKET",
+            "mcp__pr_visualizer",
+            "Bash(sem diff *)",
+            "--disallowedTools",
+            "Edit",
+            "--permission-mode",
+            "manual",
+            "--model",
+            "opus",
+            initial_prompt,
+            "/tmp/linked-repository",
+            "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN",
+        ];
+        for fragment in expected_fragments {
+            assert!(
+                rendered.contains(fragment),
+                "Claude command must contain {fragment:?}: {rendered}"
+            );
+        }
+        for forbidden_fragment in ["--sandbox", "--no-alt-screen", "Bash(git"] {
+            assert!(
+                !rendered.contains(forbidden_fragment),
+                "Claude command must not contain {forbidden_fragment:?}: {rendered}"
+            );
+        }
+    }
+
+    #[test]
+    fn claude_command_keeps_cli_default_model() {
+        // Arrange
+        let repository_root = Path::new("/tmp/linked-repository");
+        let model = None;
+        let initial_prompt = "Review https://github.com/acme/widgets/pull/42";
+
+        // Act
+        let command = claude_command(
+            repository_root,
+            model,
+            initial_prompt,
+            "/tmp/answer.sock",
+            "token",
+        );
+        let rendered = format!("{command:?}");
+
+        // Assert
+        assert!(
+            !rendered.contains("--model"),
+            "CLI-default model must omit --model: {rendered}"
+        );
+    }
+
+    #[test]
+    fn start_request_parses_provider() {
+        // Arrange
+        let request_without_provider = r#"{
+            "sessionId": "session-1",
+            "repositoryPath": "/tmp/linked-repository",
+            "initialPrompt": "Review",
+            "model": null,
+            "rows": 24,
+            "cols": 80,
+            "context": {
+                "owner": "acme",
+                "repo": "widgets",
+                "number": 42,
+                "title": "Add widgets",
+                "baseSha": "base",
+                "headSha": "head",
+                "selectedFilePath": null
+            }
+        }"#;
+        let request_with_provider =
+            request_without_provider.replace("\"rows\"", "\"provider\": \"claude\", \"rows\"");
+
+        // Act
+        let parsed = serde_json::from_str::<CodexTerminalStartRequest>(&request_with_provider);
+        let missing = serde_json::from_str::<CodexTerminalStartRequest>(request_without_provider);
+
+        // Assert
+        let expected = TerminalProvider::Claude;
+        assert_eq!(parsed.expect("request with provider must parse").provider, expected);
+        assert!(missing.is_err(), "provider must be required");
     }
 
     #[cfg(unix)]

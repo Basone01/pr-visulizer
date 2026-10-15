@@ -9,6 +9,7 @@ import type { PrTarget } from "@/entity/pr"
 
 import { createAiChatStorage } from "@/service/aiReview/chatStorage"
 import { createAiReviewRunStorage } from "@/service/aiReview/runStorage"
+import { createAiReviewSettingsStorage } from "@/service/aiReview/settingsStorage"
 import { initTauriAiReviewClient } from "@/service/aiReview/tauriAiReviewClient"
 
 import { addRepoLink } from "@/tauri/repoLinks"
@@ -387,6 +388,15 @@ async function openChatTab(user: ReturnType<typeof userEvent.setup>): Promise<vo
   )
 }
 
+async function pressTerminalStart(): Promise<void> {
+  const startButton = await screen.findByRole(
+    "button",
+    { name: "Start" },
+    { timeout: WAIT_TIMEOUT }
+  )
+  fireEvent.click(startButton)
+}
+
 async function waitForChatReady(): Promise<HTMLElement> {
   const composer = screen.getByLabelText("Message")
   await waitFor(() => expect(composer).toBeEnabled(), { timeout: WAIT_TIMEOUT })
@@ -394,7 +404,7 @@ async function waitForChatReady(): Promise<HTMLElement> {
 }
 
 describe("AppShell — Codex safe profile through its production composition", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     broker.listeners.clear()
     broker.capability = AVAILABLE_CAPABILITY
     broker.capabilityCalls = 0
@@ -407,6 +417,8 @@ describe("AppShell — Codex safe profile through its production composition", (
     prControl.oversizedPath = null
     prControl.putProgressCalls = 0
     desktop.reset()
+    // Every test here drives the docked Codex terminal, which only starts after a provider choice.
+    await createAiReviewSettingsStorage(desktop.storage).saveTerminalProvider("codex")
     initTauriAiReviewClient({ storage: desktop.storage })
   })
 
@@ -454,6 +466,7 @@ describe("AppShell — Codex safe profile through its production composition", (
 
     // Act
     renderShell()
+    await pressTerminalStart()
     await waitFor(() => expect(broker.terminalStarts).toHaveLength(1), { timeout: WAIT_TIMEOUT })
 
     // Assert
@@ -468,6 +481,7 @@ describe("AppShell — Codex safe profile through its production composition", (
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1700 })
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 1000 })
     renderShell()
+    await pressTerminalStart()
     await waitFor(() => expect(broker.terminalStarts).toHaveLength(1), { timeout: WAIT_TIMEOUT })
 
     const workspace = document.querySelector<HTMLElement>("[data-workspace]")

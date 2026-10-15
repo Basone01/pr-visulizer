@@ -18,6 +18,38 @@ export const CODEX_MODEL_SUGGESTIONS = [
   { id: "gpt-5.5", label: "GPT-5.5 — legacy" },
 ] as const
 
+// Aliases resolve to the newest model of each family, so the list never pins a version.
+// Verified from `claude --help` (2.1.289): "Provide an alias for the latest model (e.g. 'fable', 'opus', or 'sonnet')".
+export const CLAUDE_MODEL_SUGGESTIONS = [
+  { id: "fable", label: "Fable — frontier" },
+  { id: "opus", label: "Opus — balanced" },
+  { id: "sonnet", label: "Sonnet — fast" },
+  { id: "haiku", label: "Haiku — fastest (default)" },
+] as const
+
+export type ModelSuggestion = { id: string; label: string }
+
+export type TerminalProviderDescriptor = {
+  label: string
+  modelSuggestions: ReadonlyArray<ModelSuggestion>
+  // Preselected until the reviewer picks another model, so a first run is quick.
+  fastestModelId: string
+}
+
+// The AI panel terminal reads its labels and model choices from here, so adding a provider
+// is a data change, not a UI change.
+export const TERMINAL_PROVIDERS: Record<SelectableAiProviderId, TerminalProviderDescriptor> = {
+  codex: {
+    label: "Codex",
+    modelSuggestions: CODEX_MODEL_SUGGESTIONS,
+    fastestModelId: DEFAULT_CODEX_MODEL_ID,
+  },
+  claude: { label: "Claude", modelSuggestions: CLAUDE_MODEL_SUGGESTIONS, fastestModelId: "haiku" },
+}
+
+// Codex leads because it is the established provider.
+export const TERMINAL_PROVIDER_ORDER: ReadonlyArray<SelectableAiProviderId> = ["codex", "claude"]
+
 // Codex safe profile has one bounded prompt-only pass. Review profiles remain part of the
 // immutable input identity, but they never grant delegation, chunking, or synthesis behavior.
 export const CODEX_SAFE_PROFILE_REVIEW_DISCLOSURE =
@@ -40,9 +72,13 @@ export const aiReviewSettingsSchema = z.object({
     claude: aiProviderModelSettingsSchema,
     codex: aiProviderModelSettingsSchema,
   }),
-  // Distinguishes legacy null (the old implicit default) from a reviewer explicitly selecting
-  // CLI default after the Luna product default was introduced.
+  // Distinguish legacy null (the old implicit default) from a reviewer explicitly selecting
+  // CLI default after the fastest-model default was introduced, one flag per provider.
   codexModelDefaultApplied: z.boolean().default(false),
+  claudeModelDefaultApplied: z.boolean().default(false),
+  // Which CLI the AI panel terminal runs. Null until the reviewer chooses, for the same reason
+  // as defaultProvider: no hidden default may send repository content to a provider.
+  terminalProvider: selectableAiProviderIdSchema.nullable().default(null),
 })
 export type AiReviewSettings = z.infer<typeof aiReviewSettingsSchema>
 
@@ -50,10 +86,12 @@ export const DEFAULT_AI_REVIEW_SETTINGS: AiReviewSettings = {
   defaultProvider: null,
   defaultProfile: "balanced",
   providers: {
-    claude: { selectedModel: null, successfulModelIds: [] },
-    codex: { selectedModel: DEFAULT_CODEX_MODEL_ID, successfulModelIds: [] },
+    claude: { selectedModel: TERMINAL_PROVIDERS.claude.fastestModelId, successfulModelIds: [] },
+    codex: { selectedModel: TERMINAL_PROVIDERS.codex.fastestModelId, successfulModelIds: [] },
   },
   codexModelDefaultApplied: true,
+  claudeModelDefaultApplied: true,
+  terminalProvider: null,
 }
 
 // Explicit provider selection wins over a saved preference. This function intentionally never

@@ -1,9 +1,16 @@
-import { render, waitFor } from "@testing-library/react"
+import type { AnswerReport } from "@pr-visulizer/shared"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
+
+import { TERMINAL_PROMPT_SHORTCUTS } from "@/entity/terminalPromptShortcuts"
 
 import { CodexTerminal } from "./CodexTerminal"
 
-const terminal = vi.hoisted(() => ({ onData: null as ((data: string) => void) | null }))
+const terminal = vi.hoisted(() => ({
+  onData: null as ((data: string) => void) | null,
+  paste: vi.fn(),
+}))
 const bridge = vi.hoisted(() => ({
   resolve: null as
     | ((value: {
@@ -16,6 +23,12 @@ const bridge = vi.hoisted(() => ({
     | null,
   write: vi.fn(),
   start: vi.fn(),
+}))
+
+const answer = vi.hoisted(() => ({
+  onReport: null as ((report: AnswerReport) => void) | null,
+  unlisten: vi.fn(),
+  show: vi.fn(),
 }))
 
 vi.hoisted(() => {
@@ -35,6 +48,7 @@ vi.mock("@xterm/xterm", () => ({
     open() {}
     focus() {}
     write() {}
+    paste = terminal.paste
     onData(listener: (data: string) => void) {
       terminal.onData = listener
       listener("\u001b[?1;2c")
@@ -56,6 +70,28 @@ vi.mock("@/service/terminal/codexTerminal", () => ({
       })
   ),
 }))
+vi.mock("@/service/terminal/answerWindow", () => ({
+  subscribeAnswerReports: (_sessionId: string, onReport: (report: AnswerReport) => void) => {
+    answer.onReport = onReport
+    return Promise.resolve(answer.unlisten)
+  },
+  showAnswerWindow: answer.show,
+}))
+
+function createBridgeSession() {
+  return {
+    write: bridge.write,
+    resize: vi.fn().mockResolvedValue(undefined),
+    updateContext: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn().mockResolvedValue(undefined),
+    dispose: vi.fn().mockResolvedValue(undefined),
+  }
+}
+
+// The session waits for the reviewer, so every test that needs one presses Start first.
+function pressStart(): void {
+  fireEvent.click(screen.getByRole("button", { name: "Start" }))
+}
 
 describe("CodexTerminal", () => {
   it("keeps_one_terminal_session_when_its_parent_rerenders_with_stable_callbacks", async () => {
@@ -64,6 +100,8 @@ describe("CodexTerminal", () => {
     const onSessionStarted = vi.fn()
     const onSessionEnded = vi.fn()
     const props = {
+      provider: "codex" as const,
+      shortcuts: TERMINAL_PROMPT_SHORTCUTS,
       repositoryPath: "/repo",
       initialPrompt: "Review PR",
       model: "gpt-5.6-luna",
@@ -81,6 +119,7 @@ describe("CodexTerminal", () => {
       },
     }
     const view = render(<CodexTerminal {...props} />)
+    pressStart()
 
     // Act
     view.rerender(<CodexTerminal {...props} />)
@@ -94,6 +133,8 @@ describe("CodexTerminal", () => {
     bridge.write.mockClear()
     render(
       <CodexTerminal
+        provider="codex"
+        shortcuts={TERMINAL_PROMPT_SHORTCUTS}
         repositoryPath="/repo"
         initialPrompt="Review PR"
         model="gpt-5.6-luna"
@@ -111,6 +152,7 @@ describe("CodexTerminal", () => {
         }}
       />
     )
+    pressStart()
 
     // Act
     bridge.resolve?.({
@@ -123,5 +165,264 @@ describe("CodexTerminal", () => {
 
     // Assert
     await waitFor(() => expect(bridge.write).toHaveBeenCalledWith("\u001b[?1;2c"))
+  })
+
+  it("reopens_the_answer_window_for_the_session_after_the_agent_rendered_one", async () => {
+    // Arrange
+    const user = userEvent.setup()
+    bridge.start.mockClear()
+    answer.show.mockReset().mockResolvedValue(undefined)
+    render(
+      <CodexTerminal
+        provider="codex"
+        shortcuts={TERMINAL_PROMPT_SHORTCUTS}
+        repositoryPath="/repo"
+        initialPrompt="Review PR"
+        model="gpt-5.6-luna"
+        terminalIdentity="pr-42"
+        onSessionStarted={() => {}}
+        onSessionEnded={() => {}}
+        context={{
+          owner: "acme",
+          repo: "web",
+          number: 42,
+          title: "PR",
+          baseSha: "base",
+          headSha: "head",
+          selectedFilePath: null,
+        }}
+      />
+    )
+    pressStart()
+    await waitFor(() => expect(bridge.start).toHaveBeenCalledTimes(1))
+    const startedSessionId = bridge.start.mock.calls[0]![0].sessionId as string
+    act(() => bridge.resolve?.(createBridgeSession()))
+    await screen.findByRole("button", { name: "Stop" })
+    const buttonBeforeAnswer = screen.queryByRole("button", { name: "Open answer" })
+    const renderedReport: AnswerReport = {
+      version: 1,
+      sessionId: startedSessionId,
+      title: "Review summary",
+      markdown: "Looks good.",
+      fileRefs: [],
+      updatedAt: "2026-10-14T08:00:00.000Z",
+    }
+    act(() => answer.onReport?.(renderedReport))
+
+    // Act
+    await user.click(screen.getByRole("button", { name: "Open answer" }))
+
+    // Assert
+    expect(buttonBeforeAnswer).not.toBeInTheDocument()
+    expect(answer.show).toHaveBeenCalledWith(startedSessionId)
+  })
+
+  it("prefills_the_pr_description_prompt_into_the_terminal_input", async () => {
+    // Arrange
+    const user = userEvent.setup()
+    terminal.paste.mockClear()
+    const headSha = "head-sha-42"
+    render(
+      <CodexTerminal
+        provider="codex"
+        shortcuts={TERMINAL_PROMPT_SHORTCUTS}
+        repositoryPath="/repo"
+        initialPrompt="Review PR"
+        model="gpt-5.6-luna"
+        terminalIdentity="pr-42"
+        onSessionStarted={() => {}}
+        onSessionEnded={() => {}}
+        context={{
+          owner: "acme",
+          repo: "web",
+          number: 42,
+          title: "PR",
+          baseSha: "base-sha-42",
+          headSha,
+          selectedFilePath: null,
+        }}
+      />
+    )
+    pressStart()
+    const shortcutButton = screen.getByRole("button", { name: "PR description" })
+    const wasDisabledBeforeStart = shortcutButton.hasAttribute("disabled")
+    act(() => bridge.resolve?.(createBridgeSession()))
+    await waitFor(() => expect(shortcutButton).toBeEnabled())
+
+    // Act
+    await user.click(shortcutButton)
+
+    // Assert
+    const pastedPrompt = terminal.paste.mock.calls[0]?.[0] as string
+    expect(wasDisabledBeforeStart).toBe(true)
+    expect(terminal.paste).toHaveBeenCalledTimes(1)
+    expect(pastedPrompt).toContain(headSha)
+    expect(pastedPrompt).toContain("## System design")
+  })
+
+  it("groups_session_controls_apart_from_prompt_shortcuts", async () => {
+    // Arrange
+    render(
+      <CodexTerminal
+        provider="codex"
+        shortcuts={TERMINAL_PROMPT_SHORTCUTS}
+        repositoryPath="/repo"
+        initialPrompt="Review PR"
+        model="gpt-5.6-luna"
+        terminalIdentity="pr-42"
+        onSessionStarted={() => {}}
+        onSessionEnded={() => {}}
+        context={{
+          owner: "acme",
+          repo: "web",
+          number: 42,
+          title: "PR",
+          baseSha: "base",
+          headSha: "head",
+          selectedFilePath: null,
+        }}
+      />
+    )
+    pressStart()
+
+    // Act
+    act(() => bridge.resolve?.(createBridgeSession()))
+    const stopButton = await screen.findByRole("button", { name: "Stop" })
+
+    // Assert
+    const shortcutStrip = screen.getByRole("group", { name: "Prompt shortcuts" })
+    const shortcutButton = within(shortcutStrip).getByRole("button", { name: "PR description" })
+    expect(shortcutStrip).not.toContainElement(stopButton)
+    expect(stopButton.parentElement).not.toBe(shortcutButton.parentElement)
+  })
+
+  it("does_not_start_a_session_until_start_is_pressed", async () => {
+    // Arrange
+    bridge.start.mockClear()
+    render(
+      <CodexTerminal
+        provider="claude"
+        shortcuts={TERMINAL_PROMPT_SHORTCUTS}
+        repositoryPath="/repo"
+        initialPrompt="Review PR"
+        model={null}
+        terminalIdentity="pr-42"
+        onSessionStarted={() => {}}
+        onSessionEnded={() => {}}
+        context={{
+          owner: "acme",
+          repo: "web",
+          number: 42,
+          title: "PR",
+          baseSha: "base",
+          headSha: "head",
+          selectedFilePath: null,
+        }}
+      />
+    )
+    const startCallsBeforePress = bridge.start.mock.calls.length
+    const startButton = screen.getByRole("button", { name: "Start" })
+
+    // Act
+    fireEvent.click(startButton)
+
+    // Assert
+    expect(startCallsBeforePress).toBe(0)
+    await waitFor(() => expect(bridge.start).toHaveBeenCalledTimes(1))
+  })
+
+  it("returns_to_idle_instead_of_relaunching_when_the_provider_changes", async () => {
+    // Arrange
+    bridge.start.mockClear()
+    const onSessionStarted = () => {}
+    const onSessionEnded = () => {}
+    const context = {
+      owner: "acme",
+      repo: "web",
+      number: 42,
+      title: "PR",
+      baseSha: "base",
+      headSha: "head",
+      selectedFilePath: null,
+    }
+    const codexSession = createBridgeSession()
+    const view = render(
+      <CodexTerminal
+        provider="codex"
+        shortcuts={TERMINAL_PROMPT_SHORTCUTS}
+        repositoryPath="/repo"
+        initialPrompt="Review PR"
+        model={null}
+        terminalIdentity="pr-42"
+        onSessionStarted={onSessionStarted}
+        onSessionEnded={onSessionEnded}
+        context={context}
+      />
+    )
+    pressStart()
+    act(() => bridge.resolve?.(codexSession))
+    await screen.findByRole("button", { name: "Stop" })
+
+    // Act
+    view.rerender(
+      <CodexTerminal
+        provider="claude"
+        shortcuts={TERMINAL_PROMPT_SHORTCUTS}
+        repositoryPath="/repo"
+        initialPrompt="Review PR"
+        model={null}
+        terminalIdentity="pr-42"
+        onSessionStarted={onSessionStarted}
+        onSessionEnded={onSessionEnded}
+        context={context}
+      />
+    )
+
+    // Assert
+    expect(await screen.findByRole("button", { name: "Start" })).toBeInTheDocument()
+    expect(bridge.start).toHaveBeenCalledTimes(1)
+    expect(codexSession.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it("reports_a_reviewer_stop_as_stopped_not_as_a_kill_signal", async () => {
+    // Arrange
+    const user = userEvent.setup()
+    bridge.start.mockClear()
+    render(
+      <CodexTerminal
+        provider="claude"
+        shortcuts={TERMINAL_PROMPT_SHORTCUTS}
+        repositoryPath="/repo"
+        initialPrompt="Review PR"
+        model={null}
+        terminalIdentity="pr-42"
+        onSessionStarted={() => {}}
+        onSessionEnded={() => {}}
+        context={{
+          owner: "acme",
+          repo: "web",
+          number: 42,
+          title: "PR",
+          baseSha: "base",
+          headSha: "head",
+          selectedFilePath: null,
+        }}
+      />
+    )
+    pressStart()
+    act(() => bridge.resolve?.(createBridgeSession()))
+    const [startInput, handlers] = bridge.start.mock.calls[0]!
+    const killSignalExit = {
+      sessionId: startInput.sessionId as string,
+      code: null,
+      error: "Killed: 9",
+    }
+
+    // Act
+    await user.click(await screen.findByRole("button", { name: "Stop" }))
+    act(() => handlers.onExit(killSignalExit))
+
+    // Assert
+    expect(screen.getByRole("status")).toHaveTextContent("Stopped.")
   })
 })

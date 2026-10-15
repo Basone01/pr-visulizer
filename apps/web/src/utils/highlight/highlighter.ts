@@ -1,5 +1,6 @@
 import type { HighlighterCore } from "shiki/core"
 
+import { type HighlightLang, highlightLanguageForPath } from "./highlightLanguage"
 import { cssVarForColor, sentinelTheme } from "./theme"
 
 // Narrow wrapper around shiki (docs/architecture.md §2.1) — the app depends on this
@@ -10,13 +11,10 @@ export type SyntaxToken = {
   cssVar: string // a var(--syn-*) reference, or var(--text)
 }
 
-const LANGS = ["typescript", "tsx", "javascript"] as const
-type SupportedLang = (typeof LANGS)[number]
-
 let highlighterPromise: Promise<HighlighterCore> | null = null
 
-// Fine-grained core, dynamically imported: only the 3 grammars we ship + the JS regex
-// engine, in a lazy chunk. The shell paints first (plain text) and swaps in syntax
+// Fine-grained core, dynamically imported: only the grammars `HighlightLang` names + the
+// JS regex engine, in a lazy chunk. The shell paints first (plain text) and swaps in syntax
 // colors once this arrives — highlighting never blocks the diff.
 function loadHighlighter(): Promise<HighlighterCore> {
   if (highlighterPromise) return highlighterPromise
@@ -28,17 +26,39 @@ function loadHighlighter(): Promise<HighlighterCore> {
       typescript,
       tsx,
       javascript,
+      shellscript,
+      yaml,
+      json,
+      jsonc,
+      docker,
+      { brunoLanguage },
     ] = await Promise.all([
       import("shiki/core"),
       import("shiki/engine/javascript"),
       import("shiki/langs/typescript.mjs"),
       import("shiki/langs/tsx.mjs"),
       import("shiki/langs/javascript.mjs"),
+      import("shiki/langs/shellscript.mjs"),
+      import("shiki/langs/yaml.mjs"),
+      import("shiki/langs/json.mjs"),
+      import("shiki/langs/jsonc.mjs"),
+      import("shiki/langs/docker.mjs"),
+      import("./grammars/bruno"),
     ])
 
     return createHighlighterCore({
       themes: [sentinelTheme],
-      langs: [typescript.default, tsx.default, javascript.default],
+      langs: [
+        typescript.default,
+        tsx.default,
+        javascript.default,
+        shellscript.default,
+        yaml.default,
+        json.default,
+        jsonc.default,
+        docker.default,
+        brunoLanguage,
+      ],
       engine: createJavaScriptRegexEngine(),
     })
   })()
@@ -46,22 +66,15 @@ function loadHighlighter(): Promise<HighlighterCore> {
   return highlighterPromise
 }
 
-function normalizeLang(language: string | null): SupportedLang {
-  if (language && (LANGS as readonly string[]).includes(language)) {
-    return language as SupportedLang
-  }
-
-  return "typescript"
-}
-
 export type LineTokenizer = (lineText: string) => SyntaxToken[]
 
-// Resolve a per-line tokenizer for one language. Tokenizing line-by-line keeps the
+// Resolve a per-line tokenizer for one file path. Tokenizing line-by-line keeps the
 // diff renderer simple; multiline constructs are rare in a hunk and degrade to plain
 // text, never to a crash.
-export async function createLineTokenizer(language: string | null): Promise<LineTokenizer> {
+export async function createLineTokenizer(path: string | null): Promise<LineTokenizer> {
   const highlighter = await loadHighlighter()
-  const lang = normalizeLang(language)
+  // Go/PHP/Python still borrow the TypeScript grammar until they get their own.
+  const lang: HighlightLang = highlightLanguageForPath(path) ?? "typescript"
 
   return (lineText: string): SyntaxToken[] => {
     if (lineText.length === 0) return [{ content: "", cssVar: "var(--text)" }]

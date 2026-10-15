@@ -17,6 +17,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: bridge.invoke }))
 
 const START = {
   sessionId: "session-1",
+  provider: "codex" as const,
   repositoryPath: "/repo",
   initialPrompt: "Review PR 42",
   model: "gpt-5.6-luna",

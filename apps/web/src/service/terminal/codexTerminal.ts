@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import type { SelectableAiProviderId } from "@/entity/aiReviewSettings"
+
 const terminalOutputSchema = z.object({
   sessionId: z.string().min(1),
   sequence: z.number().int().nonnegative(),
@@ -14,6 +16,8 @@ const terminalExitSchema = z.object({
 
 export type CodexTerminalStart = {
   sessionId: string
+  // Picks which CLI the native side spawns in the PTY.
+  provider: SelectableAiProviderId
   repositoryPath: string
   initialPrompt: string
   model: string | null

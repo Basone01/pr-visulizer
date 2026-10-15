@@ -31,6 +31,7 @@ The existing repository access, model selection, conversation, and live terminal
 ```
 
 Markdown uses the app's existing renderer for headings, emphasis, lists, tables, links, and fenced code blocks.
+A ```mermaid fenced block renders as a diagram, and falls back to the plain code block if it does not parse.
 Raw HTML is not executed.
 File references are app actions that open the named file in the main window.
 The app supplies the session ID and update timestamp, so the agent cannot choose another session's destination.
@@ -38,6 +39,8 @@ The app supplies the session ID and update timestamp, so the agent cannot choose
 Each successful update replaces the current answer for that session.
 The window reads the latest stored snapshot and listens for updates.
 There is no need to copy terminal output into the viewer.
+Closing the window destroys it, the stored answer stays with the session.
+The terminal header shows an Open answer button once a session has an answer, and it rebuilds the window from that stored answer.
 
 ## Lifecycle
 

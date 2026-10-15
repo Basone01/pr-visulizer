@@ -50,6 +50,7 @@ export const sentinelTheme = {
         "support.type",
         "entity.other.inherited-class",
         "storage.type.type",
+        "entity.name.tag",
       ],
       settings: { foreground: TYPE },
     },

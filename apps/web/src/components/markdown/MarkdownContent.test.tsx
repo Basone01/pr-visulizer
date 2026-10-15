@@ -11,8 +11,14 @@ const openExternalUrl = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock("@/utils/externalLink/openExternal", () => ({ openExternalUrl }))
 
+// mermaid needs real SVG layout, which jsdom lacks — the wrapper is mocked at its module boundary.
+const renderMermaidSvg = vi.hoisted(() => vi.fn<(source: string) => Promise<string>>())
+
+vi.mock("@/utils/markdown/mermaidRenderer", () => ({ renderMermaidSvg }))
+
 beforeEach(() => {
   openExternalUrl.mockClear()
+  renderMermaidSvg.mockReset()
 })
 
 describe("MarkdownContent", () => {
@@ -212,5 +218,47 @@ describe("MarkdownContent", () => {
     // Assert
     expect(container.querySelectorAll("img")).toHaveLength(0)
     expect(container.textContent).toContain(alt)
+  })
+
+  it("renders_a_mermaid_fence_as_a_diagram", async () => {
+    // Arrange
+    const diagramSource = "graph TD; A-->B"
+    const source = ["```mermaid", diagramSource, "```"].join("\n")
+    renderMermaidSvg.mockResolvedValue('<svg xmlns="http://www.w3.org/2000/svg"><g></g></svg>')
+
+    // Act
+    const { container } = render(<MarkdownContent source={source} />)
+
+    // Assert
+    expect(await screen.findByRole("img", { name: "Mermaid diagram" })).toBeInTheDocument()
+    expect(renderMermaidSvg).toHaveBeenCalledWith(`${diagramSource}\n`)
+    expect(container.querySelector("pre")).toBeNull()
+  })
+
+  it("falls_back_to_the_code_block_when_mermaid_rejects_the_source", async () => {
+    // Arrange
+    const diagramSource = "not a diagram"
+    const source = ["```mermaid", diagramSource, "```"].join("\n")
+    const errorMessage = "No diagram type detected"
+    renderMermaidSvg.mockRejectedValue(new Error(`${errorMessage}\nsecond line`))
+
+    // Act
+    const { container } = render(<MarkdownContent source={source} />)
+
+    // Assert
+    expect(await screen.findByText(new RegExp(errorMessage))).toBeInTheDocument()
+    expect(container.querySelector("pre code")?.textContent).toBe(`${diagramSource}\n`)
+  })
+
+  it("keeps_other_fences_as_plain_code_blocks", () => {
+    // Arrange
+    const source = ["```ts", "const max = 5", "```"].join("\n")
+
+    // Act
+    const { container } = render(<MarkdownContent source={source} />)
+
+    // Assert
+    expect(container.querySelector("pre code")?.className).toBe("language-ts")
+    expect(renderMermaidSvg).not.toHaveBeenCalled()
   })
 })

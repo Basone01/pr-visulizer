@@ -47,10 +47,12 @@ describe("AI review settings storage", () => {
       defaultProvider: "codex",
       defaultProfile: "thorough",
       providers: {
-        claude: { selectedModel: null, successfulModelIds: [successfulClaudeModel] },
+        claude: { selectedModel: "haiku", successfulModelIds: [successfulClaudeModel] },
         codex: { selectedModel: customCodexModel, successfulModelIds: [] },
       },
       codexModelDefaultApplied: true,
+      claudeModelDefaultApplied: true,
+      terminalProvider: null,
     })
   })
 
@@ -81,6 +83,8 @@ describe("AI review settings storage", () => {
         },
       },
       codexModelDefaultApplied: true,
+      claudeModelDefaultApplied: true,
+      terminalProvider: null,
     })
   })
 
@@ -104,6 +108,42 @@ describe("AI review settings storage", () => {
     // Assert
     expect(settings.providers.codex.selectedModel).toBe("gpt-5.6-luna")
     expect(settings.codexModelDefaultApplied).toBe(true)
+  })
+
+  it("remembers_the_saved_terminal_provider", async () => {
+    // Arrange
+    const store = createMemoryKeyValueStore()
+    const storage = createAiReviewSettingsStorage(store)
+    const terminalProvider = "claude"
+
+    // Act
+    await storage.saveTerminalProvider(terminalProvider)
+    const reloadedSettings = await createAiReviewSettingsStorage(store).load()
+
+    // Assert
+    expect(reloadedSettings.terminalProvider).toBe(terminalProvider)
+  })
+
+  it("loads_legacy_settings_without_a_terminal_provider_as_unchosen", async () => {
+    // Arrange
+    const store = createMemoryKeyValueStore()
+    const storage = createAiReviewSettingsStorage(store)
+    const legacySettings = {
+      defaultProvider: "codex",
+      defaultProfile: "balanced",
+      providers: {
+        claude: { selectedModel: null, successfulModelIds: [] },
+        codex: { selectedModel: "gpt-5.6-sol", successfulModelIds: [] },
+      },
+      codexModelDefaultApplied: true,
+    }
+    await store.set("ai-review:settings", JSON.stringify(legacySettings))
+
+    // Act
+    const settings = await storage.load()
+
+    // Assert
+    expect(settings.terminalProvider).toBeNull()
   })
 
   it("preserves an explicit CLI default after the one-time migration", async () => {
@@ -167,5 +207,58 @@ describe("AI review settings storage", () => {
 
     // Assert
     expect(disclosure).toBe(expectedDisclosure)
+  })
+
+  it("preselects_haiku_for_claude_when_no_model_was_ever_chosen", async () => {
+    // Arrange
+    const store = createMemoryKeyValueStore()
+    const storage = createAiReviewSettingsStorage(store)
+
+    // Act
+    const settings = await storage.load()
+
+    // Assert
+    const expected = "haiku"
+    expect(settings.providers.claude.selectedModel).toBe(expected)
+  })
+
+  it("migrates_a_legacy_null_claude_model_to_haiku_once", async () => {
+    // Arrange
+    const store = createMemoryKeyValueStore()
+    const storage = createAiReviewSettingsStorage(store)
+    const legacySettings = {
+      defaultProvider: "claude",
+      defaultProfile: "balanced",
+      providers: {
+        claude: { selectedModel: null, successfulModelIds: [] },
+        codex: { selectedModel: "gpt-5.6-sol", successfulModelIds: [] },
+      },
+      codexModelDefaultApplied: true,
+    }
+    await store.set("ai-review:settings", JSON.stringify(legacySettings))
+
+    // Act
+    const settings = await storage.load()
+
+    // Assert
+    const expected = { selectedModel: "haiku", claudeModelDefaultApplied: true }
+    expect({
+      selectedModel: settings.providers.claude.selectedModel,
+      claudeModelDefaultApplied: settings.claudeModelDefaultApplied,
+    }).toEqual(expected)
+  })
+
+  it("keeps_cli_default_for_claude_after_the_reviewer_chose_it", async () => {
+    // Arrange
+    const store = createMemoryKeyValueStore()
+    const storage = createAiReviewSettingsStorage(store)
+    const cliDefaultModel = null
+    await storage.saveSelectedModel("claude", cliDefaultModel)
+
+    // Act
+    const reloadedSettings = await createAiReviewSettingsStorage(store).load()
+
+    // Assert
+    expect(reloadedSettings.providers.claude.selectedModel).toBeNull()
   })
 })
