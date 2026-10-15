@@ -12,6 +12,10 @@ export type AppSettings = {
   // How many lines a truncated peek shows before the fade. §10: "first 10 lines".
   peekPreviewLines: number
 
+  // Lines of code shown above and below a usage when it is peeked from the "N usages"
+  // popover (§10). Default 3.
+  usagePeekContextLines: number
+
   // Which ranking preset the review order uses (§8.3). Default foundations-first.
   rankingPreset: RankingPresetName
 }
@@ -19,6 +23,7 @@ export type AppSettings = {
 export const DEFAULT_SETTINGS: AppSettings = {
   peekMaxLines: 15,
   peekPreviewLines: 10,
+  usagePeekContextLines: 3,
   rankingPreset: "foundations-first",
 }
 

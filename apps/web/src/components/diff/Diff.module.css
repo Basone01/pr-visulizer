@@ -880,3 +880,14 @@
   text-align: left;
   font-size: 12px;
 }
+
+/* The usage whose code is peeked open below it. */
+.usageItemPeeked {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* A usage peek nests inside the popover, so it drops the gutter offset a row-level peek needs. */
+.usages .peek {
+  margin: 4px 0 8px;
+}

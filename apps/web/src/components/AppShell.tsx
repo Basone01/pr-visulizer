@@ -106,7 +106,11 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   const panels = usePanelSizes()
   const collapse = usePaneCollapse()
   const queueMode = useQueueMode()
-  const nav = usePeekNavigation("", DEFAULT_SETTINGS.peekMaxLines)
+  const nav = usePeekNavigation(
+    "",
+    DEFAULT_SETTINGS.peekMaxLines,
+    DEFAULT_SETTINGS.usagePeekContextLines
+  )
   const { refresh, isRefreshing } = useRefreshPr(target)
   const {
     chosenVerdict,

@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS } from "@/config/settings"
 import { initialNavState, makeNavReducer } from "@/utils/peek/peekNavigation"
 
 import type { OccurrenceRef, SymbolAnchor } from "@/entity/anchor"
+import type { LineSpan } from "@/entity/navigation"
 
 import { useEscapeKey } from "@/hooks/useEscapeKey"
 
@@ -13,16 +14,26 @@ import { useEscapeKey } from "@/hooks/useEscapeKey"
 
 export function usePeekNavigation(
   initialPath: string,
-  peekMaxLines = DEFAULT_SETTINGS.peekMaxLines
+  peekMaxLines = DEFAULT_SETTINGS.peekMaxLines,
+  usagePeekContextLines = DEFAULT_SETTINGS.usagePeekContextLines
 ) {
-  const reducer = useMemo(() => makeNavReducer({ peekMaxLines }), [peekMaxLines])
+  const reducer = useMemo(
+    () => makeNavReducer({ peekMaxLines, usagePeekContextLines }),
+    [peekMaxLines, usagePeekContextLines]
+  )
   const [state, dispatch] = useReducer(reducer, initialPath, initialNavState)
 
   const selectFile = useCallback((path: string) => dispatch({ type: "selectFile", path }), [])
 
   const peekUsage = useCallback(
-    (anchor: SymbolAnchor, definitionLineCount: number) =>
-      dispatch({ type: "peekUsage", anchor, definitionLineCount }),
+    (anchor: SymbolAnchor, definitionSpan: LineSpan) =>
+      dispatch({ type: "peekUsage", anchor, definitionSpan }),
+    []
+  )
+
+  const peekUsageSite = useCallback(
+    (anchor: SymbolAnchor, target: OccurrenceRef) =>
+      dispatch({ type: "peekUsageSite", anchor, target }),
     []
   )
 
@@ -48,6 +59,7 @@ export function usePeekNavigation(
     state,
     selectFile,
     peekUsage,
+    peekUsageSite,
     expandPeek,
     closePeek,
     jumpToDefinition,

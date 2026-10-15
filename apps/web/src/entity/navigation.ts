@@ -10,9 +10,16 @@ export type NavLocation = {
   line: number // head line the diff pane focuses / scrolls to
 }
 
+// Head lines, inclusive on both ends.
+export type LineSpan = { startLine: number; endLine: number }
+
 export type PeekState = {
-  anchor: SymbolAnchor // the usage the reviewer clicked
-  target: OccurrenceRef // the definition rendered inline in the popover
+  // "definition": a usage was clicked, its definition renders under that usage line.
+  // "usage": a usage site was clicked in a definition's "N usages" popover, it renders there.
+  kind: "definition" | "usage"
+  anchor: SymbolAnchor // the clicked usage, or the definition whose popover is open
+  target: OccurrenceRef // the location rendered inline in the popover
+  span: LineSpan // the head lines the peek shows
   // Long definitions (> peekMaxLines) truncate with a fade until expanded (§10).
   truncated: boolean
   expanded: boolean
@@ -28,8 +35,10 @@ export type NavState = {
 export type NavAction =
   // Deliberate context move from the graph / tray — not a detour, clears the stack.
   | { type: "selectFile"; path: string }
-  // Click a usage -> peek. definitionLineCount decides truncation vs peekMaxLines.
-  | { type: "peekUsage"; anchor: SymbolAnchor; definitionLineCount: number }
+  // Click a usage -> peek its definition. The span's length decides truncation vs peekMaxLines.
+  | { type: "peekUsage"; anchor: SymbolAnchor; definitionSpan: LineSpan }
+  // Click a usage in a definition's "N usages" popover -> peek that usage site in place.
+  | { type: "peekUsageSite"; anchor: SymbolAnchor; target: OccurrenceRef }
   | { type: "expandPeek" }
   | { type: "closePeek" }
   // Jump language: "Jump ⏎" from a peek, or ⌘-click bypassing the peek entirely.

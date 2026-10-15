@@ -21,19 +21,19 @@ const createRateLimiterUsage: SymbolAnchor = {
   usages: [],
 }
 
-const reducer = makeNavReducer({ peekMaxLines: 15 })
+const reducer = makeNavReducer({ peekMaxLines: 15, usagePeekContextLines: 3 })
 
 describe("peek navigation — peek step", () => {
   it("opens a peek without touching the jump stack (peek pushes nothing)", () => {
     // Arrange
     const start = initialNavState(withRateLimitPath)
-    const shortDefinition = 5
+    const shortDefinition = { startLine: 3, endLine: 7 } // 5 lines
 
     // Act
     const next = reducer(start, {
       type: "peekUsage",
       anchor: createRateLimiterUsage,
-      definitionLineCount: shortDefinition,
+      definitionSpan: shortDefinition,
     })
 
     // Assert
@@ -45,13 +45,13 @@ describe("peek navigation — peek step", () => {
   it("marks a long definition truncated, then expands it in place", () => {
     // Arrange
     const start = initialNavState(withRateLimitPath)
-    const longDefinition = 17 // > peekMaxLines 15
+    const longDefinition = { startLine: 3, endLine: 19 } // 17 lines > peekMaxLines 15
 
     // Act
     const peeked = reducer(start, {
       type: "peekUsage",
       anchor: createRateLimiterUsage,
-      definitionLineCount: longDefinition,
+      definitionSpan: longDefinition,
     })
     const expanded = reducer(peeked, { type: "expandPeek" })
 
@@ -105,7 +105,7 @@ describe("peek navigation — closing a peek", () => {
     const peeked = reducer(jumped, {
       type: "peekUsage",
       anchor: createRateLimiterUsage,
-      definitionLineCount: 5,
+      definitionSpan: { startLine: 3, endLine: 7 },
     })
 
     // Act
@@ -129,7 +129,7 @@ describe("peek navigation — Esc unwinds peek before jumps", () => {
     const peeked = reducer(jumped, {
       type: "peekUsage",
       anchor: createRateLimiterUsage,
-      definitionLineCount: 5,
+      definitionSpan: { startLine: 3, endLine: 7 },
     })
     const closedPeek = reducer(peeked, { type: "escape" })
     const wentBack = reducer(closedPeek, { type: "escape" })
@@ -139,5 +139,102 @@ describe("peek navigation — Esc unwinds peek before jumps", () => {
     expect(closedPeek.jumpStack).toEqual([origin]) // still in the detour
     expect(wentBack.current).toEqual(origin) // second Esc pops the stack
     expect(wentBack.jumpStack).toEqual([])
+  })
+})
+
+describe("peek navigation — peeking a usage site from the usages popover", () => {
+  // The definition whose "N usages" popover is open, with one caller in another file.
+  const createRateLimiterDefinition: SymbolAnchor = {
+    symbolId: `${rateLimiterPath}#createRateLimiter`,
+    name: "createRateLimiter",
+    role: "definition",
+    line: 3,
+    hasCounterpart: true,
+    definition: null,
+    usages: [{ path: withRateLimitPath, line: 10 }],
+  }
+
+  it("peeks_a_usage_site_with_context_lines_around_it", () => {
+    // Arrange
+    const start = initialNavState(rateLimiterPath)
+    const usageSite = { path: withRateLimitPath, line: 10 }
+
+    // Act
+    const next = reducer(start, {
+      type: "peekUsageSite",
+      anchor: createRateLimiterDefinition,
+      target: usageSite,
+    })
+
+    // Assert
+    const expected = {
+      kind: "usage",
+      anchor: createRateLimiterDefinition,
+      target: usageSite,
+      span: { startLine: 7, endLine: 13 },
+      truncated: false,
+      expanded: false,
+    }
+    expect(next.peek).toEqual(expected)
+  })
+
+  it("clamps_a_usage_peek_span_at_the_first_line", () => {
+    // Arrange
+    const start = initialNavState(rateLimiterPath)
+    const usageSite = { path: withRateLimitPath, line: 2 }
+
+    // Act
+    const next = reducer(start, {
+      type: "peekUsageSite",
+      anchor: createRateLimiterDefinition,
+      target: usageSite,
+    })
+
+    // Assert
+    const expected = { startLine: 1, endLine: 5 }
+    expect(next.peek?.span).toEqual(expected)
+  })
+
+  it("replaces_an_open_definition_peek_when_a_usage_site_is_peeked", () => {
+    // Arrange
+    const start = initialNavState(withRateLimitPath)
+    const definitionPeek = reducer(start, {
+      type: "peekUsage",
+      anchor: createRateLimiterUsage,
+      definitionSpan: { startLine: 3, endLine: 7 },
+    })
+    const usageSite = { path: withRateLimitPath, line: 10 }
+
+    // Act
+    const next = reducer(definitionPeek, {
+      type: "peekUsageSite",
+      anchor: createRateLimiterDefinition,
+      target: usageSite,
+    })
+
+    // Assert
+    const expected = { kind: "usage", target: usageSite }
+    expect({ kind: next.peek?.kind, target: next.peek?.target }).toEqual(expected)
+  })
+
+  it("jumping_from_a_usage_peek_pushes_the_jump_stack", () => {
+    // Arrange
+    const start = initialNavState(rateLimiterPath)
+    const origin = { path: rateLimiterPath, line: 1 }
+    const usageSite = { path: withRateLimitPath, line: 10 }
+    const peeked = reducer(start, {
+      type: "peekUsageSite",
+      anchor: createRateLimiterDefinition,
+      target: usageSite,
+    })
+
+    // Act
+    const jumped = reducer(peeked, { type: "jumpTo", target: usageSite })
+
+    // Assert
+    const expected = { current: usageSite, jumpStack: [origin], peek: null }
+    expect({ current: jumped.current, jumpStack: jumped.jumpStack, peek: jumped.peek }).toEqual(
+      expected
+    )
   })
 })

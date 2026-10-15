@@ -8,6 +8,7 @@ import { parseUnifiedDiff } from "@/utils/diff/parseUnifiedDiff"
 
 import type { OccurrenceRef } from "@/entity/anchor"
 import type { ParsedDiff } from "@/entity/diff"
+import type { LineSpan, PeekState } from "@/entity/navigation"
 import type { PrTarget } from "@/entity/pr"
 
 import { fileAtHeadQueryOptions, patchQueryOptions } from "@/service/queries"
@@ -21,13 +22,15 @@ import styles from "./Diff.module.css"
 // carry the peek — `buildFullFileView` then emits the whole file as context.
 const NO_PATCH: ParsedDiff = { lines: [] }
 
-// The peek popover (§10): the definition rendered inline, same status + syntax layers
-// as the main diff. Long definitions truncate with a fade and expand in place; the
-// reviewer's scroll position in the main diff never moves.
+// The peek popover (§10): a definition, or a usage site with context lines, rendered inline with
+// the same status + syntax layers as the main diff. Long definitions truncate with a fade and
+// expand in place; the reviewer's scroll position in the main diff never moves.
 export function PeekPopup({
   target,
-  definition,
+  kind,
+  site,
   span,
+  focusLine,
   truncated,
   expanded,
   onExpand,
@@ -35,8 +38,12 @@ export function PeekPopup({
   onClose,
 }: {
   target: PrTarget
-  definition: OccurrenceRef
-  span: { startLine: number; endLine: number }
+  kind: PeekState["kind"]
+  // The location being peeked: the definition, or the usage site.
+  site: OccurrenceRef
+  span: LineSpan
+  // The usage line inside a usage peek, marked so the reviewer sees which line is the usage.
+  focusLine?: number | undefined
   truncated: boolean
   expanded: boolean
   onExpand: () => void
@@ -45,13 +52,14 @@ export function PeekPopup({
   // the host's action — this component owns no visibility state of its own.
   onClose: () => void
 }) {
-  const patchQuery = useQuery(patchQueryOptions(target, definition.path))
+  const patchQuery = useQuery(patchQueryOptions(target, site.path))
   // The head revision is the only source that holds EVERY line of the definition. Same query
   // key the full-file view and the ghost pane use, so a file already read for either is free.
-  const headQuery = useQuery(fileAtHeadQueryOptions(target, definition.path, true))
+  // `true` only enables the query: a head read works for any path, ghost files included.
+  const headQuery = useQuery(fileAtHeadQueryOptions(target, site.path, true))
   // The definition can live in another file than the open one — and the engine now analyses Go,
   // PHP and Python too, so the grammar follows the DEFINITION's path, not the diff's.
-  const tokenizer = useLineTokenizer(definition.path)
+  const tokenizer = useLineTokenizer(site.path)
 
   // null = the client has no head content for this file (or the read failed).
   const headText = headQuery.data ?? null
@@ -83,6 +91,7 @@ export function PeekPopup({
   const loading = patchQuery.isPending || headQuery.isPending
   // Only claim the WHOLE definition when every line of the span is actually on screen.
   const complete = definitionLines.length >= totalLines
+  const isUsagePeek = kind === "usage"
 
   const bodyClass = [
     styles.peekBody,
@@ -96,9 +105,10 @@ export function PeekPopup({
     <div className={styles.peek}>
       <div className={styles.peekHead}>
         <span className="mono">
-          {definition.path}:{span.startLine}
+          {site.path}:{isUsagePeek ? site.line : span.startLine}
         </span>
-        <span className={styles.peekTag}>in this PR</span>
+        {/* A usage peek sits under its "In this PR" / "Not in this PR" group label already. */}
+        {!isUsagePeek && <span className={styles.peekTag}>in this PR</span>}
         <button
           type="button"
           className={`${styles.peekAction} ${styles.peekClose}`}
@@ -114,29 +124,43 @@ export function PeekPopup({
           per-token spans, so there is no single text node to query. */}
       <div className={bodyClass} data-peek-body>
         {loading && visibleLines.length === 0 && (
-          <div className={styles.peekEmpty}>Loading definition…</div>
+          <div className={styles.peekEmpty}>
+            {isUsagePeek ? "Loading usage…" : "Loading definition…"}
+          </div>
         )}
         {!loading && visibleLines.length === 0 && (
-          <div className={styles.peekEmpty}>This definition's source isn't available here.</div>
-        )}
-        {visibleLines.map((line, index) => (
-          <div
-            key={index}
-            className={`${styles.line} ${line.kind === "add" ? styles.lineAdd : ""}`}
-          >
-            <span className={styles.gutter}>{line.newLine}</span>
-            <CodeContent
-              text={line.content}
-              tokenizer={tokenizer}
-              anchors={[]}
-              onAnchorClick={() => {}}
-            />
+          <div className={styles.peekEmpty}>
+            {isUsagePeek
+              ? "This file's source isn't available here."
+              : "This definition's source isn't available here."}
           </div>
-        ))}
+        )}
+        {visibleLines.map((line, index) => {
+          const isFocusLine = focusLine !== undefined && line.newLine === focusLine
+          const lineClass = [
+            styles.line,
+            line.kind === "add" ? styles.lineAdd : "",
+            isFocusLine ? styles.lineSelected : "",
+          ]
+            .filter(Boolean)
+            .join(" ")
+
+          return (
+            <div key={index} className={lineClass} data-focus-line={isFocusLine || undefined}>
+              <span className={styles.gutter}>{line.newLine}</span>
+              <CodeContent
+                text={line.content}
+                tokenizer={tokenizer}
+                anchors={[]}
+                onAnchorClick={() => {}}
+              />
+            </div>
+          )
+        })}
       </div>
 
       <div className={styles.peekFoot}>
-        {showTruncated ? (
+        {isUsagePeek ? null : showTruncated ? (
           <button className={styles.peekAction} onClick={onExpand}>
             Show {hiddenCount} more ↓
           </button>

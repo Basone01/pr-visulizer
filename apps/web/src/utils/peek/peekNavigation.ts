@@ -7,6 +7,8 @@ import type { NavAction, NavLocation, NavState } from "@/entity/navigation"
 export type NavConfig = {
   // Definitions longer than this truncate in the peek (§10, default 15).
   peekMaxLines: number
+  // Lines shown above and below a peeked usage site (§10, default 3).
+  usagePeekContextLines: number
 }
 
 export function initialNavState(path: string): NavState {
@@ -41,7 +43,7 @@ function back(state: NavState): NavState {
   }
 }
 
-// Reducer factory: config (peekMaxLines) is a controllable-core setting, curried
+// Reducer factory: config (peekMaxLines, usagePeekContextLines) is a controllable-core setting, curried
 // in so useReducer gets a plain (state, action) reducer.
 export function makeNavReducer(config: NavConfig) {
   return function navReducer(state: NavState, action: NavAction): NavState {
@@ -59,12 +61,35 @@ export function makeNavReducer(config: NavConfig) {
         // No definition counterpart -> nothing to peek (the anchor wouldn't underline).
         if (!action.anchor.definition) return state
 
+        const definitionLineCount =
+          action.definitionSpan.endLine - action.definitionSpan.startLine + 1
         return {
           ...state,
           peek: {
+            kind: "definition",
             anchor: action.anchor,
             target: action.anchor.definition,
-            truncated: action.definitionLineCount > config.peekMaxLines,
+            span: action.definitionSpan,
+            truncated: definitionLineCount > config.peekMaxLines,
+            expanded: false,
+          },
+        }
+      }
+
+      case "peekUsageSite": {
+        const context = config.usagePeekContextLines
+        return {
+          ...state,
+          peek: {
+            kind: "usage",
+            anchor: action.anchor,
+            target: action.target,
+            // The end may run past the file's last line, the popup only renders lines that exist.
+            span: {
+              startLine: Math.max(1, action.target.line - context),
+              endLine: action.target.line + context,
+            },
+            truncated: false,
             expanded: false,
           },
         }
@@ -77,7 +102,7 @@ export function makeNavReducer(config: NavConfig) {
       }
 
       case "closePeek":
-        return { ...state, peek: null }
+        return state.peek ? { ...state, peek: null } : state
 
       case "jumpToDefinition": {
         if (!action.anchor.definition) return state

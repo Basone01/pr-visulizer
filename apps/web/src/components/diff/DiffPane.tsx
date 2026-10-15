@@ -384,9 +384,13 @@ export function DiffPane({
     return `calc(${digits}ch + 10px)`
   }, [shownDiff])
 
-  // A jump elsewhere closes any open usages list in this file.
+  // A jump elsewhere closes any open usages list in this file, and the usage peek inside it.
   const currentPath = nav.state.current.path
-  useEffect(() => setUsagesAnchor(null), [currentPath])
+  const { closePeek } = nav
+  useEffect(() => {
+    setUsagesAnchor(null)
+    closePeek()
+  }, [currentPath, closePeek])
 
   // The flash remains live until its row is mounted and scrolled into view. A cold diff load can
   // outlast the animation duration, so starting this timer before the row exists loses the cue.
@@ -472,6 +476,16 @@ export function DiffPane({
   // The row callbacks are hoisted and memoized: a fresh closure per render would defeat
   // DiffLine's memo and re-render (and re-tokenize) every row on any pane state change.
   const { jumpToDefinition, peekUsage } = nav
+
+  // Opening a definition's usages list drops any open peek, so a usage peek never outlives the
+  // list it was opened from.
+  const showUsages = useCallback(
+    (anchor: SymbolAnchor): void => {
+      setUsagesAnchor(anchor)
+      closePeek()
+    },
+    [closePeek]
+  )
   const { select, extend, clear } = selection
 
   // A bubble click toggles that line's thread panel — second click (same line) collapses it.
@@ -492,15 +506,17 @@ export function DiffPane({
       }
 
       if (anchor.role === "definition") {
-        setUsagesAnchor(anchor)
+        showUsages(anchor)
         return
       }
 
-      const span = spanById.get(anchor.symbolId)
-      const lineCount = span ? span.endLine - span.startLine + 1 : 1
-      peekUsage(anchor, lineCount)
+      // Without the definition's span there is nothing to show, so the click opens no peek.
+      const definitionSpan = spanById.get(anchor.symbolId)
+      if (!definitionSpan) return
+
+      peekUsage(anchor, definitionSpan)
     },
-    [jumpToDefinition, peekUsage, spanById]
+    [jumpToDefinition, peekUsage, showUsages, spanById]
   )
 
   // A gutter click either runs the click-click range machine (plain click: anchor, then
@@ -642,7 +658,6 @@ export function DiffPane({
   }
 
   const peek = nav.state.peek
-  const peekSpan = peek ? spanById.get(peek.anchor.symbolId) : undefined
 
   // One code line, one rendering: the inline row and BOTH side-by-side columns come through here,
   // so a line never has a second copy of its markup to keep in sync. `gutterSide` is the only
@@ -666,7 +681,7 @@ export function DiffPane({
         isFindCurrent={find.open && cell.index === find.currentRowIndex}
         gutterSide={gutterSide}
         onAnchorClick={handleAnchorClick}
-        onShowUsages={setUsagesAnchor}
+        onShowUsages={showUsages}
         onSelectLine={handleSelectLine}
         draftsOnLine={draftsOnLine}
         onEditDraft={openEdit}
@@ -678,6 +693,26 @@ export function DiffPane({
     )
   }
 
+  // Jump goes to whatever the peek shows: the definition, or the usage site.
+  function renderPeek(): ReactNode {
+    if (!peek) return null
+
+    return (
+      <PeekPopup
+        target={target}
+        kind={peek.kind}
+        site={peek.target}
+        span={peek.span}
+        focusLine={peek.kind === "usage" ? peek.target.line : undefined}
+        truncated={peek.truncated}
+        expanded={peek.expanded}
+        onExpand={nav.expandPeek}
+        onJump={() => nav.jumpTo(peek.target)}
+        onClose={nav.closePeek}
+      />
+    )
+  }
+
   // The three things that open UNDER a row — composer, peek, usages — all anchor to a head line,
   // so both modes place them by that line and split mode simply spans them across both columns.
   // Returns null when the row has none, so split mode adds no empty table rows.
@@ -685,10 +720,12 @@ export function DiffPane({
     if (headLine === null) return null
 
     const showComposer = activeComposer !== null && headLine === activeComposer.endLine
-    const showPeek = peek !== null && peekSpan !== undefined && headLine === peek.anchor.line
-    const showUsages = usagesAnchor !== null && headLine === usagesAnchor.line
+    // A definition peek opens under the usage line that was clicked. A usage peek opens inside
+    // the usages list it came from, so it only shows with that list.
+    const showPeek = peek?.kind === "definition" && headLine === peek.anchor.line
+    const showUsagesList = usagesAnchor !== null && headLine === usagesAnchor.line
     const showThreads = expandedCommentLine === headLine && threadsByLine.has(headLine)
-    if (!showComposer && !showPeek && !showUsages && !showThreads) return null
+    if (!showComposer && !showPeek && !showUsagesList && !showThreads) return null
 
     return (
       <>
@@ -720,21 +757,21 @@ export function DiffPane({
           />
         )}
 
-        {showPeek && peek && peekSpan && (
-          <PeekPopup
-            target={target}
-            definition={peek.target}
-            span={peekSpan}
-            truncated={peek.truncated}
-            expanded={peek.expanded}
-            onExpand={nav.expandPeek}
-            onJump={() => nav.jumpToDefinition(peek.anchor)}
-            onClose={nav.closePeek}
-          />
-        )}
+        {showPeek && renderPeek()}
 
-        {showUsages && usagesAnchor && (
-          <UsagesPopover anchor={usagesAnchor} changedPaths={changedPaths} onJumpTo={nav.jumpTo} />
+        {showUsagesList && usagesAnchor && (
+          <UsagesPopover
+            anchor={usagesAnchor}
+            changedPaths={changedPaths}
+            peekedUsage={
+              peek?.kind === "usage" && peek.anchor.symbolId === usagesAnchor.symbolId
+                ? peek.target
+                : null
+            }
+            peekContent={renderPeek()}
+            onPeek={(usage) => nav.peekUsageSite(usagesAnchor, usage)}
+            onJumpTo={nav.jumpTo}
+          />
         )}
       </>
     )

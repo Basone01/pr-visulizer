@@ -614,7 +614,10 @@ Rules:
 - Click a **usage** → **peek popup**: the definition renders inline in a popover, with the same diff-status + syntax layers as the main view. Most definitions are short — the peek _is_ the answer, and the reviewer's scroll position never moves.
 - **Long definitions** (span > `peekMaxLines`, default 15 — one more controllable-core setting): the peek shows the first 10 lines with a fade and two actions — **"Show N more ↓"** and **"Jump ⏎"**. _Show more_ expands the popup in place; past a max height (~60% of the viewport) the code scrolls **inside** the popup. The reviewer's position in the main diff still never moves. Jump opens that file's diff, scrolls, flash-highlights — for when the definition deserves full-width reading. `⌘`-click bypasses the peek and jumps directly.
 - The ladder is **peek → expand → jump**, each step heavier than the last; only the last one pushes the jump stack.
-- A **definition** line shows an "N usages in this PR" pill → popover lists every usage **with its one-line context inline** — usages are single lines, so the list is effectively pre-peeked; click one to jump when more context is needed, `⌥]` / `⌥[` cycles.
+- A **definition** line shows an "N usages in this PR" pill → popover lists every usage by `path:line`.
+  Click one to peek it inline: its code opens under the list item with `usagePeekContextLines` (default 3, a controllable-core setting) above and below, the usage line marked, same status + syntax layers as the diff.
+  One peek is open at a time, so peeking a usage replaces an open definition peek and the other way round.
+  `⌘`-click or **"Jump ⏎"** goes there and pushes the jump stack, `⌥]` / `⌥[` cycles.
 - Peek is lighter than jump: it pushes nothing. Only real jumps go onto the **jump stack**, and a persistent "↩ back" chip (and `Esc`) returns exactly where you left.
 - Any navigation is a **detour, not a context switch**: the review queue, checkmarks, and "suggested next" do not move. Navigation answers "what is this?", the ranking still answers "what do I review next?" — keeping those separate is what stops free navigation from destroying the guided order.
 - Deep mode: peeks into ghost files fetch the unchanged content read-only at `headSha`; a jump there opens a read-only file view (there is nothing to review in a ghost).
