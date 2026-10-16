@@ -104,6 +104,17 @@ export function commitsQueryOptions(target: PrTarget, enabled: boolean) {
   })
 }
 
+// One file's history, behind the diff pane's file history lens (§10). Immutable per headSha like
+// the commit list, and fetched only once the reviewer first opens the lens (`enabled`).
+export function fileHistoryQueryOptions(target: PrTarget, path: string, enabled: boolean) {
+  return queryOptions({
+    queryKey: [...prScopeKey(target), "history", path] as const,
+    queryFn: () => getPrClient().getFileHistory(target, path),
+    staleTime: Infinity,
+    enabled,
+  })
+}
+
 // One selected range's diff. Keyed by the RANGE, not by (range, path): the compare endpoint
 // answers with every file in the range in a single response, so a per-path key would repeat the
 // same upstream call once per file and throw most of each answer away. The open file's patch and

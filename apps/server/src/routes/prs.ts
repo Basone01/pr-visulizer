@@ -1,4 +1,5 @@
 import {
+  fileHistorySchema,
   prCommitListSchema,
   prOverviewSchema,
   rangeDiffSchema,
@@ -171,5 +172,21 @@ export function registerPrRoutes(app: FastifyInstance, ctx: AppContext): void {
     // Changed files also carry their unified-diff patch — the diff renderer's input.
     const patch = files.find((f) => f.path === path)?.patch ?? null
     return reply.send({ path, sha, content, patch })
+  })
+
+  // GET .../history/* — the PR commits that touched one file, oldest-first, for the diff pane's
+  // file history lens (§10). The splat is the path, the same way `/files/*` takes it.
+  app.get("/api/prs/:owner/:repo/:number/history/*", async (req, reply) => {
+    const user = requireUser(req, reply, ctx)
+    if (!user) return reply
+
+    const params = parse(prParamsSchema, req.params)
+    if (!params.ok) return badRequest(reply, params.issues)
+
+    const path = (req.params as Record<string, string>)["*"]
+    if (!path) return reply.code(400).send({ error: "missing_file_path" })
+
+    const history = await ctx.gateway.listPrCommitsForPath(toTarget(params.value), path)
+    return reply.send(fileHistorySchema.parse(history))
   })
 }

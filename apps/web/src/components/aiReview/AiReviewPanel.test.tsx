@@ -25,6 +25,7 @@ function renderPanel(storage: KeyValueStore = createMemoryKeyValueStore()) {
       baseSha="base-sha"
       headSha="head-sha"
       currentFilePath="src/app.ts"
+      review={null}
       onTerminalSessionStarted={() => {}}
       onTerminalSessionEnded={() => {}}
     />
@@ -149,6 +150,25 @@ describe("AiReviewPanel terminal surface", () => {
 
     // Assert
     const expected = `If the sem CLI is installed (check with command -v sem), prefer sem diff -v --from ${baseSha} --to ${headSha}`
+    expect(prompt).toContain(expected)
+  })
+
+  it("tells_the_agent_to_call_get_current_file_for_this_file_or_these_lines", () => {
+    // Arrange
+    const currentFilePath = "src/app.ts"
+
+    // Act
+    const prompt = createInitialPrompt({
+      target: TARGET,
+      title: "Terminal review",
+      baseSha: "base-sha",
+      headSha: "head-sha",
+      currentFilePath,
+    })
+
+    // Assert
+    const expected =
+      'The get_current_file tool shows the file and lines the reviewer is looking at right now. Call it when the reviewer says "this file" or "these lines".'
     expect(prompt).toContain(expected)
   })
 

@@ -19,6 +19,7 @@ import {
   type ChangedFile,
   type CommitRange,
   type DraftComment,
+  type FileHistory,
   type PrCommitList,
   type PrMeta,
   type PrOverview,
@@ -526,6 +527,13 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
 
     getRangeDiff(target: PrTarget, range: CommitRange): Promise<RangeDiff> {
       return gateway.compareRange(target, range.baseSha, range.headSha)
+    },
+
+    // §10 file history. Goes to the API rather than the local clone for the same reason as the
+    // picker above: the clone is pinned at base/head, so the PR's intermediate commits, the very
+    // thing this lists, may not be present locally.
+    getFileHistory(target: PrTarget, path: string): Promise<FileHistory> {
+      return gateway.listPrCommitsForPath(target, path)
     },
 
     // The full-file view's head content (§10). The prepared repo already exposes a read pinned

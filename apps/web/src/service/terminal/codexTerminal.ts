@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import type { SelectableAiProviderId } from "@/entity/aiReviewSettings"
+import type { ReviewSnapshot } from "@/entity/terminalReviewSnapshot"
 
 const terminalOutputSchema = z.object({
   sessionId: z.string().min(1),
@@ -34,6 +35,8 @@ export type CodexTerminalContext = {
   baseSha: string
   headSha: string
   selectedFilePath: string | null
+  // Absent until the app has a review view to share. The desktop side treats it as optional.
+  review?: ReviewSnapshot
 }
 
 type TerminalOutput = z.infer<typeof terminalOutputSchema>

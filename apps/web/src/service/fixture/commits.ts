@@ -62,6 +62,13 @@ export function pr42Commits(): PrCommit[] {
   return FIXTURE_COMMITS.map(({ paths: _paths, ...commit }) => commit)
 }
 
+// The file history lens's view (§10): the commits whose slice includes `path`, in PR order.
+export function pr42CommitsTouching(path: string): PrCommit[] {
+  return FIXTURE_COMMITS.filter((commit) => commit.paths.includes(path)).map(
+    ({ paths: _paths, ...commit }) => commit
+  )
+}
+
 function rangeFileFor(path: string): RangeDiffFile {
   const file = pr42Analysis.files.find((candidate) => candidate.path === path)
   if (!file) throw new Error(`PR #42 fixture has no changed file at ${path}`)

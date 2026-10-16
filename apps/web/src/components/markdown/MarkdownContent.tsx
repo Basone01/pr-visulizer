@@ -1,5 +1,7 @@
 import type { ReactElement, ReactNode } from "react"
 import ReactMarkdown from "react-markdown"
+import rehypeRaw from "rehype-raw"
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize"
 import remarkGfm from "remark-gfm"
 
 import { openExternalUrl } from "@/utils/externalLink/openExternal"
@@ -18,9 +20,10 @@ import { MermaidDiagram } from "./MermaidDiagram"
 // components rather than markup we'd post-process.
 //
 // Three guarantees this file is responsible for, all covered by MarkdownContent.test.tsx:
-//   1. NO raw HTML. `skipHtml` drops every inline-HTML node, so a `<script>` or an
-//      `<img onerror=…>` in the PR's markdown is removed rather than parsed. rehype-raw is
-//      deliberately NOT installed.
+//   1. NO unsanitized HTML. By default `skipHtml` drops every inline-HTML node, so a `<script>`
+//      or an `<img onerror=…>` is removed rather than parsed. The answer window opts into raw HTML
+//      with html="sanitized", which runs it through rehype-sanitize's GitHub schema in the same
+//      hast tree, so there is still no innerHTML.
 //   2. NO webview navigation. Links open through openExternalUrl (the OS browser / Tauri opener),
 //      never by following an href — the desktop shell's webview must stay on the app.
 //   3. NO surprise URLs. `javascript:` and friends are stripped by the url policy before render.
@@ -31,6 +34,8 @@ import { MermaidDiagram } from "./MermaidDiagram"
 
 type MarkdownContentProps = {
   source: string
+  // "strip" (default) drops inline HTML. "sanitized" renders it through the GitHub schema below.
+  html?: "strip" | "sanitized"
   // "page" (default) — the padded full-file preview surface. "inline" — no outer padding, for
   // embedding a body inside another card (an existing-comment thread). Same renderer + same
   // sanitization either way; only the container padding differs.
@@ -68,7 +73,18 @@ type ImageProps = {
   alt?: string | undefined
 }
 
-const FILE_REFERENCE_PROTOCOL = "pr-file:"
+const FILE_REFERENCE_SCHEME = "pr-file"
+const FILE_REFERENCE_PROTOCOL = `${FILE_REFERENCE_SCHEME}:`
+
+// GitHub's schema, plus the pr-file: protocol, because the file-mention plugin emits links with it
+// and the sanitizer would otherwise drop their href.
+const SANITIZE_SCHEMA = {
+  ...defaultSchema,
+  protocols: {
+    ...defaultSchema.protocols,
+    href: [...(defaultSchema.protocols?.href ?? []), FILE_REFERENCE_SCHEME],
+  },
+}
 
 function fileReferenceUrl(reference: MarkdownFileReference): string {
   const search = reference.line ? `?line=${reference.line}` : ""
@@ -331,6 +347,7 @@ function createComponents(
 
 export function MarkdownContent({
   source,
+  html = "strip",
   variant = "page",
   fileReferences = [],
   onOpenFile,
@@ -340,12 +357,14 @@ export function MarkdownContent({
 
   const components = createComponents(fileReferences, onOpenFile)
   const fileMentionPlugin = createFileMentionPlugin(fileReferences)
+  const isHtmlSanitized = html === "sanitized"
 
   return (
     <div className={className}>
       <ReactMarkdown
-        skipHtml
+        skipHtml={!isHtmlSanitized}
         remarkPlugins={[remarkGfm, fileMentionPlugin]}
+        rehypePlugins={isHtmlSanitized ? [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA]] : []}
         // Belt to the components' braces: the policy runs on every url attribute react-markdown
         // knows about (src, href, srcSet, …), so an element we did NOT override still gets it.
         urlTransform={(url, _key, node) => {

@@ -63,6 +63,7 @@ export function AnswerWindow({ sessionId }: { sessionId: string }) {
       </header>
       <MarkdownContent
         source={report.markdown}
+        html="sanitized"
         fileReferences={report.fileRefs}
         onOpenFile={(fileReference) => {
           setFileError(null)

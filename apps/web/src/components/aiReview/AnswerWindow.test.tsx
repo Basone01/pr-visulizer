@@ -60,6 +60,23 @@ describe("AnswerWindow", () => {
     expect(bridge.openFile).toHaveBeenCalledWith(REPORT.sessionId, "src/auth.ts", 18)
   })
 
+  it("renders_html_from_the_agent_answer", async () => {
+    // Arrange
+    const report = {
+      ...REPORT,
+      markdown: "<details><summary>Why it matters</summary>The guard runs first.</details>",
+    }
+    bridge.load.mockResolvedValue(report)
+    bridge.subscribe.mockResolvedValue(() => {})
+
+    // Act
+    const { container } = render(<AnswerWindow sessionId={REPORT.sessionId} />)
+
+    // Assert
+    expect(await screen.findByText("Why it matters")).toBeInTheDocument()
+    expect(container.querySelector("details summary")).toHaveTextContent("Why it matters")
+  })
+
   it("keeps_a_newer_event_when_the_initial_snapshot_arrives_late", async () => {
     // Arrange
     const deferred = {

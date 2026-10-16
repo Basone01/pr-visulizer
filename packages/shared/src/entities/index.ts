@@ -1,6 +1,7 @@
 export * from "./aiReview.js"
 export * from "./analysis.js"
 export * from "./commitRange.js"
+export * from "./fileHistory.js"
 export * from "./prList.js"
 export * from "./review.js"
 export * from "./viewer.js"

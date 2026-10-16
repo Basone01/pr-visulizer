@@ -183,6 +183,13 @@
   padding: 0;
 }
 
+/* A file history step at the oldest or newest change. */
+.rangeReset:disabled {
+  opacity: 0.45;
+  text-decoration: none;
+  cursor: default;
+}
+
 /* A file the selected commits never touched — quiet, centered, and never an error. */
 .rangeEmpty {
   display: flex;

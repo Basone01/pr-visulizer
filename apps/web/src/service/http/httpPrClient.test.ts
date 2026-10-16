@@ -160,3 +160,30 @@ describe("createHttpPrClient — invalidatePr", () => {
     await expect(createHttpPrClient().invalidatePr(PR42)).rejects.toThrow(/400/)
   })
 })
+
+describe("createHttpPrClient — getFileHistory", () => {
+  it("fetches_the_file_history_for_an_encoded_path", async () => {
+    // Arrange — a space in the path must be percent-encoded, the slashes must stay as segments.
+    const path = "src/lib/rate limiter.ts"
+    const history = { path, commits: [], truncated: false }
+    const calls: string[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        calls.push(url)
+
+        return Promise.resolve(Response.json(history))
+      })
+    )
+
+    // Act
+    const result = await createHttpPrClient().getFileHistory(PR42, path)
+
+    // Assert
+    const expected = {
+      url: "/api/prs/acme/web/42/history/src/lib/rate%20limiter.ts",
+      result: history,
+    }
+    expect({ url: calls[0], result }).toEqual(expected)
+  })
+})

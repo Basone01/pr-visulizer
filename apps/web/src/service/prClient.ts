@@ -2,6 +2,7 @@ import type {
   AnalysisResult,
   CommitRange,
   DraftComment,
+  FileHistory,
   PrCommitList,
   PrOverview,
   PrSummary,
@@ -116,6 +117,9 @@ export interface PrClient {
   // The diff restricted to one commit range. ONE call carries every file in the range, so the
   // open file's patch and the set of touched paths both come from this single result.
   getRangeDiff(target: PrTarget, range: CommitRange): Promise<RangeDiff>
+  // The PR commits that touched one file, oldest-first, for the file history lens (§10). Each
+  // entry is a full PrCommit, so a history step is a single-commit range with no second lookup.
+  getFileHistory(target: PrTarget, path: string): Promise<FileHistory>
   // One file's WHOLE content at the PR's head revision — the full-file diff view (§10). null
   // means "no head content for this file here" (a deleted file, a binary blob, or a client that
   // can't reconstruct it); the toolbar falls back to the hunks-only view and says so.

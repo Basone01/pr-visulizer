@@ -125,6 +125,24 @@ describe("DiffPane click-click range selection", () => {
     )
   })
 
+  it("reports_a_cleared_line_selection_to_its_host_as_null", async () => {
+    // Arrange
+    const onSelectionChange = vi.fn()
+    renderWithQuery(<Harness onAddDraft={() => {}} onSelectionChange={onSelectionChange} />)
+    await userEvent.click(await screen.findByLabelText("Comment on line 2"))
+    await waitFor(() =>
+      expect(onSelectionChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ startLine: 2, endLine: 2 })
+      )
+    )
+
+    // Act
+    await userEvent.keyboard("{Escape}")
+
+    // Assert
+    await waitFor(() => expect(onSelectionChange).toHaveBeenLastCalledWith(null))
+  })
+
   it("opens the composer on the first gutter click, still a single line", async () => {
     // Arrange — today's one-click-opens-a-composer behaviour must survive the range feature.
     const onAddDraft = vi.fn()

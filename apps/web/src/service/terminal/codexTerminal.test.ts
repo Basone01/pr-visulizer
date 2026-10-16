@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
+import type { ReviewSnapshot } from "@/entity/terminalReviewSnapshot"
+
 import { startCodexTerminal } from "./codexTerminal"
 
 const bridge = vi.hoisted(() => ({
@@ -115,6 +117,34 @@ describe("startCodexTerminal", () => {
     })
     expect(bridge.invoke).toHaveBeenNthCalledWith(6, "codex_terminal_stop", {
       request: { sessionId: START.sessionId },
+    })
+  })
+
+  it("forwards_the_review_snapshot_unchanged_in_a_context_update", async () => {
+    // Arrange
+    bridge.listen.mockReset()
+    bridge.invoke.mockReset()
+    bridge.invoke.mockResolvedValue(null)
+    bridge.listen
+      .mockResolvedValueOnce(bridge.unlistenOutput)
+      .mockResolvedValueOnce(bridge.unlistenExit)
+    const session = await startCodexTerminal(START, handlers())
+    const review: ReviewSnapshot = {
+      queueMode: "foundations",
+      selection: { path: "src/app.ts", startLine: 10, endLine: 14 },
+      files: [{ path: "src/app.ts", status: "modified", reviewed: false, suggestedNext: true }],
+      drafts: [
+        { path: "src/app.ts", side: "RIGHT", startLine: 12, endLine: 12, body: "nit: rename" },
+      ],
+    }
+    const context = { ...START.context, selectedFilePath: "src/app.ts", review }
+
+    // Act
+    await session.updateContext(context)
+
+    // Assert
+    expect(bridge.invoke).toHaveBeenLastCalledWith("codex_terminal_update_context", {
+      request: { sessionId: START.sessionId, context },
     })
   })
 })

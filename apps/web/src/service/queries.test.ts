@@ -16,6 +16,7 @@ const {
   analysisQueryOptions,
   commitsQueryOptions,
   fileAtHeadQueryOptions,
+  fileHistoryQueryOptions,
   openPullRequestsQueryOptions,
   overviewQueryOptions,
   patchQueryOptions,
@@ -139,6 +140,7 @@ describe("prScopeKey", () => {
     const range = { baseSha: "base42", headSha: "head42" }
     const pickerOpened = true
     const fullFileShown = true
+    const historyOpened = true
 
     const prScoped = [
       overviewQueryOptions(PR42),
@@ -149,6 +151,7 @@ describe("prScopeKey", () => {
       commitsQueryOptions(PR42, pickerOpened),
       rangeDiffQueryOptions(PR42, range),
       fileAtHeadQueryOptions(PR42, path, fullFileShown),
+      fileHistoryQueryOptions(PR42, path, historyOpened),
     ]
 
     // Act
@@ -157,6 +160,19 @@ describe("prScopeKey", () => {
     // Assert
     const expected = prScoped.map(() => ["pr", "acme/web/42"])
     expect(prefixes).toEqual(expected)
+  })
+
+  it("keys a file's history by its path under the PR scope", () => {
+    // Arrange
+    const path = "src/lib/rateLimiter.ts"
+    const historyOpened = false
+
+    // Act
+    const options = fileHistoryQueryOptions(PR42, path, historyOpened)
+
+    // Assert
+    const expected = { queryKey: ["pr", "acme/web/42", "history", path], enabled: false }
+    expect({ queryKey: options.queryKey, enabled: options.enabled }).toEqual(expected)
   })
 
   it("leaves the queries that outlive one PR outside the prefix", () => {

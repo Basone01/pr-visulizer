@@ -1,11 +1,12 @@
-import { type PrCommit, shortSha } from "@pr-visulizer/shared"
-import { useEffect, useMemo, useRef } from "react"
+import type { PrCommit } from "@pr-visulizer/shared"
+import { useMemo, useRef } from "react"
 
 import { type CommitSelection, isCommitInSelection } from "@/utils/commits/commitSelection"
 
-import { useEscapeKey } from "@/hooks/useEscapeKey"
+import { useDismissablePopover } from "@/hooks/useDismissablePopover"
 
 import styles from "./CommitRangePicker.module.css"
+import { CommitRow } from "./CommitRow"
 
 // GitHub's "Changes from commits" dropdown, as this app's two-click range picker (§10). One
 // click selects a single commit; a second click on another commit extends to the contiguous
@@ -19,14 +20,6 @@ type CommitRangePickerProps = {
   onSelect: (index: number) => void
   onClear: () => void
   onClose: () => void
-}
-
-function authoredDate(authoredAt: string): string {
-  // An unparseable/absent date must not blank the row — show nothing rather than "Invalid Date".
-  const parsed = new Date(authoredAt)
-  if (Number.isNaN(parsed.getTime())) return ""
-
-  return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
 export function CommitRangePicker({
@@ -49,23 +42,7 @@ export function CommitRangePicker({
     [commits]
   )
 
-  // Escape closes the picker, and a click anywhere outside it dismisses — the two ways every
-  // other popover in the app closes. As the pane's topmost popover it outranks the diff's own
-  // Escape consumers (find, peek, selection), so one keypress closes the picker only.
-  useEscapeKey("commitPicker", true, onClose)
-
-  // CAPTURE phase for the click-outside: a focused child can call stopPropagation, and a bubble
-  // listener would then never fire.
-  useEffect(() => {
-    function onPointerDown(event: MouseEvent): void {
-      if (popoverRef.current?.contains(event.target as Node)) return
-
-      onClose()
-    }
-
-    window.addEventListener("mousedown", onPointerDown, true)
-    return () => window.removeEventListener("mousedown", onPointerDown, true)
-  }, [onClose])
+  useDismissablePopover(popoverRef, onClose)
 
   return (
     <div
@@ -93,23 +70,13 @@ export function CommitRangePicker({
       ) : (
         <ul className={styles.list}>
           {rowsNewestFirst.map(({ commit, index }) => {
-            const selected = isCommitInSelection(selection, index)
-
             return (
               <li key={commit.sha}>
-                <button
-                  type="button"
-                  className={`${styles.commit} ${selected ? styles.commitSelected : ""}`}
-                  aria-pressed={selected}
+                <CommitRow
+                  commit={commit}
+                  selected={isCommitInSelection(selection, index)}
                   onClick={() => onSelect(index)}
-                >
-                  <span className={styles.headline}>{commit.messageHeadline}</span>
-                  <span className={styles.meta}>
-                    <span className="mono">{shortSha(commit.sha)}</span>
-                    <span className={styles.author}>{commit.author}</span>
-                    <span>{authoredDate(commit.authoredAt)}</span>
-                  </span>
-                </button>
+                />
               </li>
             )
           })}

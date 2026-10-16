@@ -261,4 +261,75 @@ describe("MarkdownContent", () => {
     expect(container.querySelector("pre code")?.className).toBe("language-ts")
     expect(renderMermaidSvg).not.toHaveBeenCalled()
   })
+
+  it("renders_sanitized_html_when_html_is_enabled", () => {
+    // Arrange
+    const source = "<details><summary>More</summary>body</details>"
+
+    // Act
+    const { container } = render(<MarkdownContent source={source} html="sanitized" />)
+
+    // Assert
+    const details = container.querySelector("details")
+    expect(details).not.toBeNull()
+    expect(details?.querySelector("summary")).toHaveTextContent("More")
+    expect(details).toHaveTextContent("body")
+  })
+
+  it("strips_scripts_and_event_handlers_even_when_html_is_enabled", () => {
+    // Arrange
+    const source = [
+      "<script>window.pwned = true</script>",
+      "",
+      'Look <img src="https://example.com/a.png" onerror="window.pwned = true"> here.',
+      "",
+      'Then <a href="javascript:window.pwned = true">click me</a>.',
+    ].join("\n")
+
+    // Act
+    const { container } = render(<MarkdownContent source={source} html="sanitized" />)
+
+    // Assert
+    expect(container.querySelector("script")).toBeNull()
+    expect(container.querySelector("[onerror]")).toBeNull()
+    expect(container.querySelector('a[href^="javascript:"]')).toBeNull()
+    expect(screen.getByText("click me")).toBeInTheDocument()
+  })
+
+  it("keeps_file_mention_links_clickable_when_html_is_enabled", async () => {
+    // Arrange
+    const user = userEvent.setup()
+    const onOpenFile = vi.fn()
+    const source = "Press <kbd>Enter</kbd> in src/auth.ts:18 to submit."
+    const fileReferences = [{ path: "src/auth.ts" }]
+    render(
+      <MarkdownContent
+        source={source}
+        html="sanitized"
+        fileReferences={fileReferences}
+        onOpenFile={onOpenFile}
+      />
+    )
+
+    // Act
+    await user.click(screen.getByRole("button", { name: "src/auth.ts:18" }))
+
+    // Assert
+    expect(onOpenFile).toHaveBeenCalledWith({ path: "src/auth.ts", line: 18 })
+  })
+
+  it("renders_a_mermaid_fence_as_a_diagram_when_html_is_enabled", async () => {
+    // Arrange
+    const diagramSource = "graph TD; A-->B"
+    const source = ["<sup>note</sup>", "", "```mermaid", diagramSource, "```"].join("\n")
+    renderMermaidSvg.mockResolvedValue('<svg xmlns="http://www.w3.org/2000/svg"><g></g></svg>')
+
+    // Act
+    const { container } = render(<MarkdownContent source={source} html="sanitized" />)
+
+    // Assert
+    expect(await screen.findByRole("img", { name: "Mermaid diagram" })).toBeInTheDocument()
+    expect(renderMermaidSvg).toHaveBeenCalledWith(`${diagramSource}\n`)
+    expect(container.querySelector("pre")).toBeNull()
+  })
 })

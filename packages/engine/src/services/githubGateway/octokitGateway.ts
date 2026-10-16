@@ -1,6 +1,7 @@
 import { Octokit } from "@octokit/rest"
 import type {
   ChangedFile,
+  FileHistory,
   PrCommitList,
   PrMeta,
   PrSummary,
@@ -91,6 +92,12 @@ type ViewedFilesPage = {
 // the list is whole.
 const PR_COMMIT_LIMIT = 250
 const COMPARE_FILE_LIMIT = 300
+
+// Our own bound on the file-history path listing (§10), not a GitHub limit. The listing walks
+// the whole repo history from head, so without a cap one request for an old file could page
+// through years of commits. 5 pages × 100 = the newest 500 commits that touched the path.
+const PATH_HISTORY_PAGE_SIZE = 100
+const PATH_HISTORY_MAX_PAGES = 5
 
 // GitHub's file status vocabulary is wider than our contract's — clamp it (§3).
 function toChangedFileStatus(status: string): ChangedFile["status"] {
@@ -237,6 +244,62 @@ export function createOctokitGateway(
     }))
 
     return { baseSha, headSha, files, truncated: files.length >= COMPARE_FILE_LIMIT }
+  }
+
+  // §10 file history. GitHub has no "PR commits for a path" endpoint, so this lists the repo
+  // commits that touched the path, walking back from the PR head, and keeps only those that are
+  // also PR commits. The PR list supplies the order and the full commit rows.
+  async function listPrCommitsForPath(target: PrTarget, path: string): Promise<FileHistory> {
+    const [meta, prCommits] = await Promise.all([getPullMeta(target), listPrCommits(target)])
+    const prShas = new Set(prCommits.commits.map((commit) => commit.sha))
+
+    const pathListing = await listPrShasTouchingPath(target, meta.headSha, path, prShas)
+    const pathCommits = prCommits.commits.filter((commit) => pathListing.shas.has(commit.sha))
+
+    return {
+      path,
+      commits: pathCommits,
+      truncated: prCommits.truncated || pathListing.truncated,
+    }
+  }
+
+  // Page through `GET /repos/{owner}/{repo}/commits?sha&path` and collect the PR shas it names,
+  // reading at most PATH_HISTORY_MAX_PAGES pages. Stops early on an empty or last page, or once
+  // every PR commit has been seen, because no later page can add one then.
+  async function listPrShasTouchingPath(
+    target: PrTarget,
+    headSha: string,
+    path: string,
+    prShas: Set<string>
+  ): Promise<{ shas: Set<string>; truncated: boolean }> {
+    const { owner, repo } = target
+    const seen = new Set<string>()
+    if (prShas.size === 0) return { shas: seen, truncated: false }
+
+    const pages = octokit.paginate.iterator(octokit.repos.listCommits, {
+      owner,
+      repo,
+      sha: headSha,
+      path,
+      per_page: PATH_HISTORY_PAGE_SIZE,
+    })
+
+    let pageCount = 0
+    for await (const page of pages) {
+      pageCount += 1
+      for (const entry of page.data) {
+        if (prShas.has(entry.sha)) seen.add(entry.sha)
+      }
+
+      const isEmptyPage = page.data.length === 0
+      const isLastPage = !(page.headers.link?.includes('rel="next"') ?? false)
+      const hasSeenEveryPrCommit = seen.size === prShas.size
+      if (isEmptyPage || isLastPage || hasSeenEveryPrCommit) return { shas: seen, truncated: false }
+
+      if (pageCount >= PATH_HISTORY_MAX_PAGES) return { shas: seen, truncated: true }
+    }
+
+    return { shas: seen, truncated: false }
   }
 
   async function submitReview(input: SubmitReviewInput): Promise<SubmitReviewResult> {
@@ -413,6 +476,7 @@ export function createOctokitGateway(
     getFileContent,
     listPrCommits,
     compareRange,
+    listPrCommitsForPath,
     submitReview,
     addReviewComment,
     listReviewComments,

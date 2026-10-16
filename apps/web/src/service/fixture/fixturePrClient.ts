@@ -1,6 +1,7 @@
 import {
   type CommitRange,
   type DraftComment,
+  type FileHistory,
   type PrCommitList,
   type PrOverview,
   type PrSummary,
@@ -32,7 +33,7 @@ import {
   bigPatch,
   buildBigAnalysis,
 } from "./bigFixture"
-import { pr42Commits, pr42RangeDiff } from "./commits"
+import { pr42Commits, pr42CommitsTouching, pr42RangeDiff } from "./commits"
 import { pr42HeadFile } from "./headFiles"
 import { pr42Patches } from "./patches"
 import { pr42Analysis } from "./pr42"
@@ -288,6 +289,14 @@ export function createFixturePrClient(): PrClient {
       }
 
       return delay(pr42RangeDiff(range.baseSha, range.headSha))
+    },
+
+    // The big fixture has no commit history, so every file has an empty history there.
+    getFileHistory(target: PrTarget, path: string): Promise<FileHistory> {
+      if (target.number === BIG_FIXTURE_NUMBER)
+        return delay({ path, commits: [], truncated: false })
+
+      return delay({ path, commits: pr42CommitsTouching(path), truncated: false })
     },
 
     // The big fixture is synthetic patches with no head file behind them — it answers "no head

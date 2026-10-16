@@ -798,14 +798,15 @@ mod tests {
             pixel_width: 0,
             pixel_height: 0,
         };
-        let pair = pty_system.openpty(initial_size).expect("open a real pty");
+        let portable_pty::PtyPair { master, slave } =
+            pty_system.openpty(initial_size).expect("open a real pty");
         let command = CommandBuilder::new("/bin/cat");
-        let mut child = pair
-            .slave
-            .spawn_command(command)
-            .expect("start shell fixture");
-        let mut reader = pair.master.try_clone_reader().expect("clone pty reader");
-        let mut writer = pair.master.take_writer().expect("take pty writer");
+        let mut child = slave.spawn_command(command).expect("start shell fixture");
+        // The parent must not hold the slave, or on macOS the session leader's exit
+        // can wedge in the kernel and wait() never returns.
+        drop(slave);
+        let mut reader = master.try_clone_reader().expect("clone pty reader");
+        let mut writer = master.take_writer().expect("take pty writer");
         let resized = PtySize {
             rows: 40,
             cols: 120,
@@ -816,7 +817,7 @@ mod tests {
         let expected_echo = "snowman ☃".as_bytes().to_vec();
 
         // Act
-        pair.master.resize(resized).expect("resize pty");
+        master.resize(resized).expect("resize pty");
         thread::spawn(move || {
             let mut output = Vec::new();
             let mut chunk = [0_u8; 256];
@@ -842,10 +843,7 @@ mod tests {
 
         // Assert
         let expected_size = resized;
-        assert_eq!(
-            pair.master.get_size().expect("read pty size"),
-            expected_size
-        );
+        assert_eq!(master.get_size().expect("read pty size"), expected_size);
         assert!(
             !status.success(),
             "stopped cat fixture must not exit successfully"
@@ -1018,7 +1016,10 @@ mod tests {
 
         // Assert
         let expected = TerminalProvider::Claude;
-        assert_eq!(parsed.expect("request with provider must parse").provider, expected);
+        assert_eq!(
+            parsed.expect("request with provider must parse").provider,
+            expected
+        );
         assert!(missing.is_err(), "provider must be required");
     }
 

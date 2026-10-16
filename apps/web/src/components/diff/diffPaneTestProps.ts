@@ -19,7 +19,10 @@ export const NO_COMMIT_RANGE: DiffCommitRangeApi = {
 
   selection: null,
   select: () => {},
+  selectSha: () => {},
   clear: () => {},
+  source: null,
+  historyPath: null,
 
   range: null,
   rangeDiff: null,
@@ -49,6 +52,7 @@ export function activeCommitRange(overrides: {
     selection: overrides.selection ?? null,
     select: overrides.select ?? (() => {}),
     clear: overrides.clear ?? (() => {}),
+    source: "picker",
     range: { baseSha: rangeDiff.baseSha, headSha: rangeDiff.headSha },
     rangeDiff,
     touchedPaths: touched,

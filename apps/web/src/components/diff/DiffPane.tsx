@@ -56,6 +56,7 @@ import { useDiffFind } from "@/hooks/useDiffFind"
 import { useDiffShortcuts } from "@/hooks/useDiffShortcuts"
 import { useDiffViewSettings } from "@/hooks/useDiffViewSettings"
 import { useEscapeKey } from "@/hooks/useEscapeKey"
+import { useFileHistory } from "@/hooks/useFileHistory"
 import { useInvalidateReviewComments } from "@/hooks/useInvalidateReviewComments"
 import { useLineSelection } from "@/hooks/useLineSelection"
 import { useLineTokenizer } from "@/hooks/useLineTokenizer"
@@ -71,6 +72,7 @@ import { CommentComposer } from "./CommentComposer"
 import { CommitRangePicker } from "./CommitRangePicker"
 import styles from "./Diff.module.css"
 import { DiffLine } from "./DiffLine"
+import { FileHistoryPopover } from "./FileHistoryPopover"
 import { FindBar } from "./FindBar"
 import { PeekPopup } from "./PeekPopup"
 import { UsagesPopover } from "./UsagesPopover"
@@ -560,10 +562,14 @@ export function DiffPane({
     if (suggestedNextPath) onOpenFile(suggestedNextPath)
   }, [suggestedNextPath, onOpenFile])
 
+  const history = useFileHistory(target, path, commitRange)
+
   useDiffShortcuts({
     enabled: file !== null,
     onToggleViewed: toggleViewedShortcut,
     onOpenNext: openNextShortcut,
+    onOlderChange: history.older,
+    onNewerChange: history.newer,
   })
 
   if (!file) {
@@ -935,6 +941,33 @@ export function DiffPane({
               )}
             </div>
 
+            <div className={styles.pickerAnchor}>
+              <button
+                type="button"
+                className={`${styles.iconToggle} ${history.activeSha ? styles.toggleOn : ""}`}
+                aria-pressed={history.activeSha !== null}
+                aria-haspopup="dialog"
+                aria-expanded={history.popoverOpen}
+                aria-label="File history"
+                title="Step through the commits that changed this file"
+                onClick={history.togglePopover}
+              >
+                ◷
+              </button>
+
+              {history.popoverOpen && (
+                <FileHistoryPopover
+                  entries={history.entries}
+                  activeSha={history.activeSha}
+                  truncated={history.truncated}
+                  isLoading={history.isLoading}
+                  error={history.error}
+                  onPick={history.pick}
+                  onClose={history.closePopover}
+                />
+              )}
+            </div>
+
             <button
               type="button"
               className={styles.nextButton}
@@ -952,13 +985,40 @@ export function DiffPane({
 
         {commitRange.range && (
           <div className={styles.rangeChip} role="status">
-            <span className={styles.rangeLabel}>
-              commits{" "}
-              <span className="mono">
-                {shortSha(commitRange.range.baseSha)}…{shortSha(commitRange.range.headSha)}
+            {history.activeChange !== null ? (
+              <>
+                <span className={styles.rangeLabel}>
+                  change {history.activeChange} of {history.changeCount} ·{" "}
+                  <span className="mono">{shortSha(commitRange.range.headSha)}</span>
+                </span>
+                <button
+                  type="button"
+                  className={styles.rangeReset}
+                  onClick={history.older}
+                  disabled={!history.canStepOlder}
+                  title="Older change to this file (⌥,)"
+                >
+                  ← older
+                </button>
+                <button
+                  type="button"
+                  className={styles.rangeReset}
+                  onClick={history.newer}
+                  disabled={!history.canStepNewer}
+                  title="Newer change to this file (⌥.)"
+                >
+                  newer →
+                </button>
+              </>
+            ) : (
+              <span className={styles.rangeLabel}>
+                commits{" "}
+                <span className="mono">
+                  {shortSha(commitRange.range.baseSha)}…{shortSha(commitRange.range.headSha)}
+                </span>
+                {commitRange.rangeDiff && ` · ${commitRange.fileCount} files`}
               </span>
-              {commitRange.rangeDiff && ` · ${commitRange.fileCount} files`}
-            </span>
+            )}
             <button
               type="button"
               className={styles.rangeReset}

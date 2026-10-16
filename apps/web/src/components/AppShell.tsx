@@ -18,6 +18,7 @@ import {
 import type { PrTarget } from "@/entity/pr"
 import { repoKey } from "@/entity/pr"
 import { isNeedsRepoSourceError } from "@/entity/repoSource"
+import { type ReviewSnapshot, buildReviewSnapshot } from "@/entity/terminalReviewSnapshot"
 
 import { getAppStorage } from "@/service/clientFactory"
 import { analysisQueryOptions, overviewQueryOptions, viewerQueryOptions } from "@/service/queries"
@@ -53,7 +54,7 @@ import { PaneDivider } from "./PaneDivider"
 import { RecentFilesPalette } from "./RecentFilesPalette"
 import { TopBar } from "./TopBar"
 import { AiReviewPanel } from "./aiReview/AiReviewPanel"
-import { DiffPane } from "./diff/DiffPane"
+import { DiffPane, type DiffPaneSelectionContext } from "./diff/DiffPane"
 import { GhostFilePane } from "./diff/GhostFilePane"
 import { GraphPane } from "./graph/GraphPane"
 import { ReviewTray } from "./tray/ReviewTray"
@@ -79,6 +80,8 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   const engine: Engine = env.tauriMode ? "deep" : "fast"
   const [cloneModal, setCloneModal] = useState<CloneModal>(null)
   const [activeTerminalSessionId, setActiveTerminalSessionId] = useState<string | null>(null)
+  // The gutter selection the diff pane reports, shared with the terminal agent.
+  const [diffSelection, setDiffSelection] = useState<DiffPaneSelectionContext | null>(null)
   const handleTerminalSessionEnded = useCallback((sessionId: string) => {
     setActiveTerminalSessionId((currentSessionId) =>
       currentSessionId === sessionId ? null : currentSessionId
@@ -284,6 +287,25 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
     const wrapped = rows.find((row) => !row.reviewed && row.path !== current.path)
     return wrapped?.path ?? null
   }, [view, current.path])
+
+  // What the terminal agent can ask about. Null until the full analysis and progress are in,
+  // so the agent never answers from the provisional file list.
+  const reviewSnapshot = useMemo<ReviewSnapshot | null>(() => {
+    if (!fullView || !progress) return null
+
+    return buildReviewSnapshot({
+      trayRows: fullView.trayRows,
+      drafts: progress.drafts,
+      nextFilePath,
+      queueMode: queueMode.mode,
+      openFilePath: current.path || null,
+      selection: diffSelection && {
+        path: diffSelection.path,
+        startLine: diffSelection.startLine,
+        endLine: diffSelection.endLine,
+      },
+    })
+  }, [current.path, diffSelection, fullView, nextFilePath, progress, queueMode.mode])
 
   // The graph's reviewed-progress chip jumps to the FIRST unreviewed file in tray order,
   // regardless of queue mode — the same pick the chain-mode suggestion uses (§8.4). Reuses the
@@ -570,6 +592,7 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
                     onAddDraft={saveDraft}
                     onUpdateDraft={editDraft}
                     onDeleteDraft={removeDraft}
+                    onSelectionChange={setDiffSelection}
                     commitRange={commitRange}
                   />
                 )}
@@ -657,6 +680,7 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
             baseSha={pr.baseSha}
             headSha={pr.headSha}
             currentFilePath={current.path || null}
+            review={reviewSnapshot}
             onTerminalSessionStarted={setActiveTerminalSessionId}
             onTerminalSessionEnded={handleTerminalSessionEnded}
           />

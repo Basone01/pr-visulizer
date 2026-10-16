@@ -39,6 +39,8 @@ function terminalSize(fitAddon: FitAddon, terminal: Terminal): { rows: number; c
 }
 
 const MAX_QUEUED_INPUT_BYTES = 64 * 1024
+// Draft bodies save on every keystroke, so context changes are coalesced before they cross IPC.
+const CONTEXT_PUSH_DEBOUNCE_MS = 150
 
 export function CodexTerminal({
   provider,
@@ -270,14 +272,21 @@ export function CodexTerminal({
     terminalIdentity,
   ])
 
+  // Only changes are debounced. The first push after Start happens in the start path above,
+  // straight after the session comes up, so it is never delayed.
   useEffect(() => {
-    const session = sessionRef.current
-    if (session === null) return
+    if (sessionRef.current === null) return
 
-    void session.updateContext(context).catch((error: unknown) => {
-      setStatus("error")
-      setMessage(error instanceof Error ? error.message : String(error))
-    })
+    const timer = window.setTimeout(() => {
+      const session = sessionRef.current
+      if (session === null) return
+
+      void session.updateContext(context).catch((error: unknown) => {
+        setStatus("error")
+        setMessage(error instanceof Error ? error.message : String(error))
+      })
+    }, CONTEXT_PUSH_DEBOUNCE_MS)
+    return () => window.clearTimeout(timer)
   }, [context])
 
   // paste() rather than a session write: xterm adds bracketed-paste markers when the CLI enabled

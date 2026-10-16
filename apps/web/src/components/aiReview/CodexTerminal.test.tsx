@@ -4,6 +4,9 @@ import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { TERMINAL_PROMPT_SHORTCUTS } from "@/entity/terminalPromptShortcuts"
+import type { ReviewSnapshot } from "@/entity/terminalReviewSnapshot"
+
+import type { CodexTerminalContext } from "@/service/terminal/codexTerminal"
 
 import { CodexTerminal } from "./CodexTerminal"
 
@@ -424,5 +427,55 @@ describe("CodexTerminal", () => {
 
     // Assert
     expect(screen.getByRole("status")).toHaveTextContent("Stopped.")
+  })
+
+  it("pushes_the_review_snapshot_when_it_changes", async () => {
+    // Arrange
+    const baseContext: CodexTerminalContext = {
+      owner: "acme",
+      repo: "web",
+      number: 42,
+      title: "PR",
+      baseSha: "base",
+      headSha: "head",
+      selectedFilePath: "src/app.ts",
+    }
+    const review: ReviewSnapshot = {
+      queueMode: "foundations",
+      selection: { path: "src/app.ts", startLine: 10, endLine: 11 },
+      files: [{ path: "src/app.ts", status: "modified", reviewed: false, suggestedNext: true }],
+      drafts: [],
+    }
+    const contextWithReview: CodexTerminalContext = { ...baseContext, review }
+    const session = createBridgeSession()
+    const props = {
+      provider: "codex" as const,
+      shortcuts: TERMINAL_PROMPT_SHORTCUTS,
+      repositoryPath: "/repo",
+      initialPrompt: "Review PR",
+      model: null,
+      terminalIdentity: "pr-42",
+      onSessionStarted: () => {},
+      onSessionEnded: () => {},
+    }
+    const view = render(<CodexTerminal {...props} context={baseContext} />)
+    pressStart()
+    act(() => bridge.resolve?.(session))
+    await screen.findByRole("button", { name: "Stop" })
+    vi.useFakeTimers()
+
+    try {
+      // Act
+      view.rerender(<CodexTerminal {...props} context={contextWithReview} />)
+      act(() => vi.advanceTimersByTime(149))
+      const lastPushJustBeforeDebounce = session.updateContext.mock.lastCall?.[0]
+      act(() => vi.advanceTimersByTime(1))
+
+      // Assert
+      expect(lastPushJustBeforeDebounce).toEqual(baseContext)
+      expect(session.updateContext).toHaveBeenLastCalledWith(contextWithReview)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

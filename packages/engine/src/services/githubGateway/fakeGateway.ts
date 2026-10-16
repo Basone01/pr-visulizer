@@ -1,4 +1,5 @@
 import type {
+  FileHistory,
   PrCommitList,
   PrMeta,
   PrSummary,
@@ -228,6 +229,19 @@ export function createFakeGithubGateway(
       const selected = commitsInRange(commits, baseSha, headSha)
 
       return { baseSha, headSha, files: unionRangeFiles(selected), truncated: false }
+    },
+
+    async listPrCommitsForPath(target: PrTarget, path: string): Promise<FileHistory> {
+      const { commits = [] } = lookupFixture(target)
+      // Matches the current path only, like the real commits endpoint, which does not follow
+      // a rename made inside the PR.
+      const touching = commits.filter((commit) => commit.files.some((file) => file.path === path))
+
+      return {
+        path,
+        commits: touching.map(({ files: _files, ...commit }) => commit),
+        truncated: false,
+      }
     },
 
     async submitReview(input: SubmitReviewInput): Promise<SubmitReviewResult> {

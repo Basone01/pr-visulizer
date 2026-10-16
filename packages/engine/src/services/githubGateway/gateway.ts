@@ -1,6 +1,7 @@
 import type {
   ChangedFile,
   DraftComment,
+  FileHistory,
   PrCommit,
   PrCommitList,
   PrMeta,
@@ -113,6 +114,11 @@ export interface GithubGateway {
   // The caller derives `baseSha` from the first selected commit's first parent (see
   // `commitRange` in the shared contract), never from git rev syntax like `sha^`.
   compareRange(target: PrTarget, baseSha: string, headSha: string): Promise<RangeDiff>
+
+  // §10 file history: the PR commits that touched `path`, oldest-first in PR order. Commits
+  // outside the PR never appear. A path renamed inside the PR lists only the commits made under
+  // its current name (a documented limitation, the commits endpoint does not follow renames).
+  listPrCommitsForPath(target: PrTarget, path: string): Promise<FileHistory>
 
   // §11: the real GitHub review (approve / request-changes / comment).
   submitReview(input: SubmitReviewInput): Promise<SubmitReviewResult>

@@ -15,7 +15,7 @@ import type { PrTarget } from "@/entity/pr"
 
 import { commitsQueryOptions, rangeDiffQueryOptions } from "@/service/queries"
 
-import { useCommitRange } from "./useCommitRange"
+import { type CommitRangeSource, useCommitRange } from "./useCommitRange"
 
 // The diff pane's commit-range lens (§10), assembled in one place: the picker's open state, the
 // commit list, the two-click selection, the range diff, and everything derived from it.
@@ -37,7 +37,13 @@ export type DiffCommitRangeApi = {
 
   selection: CommitSelection | null
   select: (index: number) => void
+  // One commit as a completed range, from the file history lens on `path`.
+  selectSha: (sha: string, path: string) => void
   clear: () => void
+  // null while no range is active. See CommitRangeSource.
+  source: CommitRangeSource | null
+  // The file a history range belongs to, null for a picker range or none.
+  historyPath: string | null
 
   // null = no range selected; the pane is showing the whole PR, exactly as before this feature.
   range: CommitRange | null
@@ -65,7 +71,15 @@ export function useDiffCommitRange(target: PrTarget, fallbackBaseSha: string): D
   const commitsQuery = useQuery(commitsQueryOptions(target, keepOpened))
   const commits = useMemo(() => commitsQuery.data?.commits ?? [], [commitsQuery.data])
 
-  const { selection, range, select, clear } = useCommitRange(commits, fallbackBaseSha)
+  const {
+    selection,
+    range,
+    source,
+    historyPath,
+    select,
+    selectSha: selectShaInList,
+    clear,
+  } = useCommitRange(commits, fallbackBaseSha)
   const rangeDiffQuery = useQuery(rangeDiffQueryOptions(target, range))
   const rangeDiff = rangeDiffQuery.data ?? null
 
@@ -74,6 +88,16 @@ export function useDiffCommitRange(target: PrTarget, fallbackBaseSha: string): D
     setPickerOpen(true)
   }, [])
   const closePicker = useCallback(() => setPickerOpen(false), [])
+
+  // A sha resolves against the commit list, so selecting one latches the list load like opening
+  // the picker does.
+  const selectSha = useCallback(
+    (sha: string, path: string) => {
+      setKeepOpened(true)
+      selectShaInList(sha, path)
+    },
+    [selectShaInList]
+  )
 
   const touchedPaths = useMemo(() => (rangeDiff ? rangeTouchedPaths(rangeDiff) : null), [rangeDiff])
 
@@ -95,7 +119,10 @@ export function useDiffCommitRange(target: PrTarget, fallbackBaseSha: string): D
 
     selection,
     select,
+    selectSha,
     clear,
+    source,
+    historyPath,
 
     range,
     rangeDiff,

@@ -1,6 +1,7 @@
 import {
   type CommitRange,
   type DraftComment,
+  type FileHistory,
   type PrCommitList,
   type PrOverview,
   type PrSummary,
@@ -9,6 +10,7 @@ import {
   type ReviewProgress,
   type Viewer,
   analysisResultSchema,
+  fileHistorySchema,
   prCommitListSchema,
   prOverviewSchema,
   prSummarySchema,
@@ -157,6 +159,10 @@ export function createHttpPrClient(): PrClient {
       const query = new URLSearchParams({ base: range.baseSha, head: range.headSha })
 
       return parseJson(`${base(target)}/compare?${query}`, rangeDiffSchema)
+    },
+
+    async getFileHistory(target: PrTarget, path: string): Promise<FileHistory> {
+      return parseJson(`${base(target)}/history/${encodeURI(path)}`, fileHistorySchema)
     },
 
     // The same files route already serves the head content beside the patch — no new endpoint.

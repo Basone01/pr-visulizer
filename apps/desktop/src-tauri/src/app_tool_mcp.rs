@@ -126,6 +126,30 @@ impl AppToolServer {
             .map(|value| value.to_string())
     }
 
+    #[tool(
+        description = "See the file the reviewer has open in PR Visualizer, its review status, and the line range they selected, if any. Read the file content from the repository at the head SHA yourself."
+    )]
+    fn get_current_file(&self) -> Result<String, String> {
+        self.call("get_current_file", serde_json::json!({}))
+            .map(|value| value.to_string())
+    }
+
+    #[tool(
+        description = "List every file in the pull request in the reviewer's queue order, with its status, whether the reviewer marked it reviewed, and which one the app suggests next."
+    )]
+    fn list_pr_files(&self) -> Result<String, String> {
+        self.call("list_pr_files", serde_json::json!({}))
+            .map(|value| value.to_string())
+    }
+
+    #[tool(
+        description = "List the reviewer's pending inline comment drafts for this pull request. Drafts are not published. Each draft has a side: for RIGHT its lines are head line numbers, for LEFT (a comment on a deleted line) its lines are base line numbers."
+    )]
+    fn get_review_drafts(&self) -> Result<String, String> {
+        self.call("get_review_drafts", serde_json::json!({}))
+            .map(|value| value.to_string())
+    }
+
     #[tool(description = "Open a repository-relative file in the PR Visualizer main diff viewer.")]
     fn open_file(
         &self,
@@ -135,7 +159,9 @@ impl AppToolServer {
             .map(|value| value.to_string())
     }
 
-    #[tool(description = "Render the final Markdown answer in the PR Visualizer answer window. Required whenever the answer mentions files or lines the reviewer may need to open, even for a short answer. Include every mentioned file in fileRefs with its line when known.")]
+    #[tool(
+        description = "Render the final Markdown answer in the PR Visualizer answer window. Required whenever the answer mentions files or lines the reviewer may need to open, even for a short answer. Include every mentioned file in fileRefs with its line when known."
+    )]
     fn render_answer(
         &self,
         Parameters(request): Parameters<RenderAnswerRequest>,
@@ -166,7 +192,7 @@ impl AppToolServer {
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for AppToolServer {
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions("Use app tools for this one PR session. Whenever an answer mentions a file or line the reviewer may need to open, you must call render_answer successfully before finishing, even for a short answer. Include every mentioned file in fileRefs, with its line when known, and use repo-relative Markdown links or inline paths. If rendering fails, correct the request and retry, then report any unresolved failure. Use the terminal for progress, questions, and answers without file references. Call render_answer only for the final response, then give a brief terminal confirmation.")
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions("Use app tools for this one PR session. Whenever an answer mentions a file or line the reviewer may need to open, you must call render_answer successfully before finishing, even for a short answer. Include every mentioned file in fileRefs, with its line when known, and use repo-relative Markdown links or inline paths. If rendering fails, correct the request and retry, then report any unresolved failure. Use the terminal for progress, questions, and answers without file references. Call render_answer only for the final response, then give a brief terminal confirmation. Call get_current_file first when the reviewer asks about 'this file', 'these lines' or 'here'.")
     }
 }
 
@@ -207,7 +233,15 @@ mod tests {
             .collect::<Vec<_>>();
 
         // Assert
-        assert_eq!(names, vec!["get_pr_context", "open_file", "render_answer"]);
+        let expected = vec![
+            "get_current_file",
+            "get_pr_context",
+            "get_review_drafts",
+            "list_pr_files",
+            "open_file",
+            "render_answer",
+        ];
+        assert_eq!(names, expected);
     }
 
     #[tokio::test]
@@ -222,7 +256,7 @@ mod tests {
         let expected_token = token.clone();
         let (operation_sender, operation_receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            for _ in 0..2 {
+            for _ in 0..3 {
                 let (mut stream, _) = listener.accept().expect("accept app tool request");
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().expect("clone request stream"))
@@ -286,6 +320,10 @@ mod tests {
             )
             .await
             .expect("route open_file to the live socket");
+        let current_file_result = client
+            .call_tool(rmcp::model::CallToolRequestParams::new("get_current_file"))
+            .await
+            .expect("route get_current_file to the live socket");
         client.cancel().await.expect("stop MCP client transport");
         server_task
             .await
@@ -298,13 +336,20 @@ mod tests {
             operation_receiver
                 .recv_timeout(Duration::from_secs(2))
                 .expect("receive open_file socket call"),
+            operation_receiver
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive get_current_file socket call"),
         ];
         let _ = std::fs::remove_file(socket_path);
 
         // Assert
-        assert_eq!(tools.tools.len(), 3);
+        assert_eq!(tools.tools.len(), 6);
         assert!(!context_result.is_error.unwrap_or(false));
         assert!(!open_file_result.is_error.unwrap_or(false));
-        assert_eq!(operations, vec!["get_pr_context", "open_file"]);
+        assert!(!current_file_result.is_error.unwrap_or(false));
+        assert_eq!(
+            operations,
+            vec!["get_pr_context", "open_file", "get_current_file"]
+        );
     }
 }

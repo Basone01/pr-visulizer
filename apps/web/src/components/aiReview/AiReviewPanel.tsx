@@ -17,11 +17,13 @@ import {
   TERMINAL_PROMPT_SHORTCUTS,
   toPromptShortcut,
 } from "@/entity/terminalPromptShortcuts"
+import type { ReviewSnapshot } from "@/entity/terminalReviewSnapshot"
 
 import {
   type AiReviewSettingsStorage,
   createAiReviewSettingsStorage,
 } from "@/service/aiReview/settingsStorage"
+import type { CodexTerminalContext } from "@/service/terminal/codexTerminal"
 import {
   type NewCustomTerminalPromptShortcut,
   createTerminalShortcutStorage,
@@ -44,6 +46,8 @@ type AiReviewPanelProps = {
   baseSha: string
   headSha: string
   currentFilePath: string | null
+  // Null while the analysis or the review progress is still loading.
+  review: ReviewSnapshot | null
   onTerminalSessionStarted: (sessionId: string) => void
   onTerminalSessionEnded: (sessionId: string) => void
 }
@@ -67,6 +71,7 @@ export function createInitialPrompt(input: {
     `Selected file: ${selectedFile}`,
     "The current checkout may not be the PR head. Do not change branches, checkout commits, edit files, or run destructive commands.",
     `Inspect the PR with git diff ${input.baseSha}...${input.headSha} and git show ${input.headSha}:<path> as needed.`,
+    'The get_current_file tool shows the file and lines the reviewer is looking at right now. Call it when the reviewer says "this file" or "these lines".',
     `If the sem CLI is installed (check with command -v sem), prefer sem diff -v --from ${input.baseSha} --to ${input.headSha} for a semantic, entity-level view of the change, and fall back to git diff when it is missing.`,
     "Whenever an answer mentions a file or line the reviewer may need to open, you must call render_answer successfully before finishing, even for a short answer. Include every mentioned file in fileRefs, with its line when known. Use repo-relative Markdown links or inline paths so the references are clickable. If rendering fails, correct the request and retry, then report any unresolved failure instead of claiming the preview is ready.",
     "Use the terminal for progress, questions, and answers without file references. For longer explanations, summaries, or review results, also prefer render_answer with a title and Markdown. After rendering, keep the terminal reply to a brief confirmation that the answer is in the preview window.",
@@ -81,6 +86,7 @@ export function AiReviewPanel({
   baseSha,
   headSha,
   currentFilePath,
+  review,
   onTerminalSessionStarted,
   onTerminalSessionEnded,
 }: AiReviewPanelProps) {
@@ -130,6 +136,20 @@ export function AiReviewPanel({
   const initialPrompt = useMemo(
     () => createInitialPrompt({ target, title, baseSha, headSha, currentFilePath }),
     [baseSha, currentFilePath, headSha, target, title]
+  )
+  // Memoized so the terminal only pushes a context update when something in it really changed.
+  const terminalContext = useMemo<CodexTerminalContext>(
+    () => ({
+      owner: target.owner,
+      repo: target.repo,
+      number: target.number,
+      title,
+      baseSha,
+      headSha,
+      selectedFilePath: currentFilePath,
+      ...(review === null ? {} : { review }),
+    }),
+    [baseSha, currentFilePath, headSha, review, target, title]
   )
   const promptShortcuts = useMemo(
     () => [...TERMINAL_PROMPT_SHORTCUTS, ...customShortcuts.map(toPromptShortcut)],
@@ -330,15 +350,7 @@ export function AiReviewPanel({
             terminalIdentity={terminalIdentity}
             onSessionStarted={onTerminalSessionStarted}
             onSessionEnded={onTerminalSessionEnded}
-            context={{
-              owner: target.owner,
-              repo: target.repo,
-              number: target.number,
-              title,
-              baseSha,
-              headSha,
-              selectedFilePath: currentFilePath,
-            }}
+            context={terminalContext}
           />
         )}
       </div>

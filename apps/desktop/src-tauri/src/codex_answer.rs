@@ -15,6 +15,9 @@ const MAX_MARKDOWN_BYTES: usize = 256 * 1024;
 const MAX_TITLE_BYTES: usize = 240;
 const MAX_FILE_REFS: usize = 64;
 const MAX_RETAINED_INACTIVE_REPORTS: usize = 8;
+const MAX_REVIEW_FILES: usize = 2000;
+const MAX_REVIEW_DRAFTS: usize = 500;
+const MAX_DRAFT_BODY_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +29,63 @@ pub struct CodexAnswerContext {
     pub base_sha: String,
     pub head_sha: String,
     pub selected_file_path: Option<String>,
+    // Absent until the web view pushes its first reviewer-state snapshot.
+    #[serde(default)]
+    pub review: Option<ReviewSnapshot>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewSnapshot {
+    pub queue_mode: String,
+    pub selection: Option<ReviewSelection>,
+    pub files: Vec<ReviewFile>,
+    pub drafts: Vec<ReviewDraft>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewSelection {
+    pub path: String,
+    #[serde(flatten)]
+    pub lines: LineRange,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewFile {
+    pub path: String,
+    pub status: String,
+    pub reviewed: bool,
+    pub suggested_next: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewDraft {
+    pub path: String,
+    #[serde(default)]
+    pub side: DraftSide,
+    #[serde(flatten)]
+    pub lines: LineRange,
+    pub body: String,
+}
+
+// RIGHT lines are head line numbers, LEFT lines (comments on deleted lines) are base line numbers.
+// Any other value fails to deserialize, so the whole update is rejected and the previous snapshot stays.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum DraftSide {
+    Left,
+    #[default]
+    Right,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineRange {
+    pub start_line: u32,
+    pub end_line: u32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -214,6 +274,7 @@ impl CodexAnswerSessions {
         }
         session.context.title = request.context.title;
         session.context.selected_file_path = request.context.selected_file_path;
+        session.context.review = request.context.review;
         Ok(())
     }
 
@@ -302,6 +363,11 @@ fn handle_socket_request<R: Runtime>(
     mut stream: std::os::unix::net::UnixStream,
 ) {
     let response = (|| -> Result<serde_json::Value, String> {
+        // The listener polls non-blocking for shutdown, and on macOS an accepted stream inherits
+        // that flag, so a read before the helper's bytes land fails with EAGAIN instead of waiting.
+        stream
+            .set_nonblocking(false)
+            .map_err(|error| format!("could not set request mode: {error}"))?;
         stream
             .set_read_timeout(Some(Duration::from_secs(10)))
             .map_err(|error| format!("could not set request timeout: {error}"))?;
@@ -322,6 +388,15 @@ fn handle_socket_request<R: Runtime>(
             "get_pr_context" if request.payload == serde_json::json!({}) => {
                 serde_json::to_value(sessions.active_context(session_id)?)
                     .map_err(|error| error.to_string())
+            }
+            "get_current_file" if request.payload == serde_json::json!({}) => {
+                current_file_view(&sessions.active_context(session_id)?)
+            }
+            "list_pr_files" if request.payload == serde_json::json!({}) => {
+                pr_files_view(&sessions.active_context(session_id)?)
+            }
+            "get_review_drafts" if request.payload == serde_json::json!({}) => {
+                review_drafts_view(&sessions.active_context(session_id)?)
             }
             "open_file" => {
                 let request: OpenFilePayload = serde_json::from_value(request.payload)
@@ -359,6 +434,47 @@ fn handle_socket_request<R: Runtime>(
     let _ = serde_json::to_writer(&mut stream, &response);
     let _ = stream.write_all(b"\n");
     let _ = stream.flush();
+}
+
+fn shared_review(context: &CodexAnswerContext) -> Result<&ReviewSnapshot, String> {
+    context
+        .review
+        .as_ref()
+        .ok_or_else(|| "the app has not shared its review state yet".to_string())
+}
+
+fn current_file_view(context: &CodexAnswerContext) -> Result<serde_json::Value, String> {
+    let review = shared_review(context)?;
+    let Some(path) = &context.selected_file_path else {
+        return Ok(serde_json::json!({ "path": null }));
+    };
+
+    // An open file missing from the queue still reports its path, with no known status.
+    let file = review.files.iter().find(|file| &file.path == path);
+    let selection = review
+        .selection
+        .as_ref()
+        .filter(|selection| &selection.path == path)
+        .map(|selection| &selection.lines);
+    Ok(serde_json::json!({
+        "path": path,
+        "status": file.map(|file| &file.status),
+        "reviewed": file.is_some_and(|file| file.reviewed),
+        "selection": selection,
+    }))
+}
+
+fn pr_files_view(context: &CodexAnswerContext) -> Result<serde_json::Value, String> {
+    let review = shared_review(context)?;
+    Ok(serde_json::json!({
+        "queueMode": review.queue_mode,
+        "files": review.files,
+    }))
+}
+
+fn review_drafts_view(context: &CodexAnswerContext) -> Result<serde_json::Value, String> {
+    let review = shared_review(context)?;
+    Ok(serde_json::json!({ "drafts": review.drafts }))
 }
 
 #[derive(Deserialize)]
@@ -479,6 +595,40 @@ fn validate_context(context: &CodexAnswerContext) -> Result<(), String> {
     if let Some(path) = &context.selected_file_path {
         validate_relative_path(path)?;
     }
+    if let Some(review) = &context.review {
+        validate_review(review)?;
+    }
+    Ok(())
+}
+
+fn validate_review(review: &ReviewSnapshot) -> Result<(), String> {
+    if review.files.len() > MAX_REVIEW_FILES {
+        return Err("review state accepts at most 2000 files".into());
+    }
+    if review.drafts.len() > MAX_REVIEW_DRAFTS {
+        return Err("review state accepts at most 500 drafts".into());
+    }
+    if let Some(selection) = &review.selection {
+        validate_relative_path(&selection.path)?;
+        validate_selection_lines(&selection.lines)?;
+    }
+    for file in &review.files {
+        validate_relative_path(&file.path)?;
+    }
+    for draft in &review.drafts {
+        validate_relative_path(&draft.path)?;
+        if draft.body.len() > MAX_DRAFT_BODY_BYTES {
+            return Err("review draft bodies must be at most 16 KiB".into());
+        }
+    }
+    Ok(())
+}
+
+fn validate_selection_lines(lines: &LineRange) -> Result<(), String> {
+    if lines.start_line == 0 || lines.start_line > lines.end_line {
+        return Err("review selection lines must start at 1 and not end before they start".into());
+    }
+
     Ok(())
 }
 
@@ -603,7 +753,62 @@ mod tests {
             base_sha: "base1234".into(),
             head_sha: "head1234".into(),
             selected_file_path: Some("src/cache.rs".into()),
+            review: None,
         }
+    }
+
+    fn review_snapshot() -> ReviewSnapshot {
+        ReviewSnapshot {
+            queue_mode: "ranked".into(),
+            selection: Some(ReviewSelection {
+                path: "src/cache.rs".into(),
+                lines: LineRange {
+                    start_line: 10,
+                    end_line: 14,
+                },
+            }),
+            files: vec![
+                ReviewFile {
+                    path: "src/cache.rs".into(),
+                    status: "modified".into(),
+                    reviewed: true,
+                    suggested_next: false,
+                },
+                ReviewFile {
+                    path: "src/api.rs".into(),
+                    status: "added".into(),
+                    reviewed: false,
+                    suggested_next: true,
+                },
+            ],
+            drafts: vec![ReviewDraft {
+                path: "src/cache.rs".into(),
+                side: DraftSide::Right,
+                lines: LineRange {
+                    start_line: 12,
+                    end_line: 12,
+                },
+                body: "nit: rename".into(),
+            }],
+        }
+    }
+
+    fn insert_active_session(
+        sessions: &CodexAnswerSessions,
+        session_id: &str,
+        context: CodexAnswerContext,
+    ) {
+        let session = AnswerSession {
+            context,
+            report: None,
+            active: true,
+            socket: None,
+        };
+        sessions
+            .sessions
+            .lock()
+            .expect("lock answer sessions")
+            .insert(session_id.into(), session);
     }
 
     fn socket_request(socket_path: &str, request: serde_json::Value) -> serde_json::Value {
@@ -664,6 +869,256 @@ mod tests {
         // Assert
         let expected = Err("no answer has been rendered for this terminal session".to_string());
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn get_current_file_reports_the_open_file_with_its_status_and_selection() {
+        // Arrange
+        let mut context = context();
+        context.review = Some(review_snapshot());
+
+        // Act
+        let result = current_file_view(&context);
+
+        // Assert
+        let expected = serde_json::json!({
+            "path": "src/cache.rs",
+            "status": "modified",
+            "reviewed": true,
+            "selection": { "startLine": 10, "endLine": 14 },
+        });
+        assert_eq!(result, Ok(expected));
+    }
+
+    #[test]
+    fn get_current_file_reports_no_path_when_nothing_is_open() {
+        // Arrange
+        let mut context = context();
+        context.selected_file_path = None;
+        context.review = Some(review_snapshot());
+
+        // Act
+        let result = current_file_view(&context);
+
+        // Assert
+        let expected = serde_json::json!({ "path": null });
+        assert_eq!(result, Ok(expected));
+    }
+
+    #[test]
+    fn get_current_file_omits_a_selection_made_in_another_file() {
+        // Arrange
+        let mut context = context();
+        context.selected_file_path = Some("src/api.rs".into());
+        context.review = Some(review_snapshot());
+
+        // Act
+        let result = current_file_view(&context).expect("current file view");
+
+        // Assert
+        let expected = serde_json::Value::Null;
+        assert_eq!(result["selection"], expected);
+    }
+
+    #[test]
+    fn list_pr_files_keeps_the_reviewers_queue_order() {
+        // Arrange
+        let mut context = context();
+        context.review = Some(review_snapshot());
+
+        // Act
+        let result = pr_files_view(&context).expect("pr files view");
+
+        // Assert
+        let expected = serde_json::json!({
+            "queueMode": "ranked",
+            "files": [
+                { "path": "src/cache.rs", "status": "modified", "reviewed": true, "suggestedNext": false },
+                { "path": "src/api.rs", "status": "added", "reviewed": false, "suggestedNext": true },
+            ],
+        });
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn get_review_drafts_returns_pending_drafts_only() {
+        // Arrange
+        let mut context = context();
+        context.review = Some(review_snapshot());
+
+        // Act
+        let result = review_drafts_view(&context);
+
+        // Assert
+        let expected = serde_json::json!({
+            "drafts": [
+                { "path": "src/cache.rs", "side": "RIGHT", "startLine": 12, "endLine": 12, "body": "nit: rename" },
+            ],
+        });
+        assert_eq!(result, Ok(expected));
+    }
+
+    #[test]
+    fn get_review_drafts_passes_the_side_through() {
+        // Arrange
+        let mut review = review_snapshot();
+        review.drafts[0].side = DraftSide::Left;
+        let mut context = context();
+        context.review = Some(review);
+
+        // Act
+        let result = review_drafts_view(&context).expect("review drafts view");
+
+        // Assert
+        let expected = serde_json::json!("LEFT");
+        assert_eq!(result["drafts"][0]["side"], expected);
+    }
+
+    #[test]
+    fn review_draft_side_defaults_to_right_when_missing() {
+        // Arrange
+        let draft_without_side = serde_json::json!({
+            "path": "src/cache.rs",
+            "startLine": 12,
+            "endLine": 12,
+            "body": "nit: rename",
+        });
+
+        // Act
+        let draft = serde_json::from_value::<ReviewDraft>(draft_without_side)
+            .expect("draft without side parses");
+
+        // Assert
+        let expected = DraftSide::Right;
+        assert_eq!(draft.side, expected);
+    }
+
+    #[test]
+    fn context_update_rejects_an_unknown_draft_side() {
+        // Arrange
+        let mut update = serde_json::json!({
+            "sessionId": "side-test",
+            "context": context(),
+        });
+        let mut review = serde_json::to_value(review_snapshot()).expect("encode review");
+        review["drafts"][0]["side"] = serde_json::json!("MIDDLE");
+        update["context"]["review"] = review;
+
+        // Act
+        let result = serde_json::from_value::<CodexAnswerContextUpdateRequest>(update);
+
+        // Assert
+        assert!(
+            result.is_err(),
+            "an unknown side must reject the whole update before it reaches the store"
+        );
+    }
+
+    #[test]
+    fn context_update_rejects_a_draft_body_over_16_kib() {
+        // Arrange
+        let mut review = review_snapshot();
+        review.drafts[0].body = "x".repeat(MAX_DRAFT_BODY_BYTES + 1);
+
+        // Act
+        let result = validate_review(&review);
+
+        // Assert
+        let expected = Err("review draft bodies must be at most 16 KiB".to_string());
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn review_tools_fail_clearly_before_the_app_shares_review_state() {
+        // Arrange
+        let context = context();
+
+        // Act
+        let results = [
+            current_file_view(&context),
+            pr_files_view(&context),
+            review_drafts_view(&context),
+        ];
+
+        // Assert
+        let expected = Err("the app has not shared its review state yet".to_string());
+        for result in results {
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[test]
+    fn context_update_rejects_a_selection_that_ends_before_it_starts() {
+        // Arrange
+        let sessions = CodexAnswerSessions::default();
+        let session_id = "selection-test";
+        let mut previous_context = context();
+        previous_context.review = Some(review_snapshot());
+        insert_active_session(&sessions, session_id, previous_context);
+        let mut backwards_review = review_snapshot();
+        backwards_review.selection = Some(ReviewSelection {
+            path: "src/cache.rs".into(),
+            lines: LineRange {
+                start_line: 14,
+                end_line: 10,
+            },
+        });
+        let mut next_context = context();
+        next_context.review = Some(backwards_review);
+
+        // Act
+        let result = sessions.update_context(CodexAnswerContextUpdateRequest {
+            session_id: session_id.into(),
+            context: next_context,
+        });
+        let kept_context = sessions
+            .active_context(session_id)
+            .expect("session stays active");
+
+        // Assert
+        let expected =
+            Err("review selection lines must start at 1 and not end before they start".to_string());
+        assert_eq!(result, expected);
+        assert_eq!(
+            current_file_view(&kept_context).expect("previous snapshot")["selection"],
+            serde_json::json!({ "startLine": 10, "endLine": 14 }),
+            "a rejected update must keep the previous snapshot"
+        );
+    }
+
+    #[test]
+    fn live_socket_routes_review_tools_to_the_stored_snapshot() {
+        // Arrange
+        let app = tauri::test::mock_app();
+        let sessions = CodexAnswerSessions::default();
+        let session_id = "review-socket-test";
+        let mut session_context = context();
+        session_context.review = Some(review_snapshot());
+        let (socket_path, token) = sessions
+            .start(app.handle().clone(), session_id, session_context)
+            .expect("start answer socket");
+        let current_file_request = serde_json::json!({
+            "token": token,
+            "operation": "get_current_file",
+            "payload": {}
+        });
+
+        // Act
+        let response = socket_request(&socket_path, current_file_request);
+        sessions.revoke(session_id);
+
+        // Assert
+        let expected = serde_json::json!({
+            "ok": true,
+            "result": {
+                "path": "src/cache.rs",
+                "status": "modified",
+                "reviewed": true,
+                "selection": { "startLine": 10, "endLine": 14 },
+            },
+            "error": null,
+        });
+        assert_eq!(response, expected);
     }
 
     #[test]

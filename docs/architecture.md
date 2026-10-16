@@ -628,6 +628,15 @@ Edge cases stated up front: a symbol with multiple definitions in the PR (overlo
 
 Two controllable-core toggles live in the diff-pane header (`DiffViewSettings`, both default off, persisted through the app storage and applied across every file). **Wrap** switches code lines from `pre` (horizontal scroll) to `pre-wrap`; continuation lines stay inside the content column, which the flex layout already places to the right of the line-number gutter, so a wrapped line never slides under the gutter. **Hide whitespace-only changes** is a pure view transform over the `parseUnifiedDiff` output: within each hunk it pairs the del-block and add-block positionally (1st del with 1st add, …) and, when a pair is equal after whitespace normalization — every run of spaces/tabs collapsed to one space and both ends trimmed, with no special-casing of whitespace inside strings or comments — collapses it to a single context-style line showing the head content, carrying both the base and head line numbers and tagged `wsOnly` for a subtle "hidden" marker. It never renumbers and unpaired remainders stay as-is, so head-line symbol anchors keep resolving.
 
+### File history
+
+The "Changes from commits" picker narrows the diff to a commit range, and only the diff: graph, ranking and queue stay whole-PR.
+The **File history** toggle beside it lists the PR commits that touched the open file, newest-first.
+Picking one shows only that commit's change to the file, as a single-commit range.
+The range chip then reads "change k of n" with **older** / **newer** buttons, also on `⌥,` / `⌥.`.
+A history range belongs to its file, so opening another file clears it. A picker range stays.
+A file renamed inside the PR lists only the commits under its current name.
+
 ---
 
 ## 11. Review-submit flow (checkmarks → real GitHub)
