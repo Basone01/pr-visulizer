@@ -141,9 +141,34 @@ const REVIEW_COMPONENT_GROUPS: ComponentGroup[] = [
   { name: "Buttons", components: ["Buttons", "Button"] },
 ]
 
+// Every block's root statement is `root = Stack(…)`.
+export const REVIEW_ROOT_COMPONENT = "Stack"
+
+// Parts that only mean something inside their parent (a node in a Diagram, a Series in a
+// BarChart). A root made up for a block that has none never lists them on their own.
+const SUB_PART_COMPONENTS = new Set([
+  "Col",
+  "Series",
+  "TabItem",
+  "AccordionItem",
+  "StepsItem",
+  "Tag",
+  "ListItem",
+  "DiagramNode",
+  "DiagramEdge",
+  "DiagramGroup",
+  "SequenceParticipant",
+  "SequenceMessage",
+])
+
+// A name the library does not define still counts, so the renderer names it in the block's note.
+export function canDrawOnItsOwn(component: string): boolean {
+  return !SUB_PART_COMPONENTS.has(component)
+}
+
 // Typed as Library on purpose: the inferred type names a pnpm-internal path (TS2742).
 export const reviewLibrary: Library = createLibrary({
-  root: "Stack",
+  root: REVIEW_ROOT_COMPONENT,
   components: Object.values(extendedLibrary.components),
   componentGroups: REVIEW_COMPONENT_GROUPS,
 })
@@ -154,6 +179,7 @@ const REVIEW_PREAMBLE = [
   "Add an openui-lang fenced block only when a diagram, a table, a chart, a steps list or a grouped file list makes the answer clearer.",
   "Never put the whole answer in a block: explain in prose, and use a block only for the part that is structured.",
   "The fence tag must be exactly `openui-lang` (three backticks, then openui-lang). Any other tag is shown as plain code.",
+  "Every block is a separate, complete program: it starts with its own root = Stack(...) and defines every name it uses. Names are never shared between blocks. Two diagrams are one block whose root lists both, or two blocks that each have their own root.",
 ].join("\n")
 
 const REVIEW_EXAMPLE = [
@@ -165,12 +191,8 @@ const REVIEW_EXAMPLE = [
   'ref = FileRef("src/auth.ts", 42, "Open the refresh handler")',
 ].join("\n")
 
-// The stock Inline Mode text (fixed, no option changes it) assumes one persistent dashboard:
-// "questions get text only" and "output ONLY the changed statements". Neither holds here,
-// and rules print last, so the second rule overrides it explicitly.
 const REVIEW_RULES = [
   "In prose-like parts of a block (cards, lists, callouts), point at a file with FileRef so the reviewer can open it. A Table cell and a DiagramNode path take the plain repo-relative path string.",
-  "These rules override the Inline Mode section: there is no persistent dashboard. Each openui-lang block is rendered on its own, so always write a complete program with its own root = Stack(...), never only the changed statements. A question may still get a block when a diagram, table, chart, steps list or grouped file list makes the answer clearer.",
   "For what a PR changes, a summary or an overview, lead with ONE Diagram of the parts of the system the PR touches, then explain in prose. Nodes are components (modules, services, stores, screens, jobs), not functions, not one node per file, never tests. Node change: added = new in this PR, removed = deleted by it, changed = this PR edits its own code. A neighbour that only receives new data or a new call stays unchanged. Edge change: added = this PR makes the source call or depend on the target where it did not before, even if the target already existed. removed = this PR deletes that call. changed = this PR edits the call site itself (different arguments or data there). An untouched call that only carries a payload with more fields stays unchanged. Give each changed node a note. Set path only to a file in this PR's diff (git diff --stat), on every node whose code is in one, never to any other file, even one in the repository. Keep an untouched neighbour only if needed to read the change. At most 8 nodes and 10 edges (more is two diagrams), edge labels at most 14 characters.",
   "A request or job that moves through steps over time is a SequenceDiagram (at most 5 participants, 12 messages). If a 3-column table says the same thing, use a Table. Never draw a diagram that only restates the file list.",
   // The stock Action text says buttons "send" and that @ToAssistant context is "hidden data".
@@ -188,9 +210,25 @@ const DIAGRAM_EXAMPLE = [
   'e2 = DiagramEdge("api", "mail", "send", "removed")',
 ].join("\n")
 
+// An example as a whole reply: a line of prose, then the program in its fence. The prompt prints
+// examples as they are, and a bare program invited a reply with no fence.
+function asReply(prose: string, program: string): string {
+  return [prose, "```openui-lang", program, "```"].join("\n")
+}
+
+// Inline mode is off: its stock section assumes one persistent dashboard ("output ONLY the
+// changed/new statements", "a question gets text only"), which made a model split one program
+// across two fences. Off, lang-core 1.1.0 prints no section about it at all, and the preamble
+// above says how blocks work here.
 export const reviewPromptOptions: PromptOptions = {
-  inlineMode: true,
+  inlineMode: false,
   preamble: REVIEW_PREAMBLE,
-  examples: [REVIEW_EXAMPLE, DIAGRAM_EXAMPLE],
+  examples: [
+    asReply(
+      "Two findings, both in src/auth.ts. The refresh guard is the one to fix:",
+      REVIEW_EXAMPLE
+    ),
+    asReply("Order dispatch moves from a direct send to a queue:", DIAGRAM_EXAMPLE),
+  ],
   additionalRules: REVIEW_RULES,
 }

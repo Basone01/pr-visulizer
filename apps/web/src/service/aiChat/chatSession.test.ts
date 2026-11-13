@@ -9,6 +9,7 @@ type Listener = (event: { payload: unknown }) => void
 const tauri = vi.hoisted(() => ({
   listeners: new Map<string, Listener>(),
   invoke: vi.fn(),
+  Channel: class {},
 }))
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -17,7 +18,7 @@ vi.mock("@tauri-apps/api/event", () => ({
     return Promise.resolve(() => tauri.listeners.delete(eventName))
   },
 }))
-vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }))
+vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke, Channel: tauri.Channel }))
 
 const START: AiChatStart = {
   sessionId: "chat-1",

@@ -1,7 +1,10 @@
 import type { ChatEvent, RenderedAnswer, TurnOutcome } from "./chatEvent"
+import { type ToolApproval, isPendingApproval } from "./toolApproval"
 
 // stopped: the turn or the process ended before the tool reported a result.
-export type ToolActivityStatus = "running" | "done" | "failed" | "denied" | "stopped"
+// interrupted: the call never ran because the reviewer interrupted the turn, it was not denied.
+export type ToolActivityStatus =
+  "running" | "done" | "failed" | "denied" | "stopped" | "interrupted"
 
 export type ChatEntry =
   | { kind: "user_message"; id: number; text: string }
@@ -18,6 +21,8 @@ export type ChatEntry =
   | { kind: "notice"; id: number; tone: "info" | "warning"; text: string }
   // Appended when the answer arrives, which is while its tool row is still running.
   | { kind: "answer"; id: number; answer: RenderedAnswer }
+  // Placed where the request arrived. Its state only ever comes from the app's events.
+  | { kind: "tool_approval"; id: number; approval: ToolApproval }
 
 export type ChatTranscript = {
   entries: ReadonlyArray<ChatEntry>
@@ -36,6 +41,8 @@ type ToolActivityEntry = Extract<ChatEntry, { kind: "tool_activity" }>
 export const EMPTY_CHAT_TRANSCRIPT: ChatTranscript = { entries: [], turn: "idle", nextEntryId: 1 }
 
 export const PR_CONTEXT_SENT_NOTICE = "PR context sent"
+export const APPROVALS_UNAVAILABLE_NOTICE =
+  "This chat cannot show approval requests, commands that need approval will be denied."
 
 const TURN_END_NOTICES: Record<TurnOutcome, string | null> = {
   completed: null,
@@ -67,14 +74,48 @@ function applyChatEvent(transcript: ChatTranscript, event: ChatEvent): ChatTrans
         tool.status === "running" ? { ...tool, status: event.outcome } : tool
       )
     case "tool_denied":
-      return denyToolActivity(transcript, event.toolCallId, event.toolName)
+      return denyToolActivity(transcript, event.toolCallId, event.toolName, event.announce)
+    case "tool_approval_changed":
+      return applyToolApproval(transcript, event.approval)
     case "turn_ended":
       return endTurn(transcript, event.outcome, event.message)
     case "answer_rendered":
       return appendEntry(transcript, { kind: "answer", answer: event.answer })
+    case "model_change_answered":
+    case "model_reported":
+      // Only the session knows which request it made, it turns the reply into one of the two below.
+      return transcript
+    case "approvals_unavailable":
+      return appendEntry(transcript, {
+        kind: "notice",
+        tone: "warning",
+        text: APPROVALS_UNAVAILABLE_NOTICE,
+      })
+    case "model_changed":
+      return appendEntry(transcript, {
+        kind: "notice",
+        tone: "info",
+        text: `Model changed to ${event.modelName}. It answers from the next message.`,
+      })
+    case "model_change_refused":
+      return appendEntry(transcript, {
+        kind: "notice",
+        tone: "warning",
+        text: modelChangeRefusedText(event),
+      })
     case "session_ended":
       return stopRunningTools({ ...transcript, turn: "idle" })
   }
+}
+
+function modelChangeRefusedText(
+  refusal: Extract<ChatEvent, { kind: "model_change_refused" }>
+): string {
+  const stillOn = refusal.previousModelName ?? "the previous model"
+  const refused = `Couldn't switch to ${refusal.modelName} (${refusal.reason}). The chat is still on ${stillOn}.`
+  return refusal.staysSelected
+    ? `${refused} ${refusal.modelName} stays selected for the next Start.`
+    : refused
 }
 
 function startTurn(transcript: ChatTranscript): ChatTranscript {
@@ -167,18 +208,38 @@ function startToolActivity(
 function denyToolActivity(
   transcript: ChatTranscript,
   toolCallId: string,
-  toolName: string
+  toolName: string,
+  announce: boolean
 ): ChatTranscript {
-  const deniedTranscript = updateToolActivity(transcript, toolCallId, (tool) => ({
-    ...tool,
-    status: "denied",
-  }))
+  // An interrupted turn lists the call it cut off as a denial too, but nobody denied it.
+  const deniedTranscript = updateToolActivity(transcript, toolCallId, (tool) =>
+    tool.status === "interrupted" ? tool : { ...tool, status: "denied" }
+  )
+  if (!announce) return deniedTranscript
 
   return appendEntry(deniedTranscript, {
     kind: "notice",
     tone: "warning",
-    text: `${toolName} needed approval, and this chat cannot approve actions yet.`,
+    text: `${toolName} was denied without asking you.`,
   })
+}
+
+// The first event for a request adds its entry, whatever its state (an app denial has no
+// pending before it). A pending entry then takes exactly one end state, and nothing after it.
+function applyToolApproval(transcript: ChatTranscript, approval: ToolApproval): ChatTranscript {
+  const index = transcript.entries.findIndex(
+    (entry) => entry.kind === "tool_approval" && entry.approval.requestId === approval.requestId
+  )
+  const existing = transcript.entries[index]
+  if (existing?.kind !== "tool_approval") {
+    return appendEntry(transcript, { kind: "tool_approval", approval })
+  }
+
+  const canChange = isPendingApproval(existing.approval) && !isPendingApproval(approval)
+  if (!canChange) return transcript
+
+  const entries = transcript.entries.with(index, { ...existing, approval })
+  return { ...transcript, entries }
 }
 
 function updateToolActivity(

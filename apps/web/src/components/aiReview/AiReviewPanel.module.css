@@ -403,48 +403,6 @@
   height: 100%;
 }
 
-.surfaceSwitch {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.surfaceLegend {
-  float: left;
-  margin-right: 6px;
-  padding: 0;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.surfaceOption {
-  display: inline-flex;
-  min-height: 28px;
-  gap: 4px;
-  align-items: center;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  background: var(--panel);
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.surfaceOption:has(input:checked) {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.surfaceOption:has(input:focus-visible) {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
 .checkbox {
   display: flex;
   gap: 7px;

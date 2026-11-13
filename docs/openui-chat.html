@@ -148,33 +148,39 @@
   <body>
     <main>
       <h1>Chat surface for Claude (OpenUI)</h1>
-      <p>The desktop AI panel has a second surface beside the <a href="codex-terminal.html">embedded terminal</a>: a chat. The chat drives Claude Code headless and shows replies as markdown prose plus rich blocks written in <a href="https://github.com/thesysdev/openui">OpenUI Lang</a>. It is an experiment kept next to the terminal, not a replacement for it.</p>
+      <p>In the desktop AI panel, Claude runs in a chat, and Codex runs in the <a href="codex-terminal.html">embedded terminal</a>. The chat drives Claude Code headless and shows replies as markdown prose plus rich blocks written in <a href="https://github.com/thesysdev/openui">OpenUI Lang</a>. The chat was first added beside the terminal behind a Terminal | Chat switch (0.7.7). That switch is gone, and Claude is chat only (see "Claude is chat only").</p>
       <h2>What it is</h2>
-      <p>The panel has a Terminal | Chat switch. It defaults to Terminal. Chat is offered only when the provider is Claude. Codex has no chat and always shows the terminal.</p>
+      <p>The surface is a fact of the provider: Claude shows the chat, and Codex shows the terminal. There is no switch and no saved surface choice.</p>
       <p>The chat runs one long-lived <code>claude -p</code> process per session in the linked local repository. The process talks stream-json on stdin and stdout. A native Rust module pipes the lines between the process and the webview. The webview turns each line into transcript entries. An assistant reply is markdown prose, and it may contain fenced blocks tagged <code>openui-lang</code>. OpenUI's <code>Renderer</code> draws those blocks with a small code-review component library.</p>
       <p>What stays unchanged:</p>
       <ul>
-      <li>The terminal, its PTY path and xterm are not touched. It is still the default surface.</li>
+      <li>The terminal, its PTY path and xterm are not touched. Codex still uses it.</li>
       <li>The graph, diff viewer, review queue and GitHub submission flow are unchanged.</li>
-      <li>The per-launch app MCP server (<code>pr_visualizer</code>) works as before, and the chat reuses the same session registry, keyed by the session ID. The terminal still pops its answer out in a window, as in the <a href="agent-answer-protocol.html">agent answer protocol</a>. In the chat, an answer shows inline (see below).</li>
+      <li>The per-launch app MCP server (<code>pr_visualizer</code>) works as before, and the chat reuses the same session registry, keyed by the session ID. The Codex terminal still pops its answer out in a window, as in the <a href="agent-answer-protocol.html">agent answer protocol</a>. In the chat, an answer shows inline (see below).</li>
       <li>The older prompt-only chat panel and its broker are not used by this surface.</li>
       </ul>
       <p>The chat needs the desktop app, because the hosted web app cannot start local processes. In a browser the chat shows "The Claude chat is available in the desktop app."</p>
       <h2>Interface</h2>
       <ol>
-      <li>Provider, Model, Custom model ID, Surface and Custom shortcuts sit in one settings row, a native disclosure. Its summary names the current choice, for example "Claude · Haiku · Chat" (<code>describePanelSettings</code>). It is open until a provider is chosen and closed once one is saved. The open state is not persisted, and toggling it never restarts a session. The session surface keeps a 150 px minimum height, and open settings scroll inside themselves.</li>
-      <li>The Surface switch shows Terminal and Chat as two radio options. It appears only when the provider has more than one surface.</li>
-      <li>The choice is saved app-wide as <code>panelSurface</code> and defaults to <code>terminal</code>, so settings saved before the chat existed load unchanged. If Chat is saved and the reviewer picks Codex, the terminal shows and the saved choice is kept for when Claude is picked again.</li>
-      <li>Switching to Chat shows a Start button and starts nothing. The same Start gate as the terminal applies.</li>
-      <li>Switching surface ends the session of the surface that is left. Nothing relaunches on its own.</li>
+      <li>Provider, Model, Custom model ID and Custom shortcuts sit in one settings row, a native disclosure. Its summary names the current choice, for example "Claude · Haiku" (<code>describePanelSettings</code>). It is open until a provider is chosen and closed once one is saved. The open state is not persisted, and toggling it never restarts a session. The session surface keeps a 150 px minimum height, and open settings scroll inside themselves.</li>
+      <li>The provider decides the surface (<code>panelSurfaceFor</code>): Claude shows the chat, and Codex shows the terminal. There is no Surface control.</li>
+      <li>Choosing the Claude chat shows a Start button and starts nothing. The same Start gate as the terminal applies.</li>
+      <li>A provider change ends the running session, in both directions (Claude to Codex and Codex to Claude), and nothing relaunches on its own.</li>
       </ol>
+      <h3>Claude is chat only</h3>
+      <p>The user chose to remove the Terminal | Chat switch (2026-11-13), so Claude always opens in the chat and Codex keeps its terminal.</p>
+      <ul>
+      <li>Settings saved by 0.7.7 still load. They hold a <code>panelSurface</code> key, and the settings schema drops unknown keys, so the key is gone after the next save.</li>
+      <li>The Claude launch path inside the terminal backend (<code>codex_terminal.rs</code>) is now unreachable from the UI. It was left in place. Deleting it is a decision for the owner (see "Open decisions for the owner").</li>
+      <li>The Claude terminal flags described in the <a href="codex-terminal.html">terminal doc</a> are therefore history for the UI, and the doc has not been updated for this.</li>
+      </ul>
       <p>After Start, the app does this:</p>
       <ol>
       <li>It loads the review UI prompt and passes it to the CLI as <code>--append-system-prompt</code>.</li>
       <li>It starts the session and pushes the PR context to the native side.</li>
       <li>It sends the PR briefing as the first user turn. The transcript shows only the notice "PR context sent".</li>
       </ol>
-      <p>The briefing differs a little from the terminal one. It asks for Markdown answers and for every file location as a Markdown link such as <code>[src/app.ts:42](src/app.ts#L42)</code>. It tells the agent to try <code>sem diff</code> and fall back to <code>git diff</code>, because a <code>command -v sem</code> probe would need approval and show a denial.</p>
+      <p>The briefing differs a little from the terminal one. It asks for Markdown answers and for every file location as a Markdown link such as <code>[src/app.ts:42](src/app.ts#L42)</code>. It tells the agent to try <code>sem diff</code> and run <code>git diff</code> as a separate second command if that fails. It also has one line about approvals (see "Approvals in chat").</p>
       <h3>Parts of the chat</h3>
       <div class="table-wrap">
       <table>
@@ -211,11 +217,11 @@
       </tr>
       <tr>
       <td>Tool rows</td>
-      <td>One row per tool call with the tool name, a one-line summary (the command, path or pattern) and a status: Running, Done, Failed, Denied or Stopped. The <code>mcp__&lt;server&gt;__</code> prefix is removed from MCP tool names.</td>
+      <td>One row per tool call with the tool name, a one-line summary (the command, path or pattern) and a status: Running, Done, Failed, Denied, Interrupted or Stopped. The <code>mcp__&lt;server&gt;__</code> prefix is removed from MCP tool names.</td>
       </tr>
       <tr>
-      <td>Denial notice</td>
-      <td>A denied tool shows a Denied row and the notice "<code>&lt;tool&gt;</code> needed approval, and this chat cannot approve actions yet." The turn still ends normally.</td>
+      <td>Approval card</td>
+      <td>A command that needs approval shows as a card with Allow once and Deny. See "Approvals in chat".</td>
       </tr>
       <tr>
       <td>File references</td>
@@ -224,6 +230,10 @@
       <tr>
       <td>Follow-ups</td>
       <td>A follow-up button in a block puts its text in the composer after what is already there. The reviewer decides whether to send.</td>
+      </tr>
+      <tr>
+      <td>Model change</td>
+      <td>Changing the model while a chat runs keeps the chat. See "A model change keeps the chat".</td>
       </tr>
       <tr>
       <td>Inline answer</td>
@@ -259,20 +269,20 @@
       <td>The chat shows the reason (with up to 4 KiB of stderr) or "Claude exited (code)." and offers Restart. Tools still running show Stopped.</td>
       </tr>
       <tr>
-      <td>Provider or model change</td>
-      <td>The chat returns to the Start gate. It never launches a new session.</td>
+      <td>Provider change</td>
+      <td>The running session ends, in both directions, and the chat returns to the Start gate. It never launches a new session.</td>
       </tr>
       <tr>
       <td>PR change (different PR, base or head)</td>
       <td>The old session ends so another PR cannot inherit its context.</td>
       </tr>
       <tr>
-      <td>Leaving the Chat surface</td>
-      <td>The session ends.</td>
+      <td>A model change</td>
+      <td>Does not end the session (see "A model change keeps the chat").</td>
       </tr>
       <tr>
-      <td>App exit or page reload</td>
-      <td>The native side stops every chat process.</td>
+      <td>App exit, page reload or the main window being closed</td>
+      <td>The native side stops every chat process and denies every pending approval.</td>
       </tr>
       </tbody>
       </table>
@@ -286,6 +296,190 @@
       <li>The graph and tray widths are fitted at render time (<code>fitSidePanesToWindow</code>) and are not stored fitted. A wide pane no longer overwrites the saved side widths, and they come back when the room does.</li>
       </ol>
       <p>Measured in the desktop app (run 3, 2026-11-13): the separator had <code>aria-valuemax</code> 1506 at <code>innerWidth</code> 1512. Shift+ArrowLeft stepped the pane 390 to 1430 in 40 px steps. At 1430 the shell was 76 px wide and clipped, hit tests on the handle and on the pane edge returned the right element, and the transcript had 0 px of sideways overflow. After Shift+ArrowRight back to 390, the graph, diff and tray widths were 220, 664 and 220 again, the same as before the drag. The test <code>lets_the_codex_pane_be_dragged_over_the_review_and_keeps_the_saved_side_pane_widths</code> in <code>AppShell.codexSafeProfile.test.tsx</code> guards it. There was no screenshot of this run, because the app window sat behind another window.</p>
+      <h2>Approvals in chat</h2>
+      <p>The user reported repeated "Bash needed approval, and this chat cannot approve actions yet" denials. Claude is chat only now, so the terminal is no longer a fallback for approving. So the chat asks the reviewer. The old notice is gone, and a denied action says who denied it.</p>
+      <h3>Verified CLI facts</h3>
+      <p>These come from a spike capture (item 10 of the wire notes) and from measurements on Claude Code 2.1.323 (2026-11-13).</p>
+      <ul>
+      <li><code>--permission-prompt-tool mcp__&lt;server&gt;__&lt;tool&gt;</code> works with <code>-p</code> stream-json.</li>
+      <li>The CLI calls the tool with <code>{"tool_name":"Bash","input":{…},"tool_use_id":"toolu_…"}</code>.</li>
+      <li>An allow is one text content block holding <code>{"behavior":"allow","updatedInput":&lt;input&gt;}</code>. A deny is <code>{"behavior":"deny","message":"…"}</code>, and the model gets a <code>tool_result</code> with <code>is_error: true</code> and that message.</li>
+      <li>The prompt tool is not in <code>init.tools</code>, so the model cannot call it.</li>
+      <li>The flags are <code>--permission-prompts host --permission-prompt-tool mcp__pr_visualizer__approve</code>. They replace <code>--permission-prompts none</code>. Commands that never needed approval (<code>ls</code>, <code>git status</code>) still run without a prompt.</li>
+      <li>A prompt-tool deny gives an <code>is_error</code> tool result with the app's message and an entry in <code>result.permission_denials</code>, and no <code>system/permission_denied</code> line.</li>
+      <li>One prompt at a time. The second one arrives after the first is answered.</li>
+      <li>An interrupt while a prompt is pending makes the CLI send <code>notifications/cancelled</code> to the MCP server within 16 ms. No command runs, and the next turn works.</li>
+      <li>The CLI has no default timeout for the prompt tool. So the app expires a pending request after 10 minutes, and the chat's MCP server entry gets <code>"timeout": 660000</code> so the user's environment cannot cut it shorter. An idle timeout from the environment aborted a call at about 30 s with no cancel sent, and a per-server timeout wins over it. The order is app expiry 600 s, helper read 630 s, CLI per-server timeout 660 s, so the app answers first.</li>
+      </ul>
+      <h3>The flow</h3>
+      <ol>
+      <li>The CLI calls <code>approve</code> on the app's own MCP server (the <code>--render-mcp</code> child).</li>
+      <li>The child passes the request to the app over the existing session socket.</li>
+      <li>The app sends it to the main window on a Tauri Channel, as a state-change message.</li>
+      <li>The chat shows an approval card in the transcript, in order with the other entries.</li>
+      <li>The reviewer clicks Allow once or Deny, and the web calls <code>ai_chat_answer_approval</code> with <code>{sessionId, requestId, decision}</code>.</li>
+      <li>The app gives the decision back to the child, which answers the CLI. The card stays in the transcript as a record: Allowed, Denied, Cancelled or Expired.</li>
+      </ol>
+      <p>The card's state comes only from the channel messages, never from a click. A message carries <code>{sessionId, requestId, toolName, input, state, deniedBy, reason}</code>. <code>state</code> is <code>pending</code>, <code>allowed</code>, <code>denied</code>, <code>cancelled</code> or <code>expired</code>, and <code>deniedBy</code> is <code>reviewer</code> or <code>app</code> and is set only for a denial. <code>pending</code> comes first, then exactly one end state. An app denial without asking (too large, too many pending) is a single <code>denied</code> message with no <code>pending</code> before it, and the web accepts a request id it first sees in an end state. <code>cancelled</code> means Interrupt, Stop, session exit, a new attach, or the CLI cancelling the call. <code>expired</code> means nobody answered in 10 minutes.</p>
+      <h3>Rulings</h3>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Rule</th>
+      <th>Ruling</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>R1</td>
+      <td>Fail closed. A malformed decision, unknown request id, wrong session, window gone, timeout, Stop, Interrupt, app quit or socket error all end as a deny. Nothing allows by default.</td>
+      </tr>
+      <tr>
+      <td>R2</td>
+      <td>A decision binds to the session id, the session generation and the request id. A decision for an old generation or an answered request is ignored, and the first answer wins.</td>
+      </tr>
+      <tr>
+      <td>R3</td>
+      <td>The <code>updatedInput</code> in an allow is the input the app stored when the request arrived. The webview sends only the decision, never the command.</td>
+      </tr>
+      <tr>
+      <td>R4</td>
+      <td>The card shows exactly what will run (see "The card").</td>
+      </tr>
+      <tr>
+      <td>R5</td>
+      <td>No "always allow" in this version.</td>
+      </tr>
+      <tr>
+      <td>R6</td>
+      <td>The card never takes focus. Allow is never the default action. Enter in the composer never answers a card. The card is announced politely (<code>aria-live="polite"</code>), and its buttons are reachable by Tab.</td>
+      </tr>
+      <tr>
+      <td>R7</td>
+      <td>An input over 64 KB is denied by the app without asking ("too large to show"). At most 8 requests are pending per session, and further ones are denied.</td>
+      </tr>
+      <tr>
+      <td>R8</td>
+      <td>Interrupt and Stop deny every pending request of that session. A page reload denies them too ("the review window reloaded before this was answered"). Pending requests are not re-delivered on attach. Amended in review round 4: the trigger for "the window is gone" is the main window being destroyed.</td>
+      </tr>
+      <tr>
+      <td>R9</td>
+      <td>A denied action says who denied it: the reviewer, or the app with the reason.</td>
+      </tr>
+      <tr>
+      <td>R10</td>
+      <td>The launch posture is otherwise unchanged: <code>--setting-sources ""</code>, <code>--tools Bash,Read,Grep,Glob</code>, <code>--strict-mcp-config</code>, manual mode. Commands the CLI already runs without asking still run. No allow rules were added.</td>
+      </tr>
+      <tr>
+      <td>R11</td>
+      <td>Approvals travel on a Channel and not on an event (see below).</td>
+      </tr>
+      <tr>
+      <td>R12</td>
+      <td><code>ai_chat_answer_approval</code> and <code>ai_chat_watch_approvals</code> are refused unless the call comes from the main window. It is checked in the command itself, and a test proves a call from another window label is refused.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>R5 has a reason: remembering needs command-prefix matching, and hand-rolled matching of shell text is where approvals get bypassed. So there is no always-allow in this version.</p>
+      <h3>Why a Channel and not an event</h3>
+      <p>R11 first said to emit the approval to the main window only. The Rust engineer read the Tauri source and found that this does not work: <code>emit_to("main", …)</code> still reaches any webview whose script calls plain <code>listen(name)</code>, because a listener with target <code>Any</code> matches every emit (Tauri 2.11.5 <code>event/listener.rs:269-311</code>, and <code>@tauri-apps/api</code> 2.11.1 <code>event.js:71-75</code>). The answer window renders agent-written HTML, so it must not see request ids. So the <code>ai-chat://approval</code> event was removed, and nothing is emitted for approvals. The web calls <code>ai_chat_watch_approvals</code> with a <code>Channel</code>, from the main window only, right after start gives the session id and before the first user turn is sent. There is one channel per session, and a new watch for the same session replaces the old one and cancels what was pending. A request that arrives while no channel is registered is denied by the app. The channel is dropped when the session is cleaned up. A failed <code>watch</code> adds the notice that approvals are unavailable, and the chat still sends.</p>
+      <p>A review finding showed that a Tauri Channel send never fails, so "a failed send means the window is gone" could never fire. The trigger is now the main window being destroyed (<code>WindowEvent::Destroyed</code> for "main" in <code>lib.rs</code>). It cancels every pending approval and stops the chat sessions, as the page-load reload does.</p>
+      <h3>The card</h3>
+      <p>The card shows exactly what will run, and nothing is out of sight without a sign.</p>
+      <ul>
+      <li>The title says which agent asks to run which tool.</li>
+      <li>For Bash, the whole command is shown and never cut. A long command scrolls inside the card, and the box can be focused so it scrolls without a mouse.</li>
+      <li>Every field the allow forwards is shown. For Bash, keys other than <code>command</code> and <code>description</code> appear as pretty-printed JSON under the command with the label "Other options". A tool other than Bash shows its name and its input as pretty-printed JSON.</li>
+      <li>The model's <code>description</code> is shown smaller, under the command, labelled "Agent's note", and never in its place.</li>
+      <li>A run of 3 or more blank or whitespace-only lines is drawn as one muted marker line such as "[38 blank lines]". The marker is the app's own text, so it cannot be selected with the command.</li>
+      <li>When the command has more than one line, the card states the line count.</li>
+      <li>When the command is taller than its box, a line says how many lines there are and to scroll. "Allow once" stays disabled until the box has been scrolled to its end. "Deny" is always enabled.</li>
+      <li>Hidden characters are shown as <code>\u{XXXX}</code> escapes with a one-line warning, never stripped silently. The escaped classes are controls (except newline and tab), format characters, line and paragraph separators, private-use code points, lone surrogates, every space other than U+0020, variation selectors, U+034F and the blank fillers U+115F, U+1160, U+3164 and U+FFA0. Ordinary combining marks are not escaped, so Thai vowels and tone marks stay readable.</li>
+      <li>An input too large to show reads "The input was too large to show, so the app denied it."</li>
+      <li>After the end state the buttons go away, and the card reads "Allowed", "Denied by you", "Denied by the app: &lt;reason&gt;", "Cancelled" or "Expired".</li>
+      </ul>
+      <h3>What a denial looks like</h3>
+      <p>A command the reviewer or the app denies ends as a card with the outcome above, and the tool row reads Denied. A command denied by a rule of the CLI itself (a <code>system/permission_denied</code> line) still gives one notice. The first-turn prompt has one line about this: "Some shell commands need the reviewer's approval: the reviewer is asked and may deny it. A denial applies to that one command only, so carry on with a simpler read-only command such as git diff, git diff --stat, git show or git grep."</p>
+      <h2>A model change keeps the chat</h2>
+      <p>The user said: "i don't want chat to be restart on switch model". So changing the model while a Claude chat exists keeps the transcript and the conversation. The next message runs on the new model, with no Start press. A provider change still ends the session.</p>
+      <h3>What was measured</h3>
+      <p>A stdin <code>control_request</code> with <code>subtype: "set_model"</code> switches a running <code>claude -p</code> stream-json session (Claude Code 2.1.323, 2026-11-13):</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Case</th>
+      <th>Result</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>A known model</td>
+      <td>A success response carries the resolved model. The next turn runs on it.</td>
+      </tr>
+      <tr>
+      <td>Memory</td>
+      <td>The conversation survives the switch.</td>
+      </tr>
+      <tr>
+      <td>Mid-turn</td>
+      <td>The request is accepted and applies from the next turn.</td>
+      </tr>
+      <tr>
+      <td>An unknown alias</td>
+      <td>An error response with <code>error_code: "not_found"</code>.</td>
+      </tr>
+      <tr>
+      <td><code>"default"</code></td>
+      <td>Resolves to the CLI's default model.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>The real-CLI test switched <code>haiku</code> to <code>sonnet</code> and saw <code>sonnet</code> in the next <code>init.model</code>.</p>
+      <h3>The command and the notices</h3>
+      <p>The command is <code>ai_chat_set_model { request: { sessionId, requestId, model } }</code>, and it returns <code>Result&lt;(), String&gt;</code>. The web makes the <code>requestId</code> (a UUID) and registers it before invoking, because the CLI's reply can arrive before the invoke settles. Rust checks that the id is UUID-shaped and uses it verbatim, checks the model like at start (1 to 128 bytes, no NUL), and builds the line with <code>serde_json</code>.</p>
+      <p>The notices come only from the CLI's answer:</p>
+      <ul>
+      <li>"Model changed to &lt;name&gt;. It answers from the next message."</li>
+      <li>"Couldn't switch to &lt;name&gt; (&lt;reason&gt;). The chat is still on &lt;previous&gt;." When the reason is not "not found", it adds that the chosen model stays selected for the next Start.</li>
+      </ul>
+      <p>The model the chat is running comes from the CLI only: the init line, a success response's resolved model, or an error response's <code>model</code>. It never comes from what was last requested. With no session, a model change only changes what the next Start launches.</p>
+      <h3>Review fixes (F8 to F12)</h3>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Finding</th>
+      <th>Fix</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>F8: a refused model stayed selected, and the notice promised it applies after Restart even when the CLI said it does not exist</td>
+      <td>The refusal notice makes no promise. It says X stays selected for the next Start only when the reason is not "not found".</td>
+      </tr>
+      <tr>
+      <td>F9: after a refusal the hook believed the chat ran the refused model</td>
+      <td>The running model comes only from the CLI's answers.</td>
+      </tr>
+      <tr>
+      <td>F10: two quick picks sent four requests and logged notices out of order</td>
+      <td>One pick sends exactly one request, and notices appear in the order of the picks.</td>
+      </tr>
+      <tr>
+      <td>F11: the catch-up request and the first prompt raced, so the first answer could come from the old model</td>
+      <td>A model picked during start is sent before the first user turn, and the command is awaited first.</td>
+      </tr>
+      <tr>
+      <td>F12: a stale header comment in the hook</td>
+      <td>Fixed.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
       <h2>How a reply is rendered</h2>
       <p>The chat does not hand the whole reply to OpenUI. It splits the reply into segments itself, in <code>splitMessageSegments</code>.</p>
       <p>Why: OpenUI's parser drops prose that sits outside fences, and it does not check the fence tag. In the spike an earlier ```python block was merged into the program. So the app finds the blocks and passes only the body of each one to the renderer.</p>
@@ -413,6 +607,146 @@
       <p><code>TextContent</code>, <code>Callout</code>, <code>Steps</code>, <code>StepsItem</code>, <code>ListBlock</code>, <code>ListItem</code> and <code>Button</code> are replaced by safe versions in <code>reviewComponents.tsx</code>. They drop markdown images and route links through the https-only opener. <code>Callout</code> has no auto-dismiss, so a finding does not vanish. A <code>Button</code> or list item that opens a URL shows the target host in its label.</p>
       <p><code>FileRef(path: string, line?: number, label?: string)</code> is a component the stock library does not have. It renders a button that opens the file in the diff viewer. A line that is not a positive integer is treated as no line. The agent is told to use <code>FileRef</code> for every file location inside a block.</p>
       <p>The agent is taught this library by the review UI prompt (see the integration notes). The prompt tells it to write prose by default and to use a block only when a diagram, table, chart, steps list or grouped file list makes the answer clearer. Each block must be a complete program with its own <code>root = Stack(...)</code>.</p>
+      <h3>Rootless and split blocks</h3>
+      <p>The user's feedback (2026-11-13): a chat agent answered with two diagrams, split across two fences, and the second fence showed "This block could not be shown." The app's own probe of the real <code>OpenUiBlock</code> (jsdom) measured these cases:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Case</th>
+      <th>What was measured</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>A</td>
+      <td>A root that refers to an undefined name: the rest renders, and the name is dropped silently</td>
+      </tr>
+      <tr>
+      <td>B</td>
+      <td>No root: the fallback shows, with the source (not empty)</td>
+      </tr>
+      <tr>
+      <td>E</td>
+      <td>Empty code: the fallback shows, with an empty source</td>
+      </tr>
+      <tr>
+      <td>F</td>
+      <td>A root only, with nothing defined: a blank block, with no fallback</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>The agent's own theory, snake_case ids, was wrong: underscores were not a cause.</p>
+      <p>The fixes:</p>
+      <ol>
+      <li><strong>A synthesized root.</strong> When a block is closed and has no <code>root</code>, the app adds <code>root = Stack([…])</code> over the statements that no other statement uses. Rules: a sub-part (<code>DiagramNode</code>, <code>Series</code>, <code>Col</code>, <code>TabItem</code> and the like) is never listed on its own, a name appears once, in source order, and a built-in action (<code>@ToAssistant</code> and the like) is never listed. A name for a component the library does not know still counts, so the renderer names it in the block's note ("X is not a known component"). While a block streams, no root only means "not yet".</li>
+      <li><strong>lang-core's own parser.</strong> The statements are read with lang-core 1.1.0 itself (<code>tokenize</code>, <code>split</code>, <code>parseExpression</code>, <code>walkAST</code>), the AST route, not a hand-written scanner. It is a direct pinned dependency of <code>apps/web</code>, and it is imported only in <code>components/openui/</code> (<code>blockStatements.ts</code>), so it stays in the lazy OpenUI chunk. The pure decision code is in <code>entity/openuiBlock/blockProgram.ts</code>.</li>
+      <li><strong>Notes.</strong> An undefined name goes into the block's note line ("X is not defined in this block").</li>
+      <li><strong>A fallback that says why.</strong></li>
+      </ol>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Reason</th>
+      <th>Fallback note</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>empty</td>
+      <td>The block has no code.</td>
+      </tr>
+      <tr>
+      <td>no-root</td>
+      <td>"This block has no root statement and nothing to build one from. Its source:"</td>
+      </tr>
+      <tr>
+      <td>root-failed</td>
+      <td>"This block's root could not be built. Its source:" (a root statement exists, for example a misspelled <code>Stak</code>)</td>
+      </tr>
+      <tr>
+      <td>nothing-drawn</td>
+      <td>"Nothing in this block could be drawn. Its source:"</td>
+      </tr>
+      <tr>
+      <td>failed</td>
+      <td>"This block could not be shown. Its source:"</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <ol>
+      <li><strong>A DOM-based "nothing drawn" check.</strong> <code>useHasVisibleContent</code> looks at what actually shows: text, or a drawn <code>svg</code>, <code>img</code>, <code>canvas</code> or <code>table</code>, followed with a <code>MutationObserver</code> so a layout that finishes later still counts. A root of parts that render nothing falls back, and a root of text draws.</li>
+      </ol>
+      <p>The prompt changed too:</p>
+      <ul>
+      <li>Inline Mode is off (<code>inlineMode: false</code>). Its stock section assumes one persistent dashboard and contradicted the rule that each block is a program of its own. With it off, lang-core 1.1.0 prints no such section ("Inline Mode" occurs 0 times in the prompt).</li>
+      <li>One sentence states the rule: "Every block is a separate, complete program: it starts with its own root = Stack(...) and defines every name it uses. Names are never shared between blocks. Two diagrams are one block whose root lists both, or two blocks that each have their own root."</li>
+      <li>The prompt examples are fenced, and each is preceded by a line of prose, so the prompt shows the reply shape it asks for.</li>
+      <li>The prompt was 12,931 characters after the first change and 13,093 after the examples were fenced. The budget is 14,000.</li>
+      </ul>
+      <p>Real-agent checks (the real Claude CLI with the chat's argv and prompts, PR #1424, empty MCP config, replies rendered through the real <code>OpenUiBlock</code> in jsdom):</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Measure</th>
+      <th>Round 5</th>
+      <th>Round 6</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Prompt</td>
+      <td>12,931 characters, examples bare</td>
+      <td>13,093 characters, examples as a prose line plus a fence</td>
+      </tr>
+      <tr>
+      <td>Runs</td>
+      <td>12 (10 two-diagram, 2 control), <code>haiku</code> and <code>sonnet</code></td>
+      <td>8 (6 two-diagram, 2 control)</td>
+      </tr>
+      <tr>
+      <td>Split a program across blocks</td>
+      <td>0 of 10</td>
+      <td>0 of 6</td>
+      </tr>
+      <tr>
+      <td>Rootless block</td>
+      <td>0 of 10</td>
+      <td>0 of 6</td>
+      </tr>
+      <tr>
+      <td>Every diagram rendered</td>
+      <td>10 of 10 (20 of 20 blocks drew)</td>
+      <td>6 of 6</td>
+      </tr>
+      <tr>
+      <td>Unfenced program text</td>
+      <td>not counted</td>
+      <td>0 of 8</td>
+      </tr>
+      <tr>
+      <td>Example content copied</td>
+      <td>not counted</td>
+      <td>0 of 8</td>
+      </tr>
+      <tr>
+      <td>Fallback or "Part of this block" note</td>
+      <td>none</td>
+      <td>none, at any of 8 sample times from 0 to 950 ms</td>
+      </tr>
+      <tr>
+      <td>Denied commands</td>
+      <td>0</td>
+      <td>2 (one <code>haiku</code> run, which still drew both diagrams)</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>In round 6, one <code>sonnet</code> run put both diagrams in one block with a root listing both, which the prompt allows. The limits: the samples are small, on one PR, with <code>haiku</code> and <code>sonnet</code> only. Zero splits in 10 or 6 runs means the rate is probably low, not zero, and the real report was a single occurrence. There was no baseline run with the old prompt, and rounds 5 and 6 are not an A/B. The app's MCP tools were absent, jsdom with in-process ELK stood in for the app's worker and the WKWebView, and visual quality was not judged.</p>
       <h3>Bar charts with long labels</h3>
       <p>OpenUI 0.18.6 cuts long x-axis labels at the end inside its own chart, and the app found no way to change that. In run 3, 4 of 6 file names ended in "…" at panel widths 320, 390 and 640 px, and the first label was cut hardest. The rule now is that <code>BarChart</code> keeps OpenUI's vertical chart only for names it shows whole. Anything else gets the app's own horizontal bars (<code>components/chart/HorizontalBarChart.tsx</code>), plain HTML and CSS, with the full name on its own line above each row.</p>
       <p>The thresholds come from a measurement in the app's webview at a 240 px block:</p>
@@ -1104,11 +1438,10 @@
       </table>
       </div>
       <h3>Not verified yet (diagrams)</h3>
+      <p>Run 4 saw diagrams in the desktop WKWebView (an overview <code>Diagram</code> and two <code>SequenceDiagram</code> blocks, <code>role="group"</code> with inner buttons, a node click that moved the diff, and 0 fallback samples). What it did not cover:</p>
       <ul>
-      <li>The desktop WKWebView. Diagrams were checked only in Chromium and jsdom so far.</li>
-      <li><code>role="group"</code> with inner buttons in WebKit. It is untested there.</li>
       <li>Label placement for every graph shape.</li>
-      <li>Whether a diagram ever goes into <code>render_answer</code>, because the app's MCP tools were absent from the agent runs.</li>
+      <li>Whether a diagram ever goes into <code>render_answer</code>.</li>
       <li>A real agent on other PRs. The runs covered one PR with small samples.</li>
       </ul>
       <h2>Safety</h2>
@@ -1141,7 +1474,7 @@
       </tr>
       <tr>
       <td><code>--strict-mcp-config</code> and <code>--mcp-config &lt;inline JSON&gt;</code></td>
-      <td>Only the app's own <code>pr_visualizer</code> MCP server, the same inline JSON as the terminal.</td>
+      <td>Only the app's own <code>pr_visualizer</code> MCP server, the same inline JSON as the terminal. For the chat the server entry also has <code>"timeout": 660000</code>, so the user's environment cannot cut an approval wait short.</td>
       </tr>
       <tr>
       <td><code>--allowedTools mcp__pr_visualizer "Bash(sem diff *)"</code></td>
@@ -1156,8 +1489,8 @@
       <td>Prompt on first use. It is explicit because newer CLIs start in <code>auto</code> mode.</td>
       </tr>
       <tr>
-      <td><code>--permission-prompts none</code></td>
-      <td>There is no approval UI in this cut, so anything that needs approval is denied.</td>
+      <td><code>--permission-prompts host</code> and <code>--permission-prompt-tool mcp__pr_visualizer__approve</code></td>
+      <td>The chat asks the reviewer before a command that needs approval (see "Approvals in chat"). They replaced <code>--permission-prompts none</code> from 0.7.7, where anything that needed approval was denied.</td>
       </tr>
       <tr>
       <td><code>--tools Bash,Read,Grep,Glob</code></td>
@@ -1210,8 +1543,9 @@
       <h3>What the agent can and cannot do</h3>
       <ul>
       <li>Read-only <code>git</code> (<code>git diff</code>, <code>git show</code>, <code>git log</code>) and <code>sem diff</code> run.</li>
-      <li>Anything that needs approval is denied. In the live check, <code>touch</code> was denied and the file was not created.</li>
-      <li>The chat shows each denial and cannot approve it. There is no approval UI yet.</li>
+      <li>Anything else that needs approval is shown to the reviewer as a card. Allow once runs it, and Deny, an expiry or a cancel does not run it.</li>
+      <li>The app fails closed: anything unclear ends as a deny.</li>
+      <li>There is no always-allow in this version.</li>
       <li>The agent cannot edit files, because the editing tools are removed.</li>
       <li>The tool allowlist is <code>Bash</code>, <code>Read</code>, <code>Grep</code>, <code>Glob</code>, plus the six app MCP tools of <code>pr_visualizer</code>.</li>
       </ul>
@@ -1249,7 +1583,7 @@
       </tbody>
       </table>
       </div>
-      <p>Shell commands in the chat, observed with the chat's flags on 2026-11-13 (<code>chain-probe/observed.txt</code>, a throwaway repo):</p>
+      <p>Shell commands in the chat, observed with the chat's flags on 2026-11-13 (<code>chain-probe/observed.txt</code>, a throwaway repo), when the chat still passed <code>--permission-prompts none</code>. Before approvals existed, the denied forms were denied outright. They now ask the reviewer instead:</p>
       <div class="table-wrap">
       <table>
       <thead>
@@ -1306,7 +1640,7 @@
       </tbody>
       </table>
       </div>
-      <p>So <code>&amp;&amp;</code>, <code>||</code> and a semicolon between read-only commands were not denied. The denied forms were a subshell, <code>git rev-parse</code> and <code>git diff -U&lt;n&gt;</code>. Two lines in <code>createChatInitialPrompt</code> came from this:</p>
+      <p>So <code>&amp;&amp;</code>, <code>||</code> and a semicolon between read-only commands were not denied. The denied forms were a subshell, <code>git rev-parse</code> and <code>git diff -U&lt;n&gt;</code>. Two lines in <code>createChatInitialPrompt</code> came from this, and the second was later reworded for approvals (see "Approvals in chat"):</p>
       <ul>
       <li>"Prefer sem diff … for a semantic, entity-level view of the change. Only if that command fails, run git diff as a separate second command, never joined to it with ||."</li>
       <li>"Some shell commands are denied in this chat without asking: subshells in parentheses, git rev-parse, and git diff with -U&lt;n&gt;. A denial applies to that one command only, so run a simpler read-only command such as git diff, git diff --stat, git show or git grep, and carry on."</li>
@@ -1385,6 +1719,21 @@
       <td>See stop order below.</td>
       </tr>
       <tr>
+      <td><code>ai_chat_watch_approvals</code></td>
+      <td><code>{sessionId}</code> plus a <code>Channel</code></td>
+      <td>Main window only. One channel per session, and a new watch replaces the old one and cancels what was pending. Each message is <code>{sessionId, requestId, toolName, input, state, deniedBy, reason}</code>.</td>
+      </tr>
+      <tr>
+      <td><code>ai_chat_answer_approval</code></td>
+      <td><code>{sessionId, requestId, decision}</code></td>
+      <td><code>decision</code> is <code>allow</code> or <code>deny</code>. Main window only. <code>Ok</code> means applied, and the state comes from the channel. <code>Err</code> means not applied (unknown, old, answered, wrong session, malformed).</td>
+      </tr>
+      <tr>
+      <td><code>ai_chat_set_model</code></td>
+      <td><code>{sessionId, requestId, model}</code></td>
+      <td>Writes a <code>set_model</code> control request. The web makes the UUID <code>requestId</code>.</td>
+      </tr>
+      <tr>
       <td><code>ai-chat://line</code> (event)</td>
       <td><code>{sessionId, sequence, line}</code></td>
       <td>One stdout line, unparsed.</td>
@@ -1397,7 +1746,7 @@
       </tbody>
       </table>
       </div>
-      <p>The context update reuses <code>codex_terminal_update_context</code> unchanged.</p>
+      <p>The context update reuses <code>codex_terminal_update_context</code> unchanged. The approval code is in <code>ai_chat_approval.rs</code>. The app commands are not gated by Tauri capabilities (see "Known limits and follow-ups"), so the two approval commands check the caller's window themselves.</p>
       <p>An answer session has a presentation, <code>AnswerPresentation</code>, either window or inline (<code>codex_answer.rs</code>). The terminal uses window and the chat uses inline. The <code>--render-mcp</code> helper learns it from the environment variable <code>PR_VISUALIZER_ANSWER_PRESENTATION</code>, which is passed only for inline, so the terminal's helper environment is unchanged. For the chat, the MCP instructions, the <code>render_answer</code> description and its result text say the answer is shown inline and must not be repeated in the reply (<code>app_tool_mcp.rs</code>). In the chat, <code>render_answer</code> is optional, and answering in the reply is the default. An inline answer is stored and announced as an update, and no window opens. Events are emitted app-wide and the web side filters them by <code>sessionId</code>.</p>
       <p>Why Rust builds the stdin lines:</p>
       <ul>
@@ -1499,9 +1848,191 @@
       <li><strong>Prompt size budget.</strong> The prompt is sent with every chat session. <code>reviewUiPrompt.test.ts</code> fails if it reaches 12,000 characters. The final prompt is 10,551 characters (from the test run), under that budget. In the spike, the full stock prompt was 37,073 characters. <code>reviewLibrary.ts</code> builds its own component groups and preamble, because the stock notes and examples still mention removed components such as <code>Form</code>, <code>Modal</code> and <code>LineChart</code>.</li>
       <li><strong>Tests under jsdom.</strong> Table and charts need <code>ResizeObserver</code>, <code>matchMedia</code> and canvas stubs, or OpenUI's element boundary loops. They live in <code>apps/web/src/test/openuiJsdomPolyfills.ts</code>, imported only by the tests that render OpenUI.</li>
       </ul>
+      <h2>Review round 4 (approvals, model change, blocks)</h2>
+      <p>An adversarial review (workflow <code>wf_0f9aa1b1-3af</code>) ran over the approvals, the model change, the surface change and the blocks work. It kept 19 findings (5 medium, 14 low, none high) and refuted 2. All 19 were ruled on and fixed or recorded.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>#</th>
+      <th>Area</th>
+      <th>Severity</th>
+      <th>Finding</th>
+      <th>Status</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>1</td>
+      <td>approvals, native</td>
+      <td>medium</td>
+      <td>"A failed send means the window is gone" can never fire with a Tauri Channel. If the main window closed while the answer window stayed open, the chat kept running and every approval waited the full 10 minutes</td>
+      <td>fixed (the trigger is the main window being destroyed)</td>
+      </tr>
+      <tr>
+      <td>2</td>
+      <td>approvals, native</td>
+      <td>low</td>
+      <td>The approve tool's parameters can make the helper drop the CLI's call without a reply, so no card shows and the expiry never starts</td>
+      <td>recorded (the CLI's own 660 s timeout ends it, not measured directly)</td>
+      </tr>
+      <tr>
+      <td>3</td>
+      <td>approvals, native</td>
+      <td>low</td>
+      <td>The test <code>approval_data_never_goes_out_as_an_app_event</code> could not fail</td>
+      <td>fixed (replaced by a test that can)</td>
+      </tr>
+      <tr>
+      <td>4</td>
+      <td>approvals, native</td>
+      <td>low</td>
+      <td>The Bash card showed only command and description, but the allow forwards every input field</td>
+      <td>fixed (every forwarded field is shown)</td>
+      </tr>
+      <tr>
+      <td>5</td>
+      <td>approvals, web</td>
+      <td>medium</td>
+      <td>Newline padding pushed the dangerous end of a command out of the scroll box with no sign (R4)</td>
+      <td>fixed (blank-line marker, line count, scroll-to-end gate)</td>
+      </tr>
+      <tr>
+      <td>6</td>
+      <td>approvals, web</td>
+      <td>low</td>
+      <td>The hidden-character escape let many invisible or format code points through</td>
+      <td>fixed (the wider class list)</td>
+      </tr>
+      <tr>
+      <td>7</td>
+      <td>approvals, web</td>
+      <td>low</td>
+      <td>The card hid the other Bash input fields that will run</td>
+      <td>fixed (same fix as 4)</td>
+      </tr>
+      <tr>
+      <td>8</td>
+      <td>model change</td>
+      <td>medium</td>
+      <td>A refused model stayed selected, and the notice promised it applies after Restart even when the CLI said it does not exist</td>
+      <td>fixed (F8)</td>
+      </tr>
+      <tr>
+      <td>9</td>
+      <td>model change</td>
+      <td>low</td>
+      <td>After a refusal the hook believed the chat ran the refused model</td>
+      <td>fixed (F9)</td>
+      </tr>
+      <tr>
+      <td>10</td>
+      <td>model change</td>
+      <td>low</td>
+      <td>Two quick picks sent four requests and logged notices out of order</td>
+      <td>fixed (F10)</td>
+      </tr>
+      <tr>
+      <td>11</td>
+      <td>model change</td>
+      <td>low</td>
+      <td>The catch-up request and the initial prompt raced, so the first answer could come from the old model</td>
+      <td>fixed (F11)</td>
+      </tr>
+      <tr>
+      <td>12</td>
+      <td>model change</td>
+      <td>low</td>
+      <td>A stale header comment in the hook</td>
+      <td>fixed (F12)</td>
+      </tr>
+      <tr>
+      <td>13</td>
+      <td>blocks and prompt</td>
+      <td>medium</td>
+      <td>A rootless block holding only sub-parts rendered as a blank box, with no fallback and no note</td>
+      <td>fixed (it ends in the fallback with its reason)</td>
+      </tr>
+      <tr>
+      <td>14</td>
+      <td>blocks and prompt</td>
+      <td>medium</td>
+      <td>A fallback never named the undefined name or unknown component, and the "no root" reason could be false</td>
+      <td>fixed (the fallback names what was dropped, and never says "no root" when a root exists)</td>
+      </tr>
+      <tr>
+      <td>15</td>
+      <td>blocks and prompt</td>
+      <td>low</td>
+      <td>The nothing-drawn check failed valid blocks whose root held no child component</td>
+      <td>fixed (a DOM-based check)</td>
+      </tr>
+      <tr>
+      <td>16</td>
+      <td>blocks and prompt</td>
+      <td>low</td>
+      <td>A name defined twice was listed twice in the synthesized root</td>
+      <td>fixed (each name once)</td>
+      </tr>
+      <tr>
+      <td>17</td>
+      <td>blocks and prompt</td>
+      <td>low</td>
+      <td>The hand-written scanner differed from lang-core on multi-line ternaries and object keys</td>
+      <td>fixed (lang-core's own tokenizer and splitter)</td>
+      </tr>
+      <tr>
+      <td>18</td>
+      <td>blocks and prompt</td>
+      <td>low</td>
+      <td>Without Inline Mode, the prompt no longer showed a prose plus fence reply, and its examples were two bare programs</td>
+      <td>fixed (fenced examples, then a small real-agent re-check)</td>
+      </tr>
+      <tr>
+      <td>19</td>
+      <td>blocks and prompt</td>
+      <td>low</td>
+      <td>The fallback half of the split-block test could no longer fail</td>
+      <td>fixed</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Findings 2, 11 and 18 were marked plausible and not confirmed, and the rest were confirmed.</p>
+      <p>The 2 refuted findings:</p>
+      <ul>
+      <li>The web schema accepts approval shapes that the contract forbids, and a <code>pending</code> event with null input would show "the app denied it" next to a live Allow once. Refuted: the app's native layer always builds a pending event with the input, and <code>null</code> appears only on the too-large refusal, which is then <code>denied</code>.</li>
+      <li>A pending card stays answerable-looking forever when the repository is unlinked during a chat. Refuted: the panel shows "Loading" while it reloads, so the surface unmounts first and remounts with an empty transcript.</li>
+      </ul>
+      <p>What the reviewers checked and found sound:</p>
+      <ul>
+      <li><strong>Fail-closed paths.</strong> Every early exit ends as a deny, including malformed payloads, over-long names, no session entry, no watcher, input over 64 KB, more than 8 pending, a poisoned lock, socket errors, a hung-up caller, shutdown, expiry, Interrupt, Stop, attach, a second watch, reload, app quit and a reopened generation. A disconnected receiver is a deny.</li>
+      <li><strong>One verdict.</strong> Every ending goes through one mutex and removes the request from <code>pending</code>, so an answer, an expiry and a cancel are mutually exclusive. A second decision returns <code>Err</code>. Request ids are 128 random bits, and duplicate session ids are refused.</li>
+      <li><strong>R3.</strong> The webview's answer type holds only the ids and the decision, and serde rejects "always". The allow returns the app-stored input.</li>
+      <li><strong>R12 and the Channel.</strong> The window check looks at both the webview label and the window label inside both commands, and both tests would go red without it. The main window has no HTML sinks.</li>
+      <li><strong>Terminal sessions.</strong> A terminal helper is not served the approve tool, and an approve request on a terminal socket is denied.</li>
+      <li><strong>R7.</strong> The caps are checked under the lock before a request is pushed, and the socket read is capped.</li>
+      <li><strong>No deadlock.</strong> The approvals and sessions locks are never nested.</li>
+      <li><strong>R10.</strong> Only <code>none</code> became <code>host</code> plus the prompt tool. The other flags are kept, and no allow rules were added. The 660 s timeout is added only for the chat.</li>
+      <li>**<code>ai_chat_set_model</code>.** The id must be UUID-shaped, the model is validated, the line is built with <code>serde_json</code>, an exiting session gives an error, and it runs as an async command.</li>
+      <li><strong>The card.</strong> State comes only from messages. A second end state and a <code>pending</code> after an end state are ignored. Buttons go away at the end state. A late message from an old session is dropped. The card meets R6: nothing autofocuses, the buttons are not in a form so Enter in the composer cannot answer, and a separate polite live region announces pending cards.</li>
+      <li><strong>R9.</strong> A CLI-rule denial gives one notice, and a <code>result.permission_denials</code> entry gives no duplicate.</li>
+      <li><strong>Model switch.</strong> The request id is registered before the invoke, the pending map is cleared on exit, a plain re-render sends nothing, and a model change after Stop sends nothing.</li>
+      <li><strong>A weak spot, minor.</strong> When the watch fails, denials give the up-front notice and not a reason for each one, which is thin against R9.</li>
+      <li><strong>Tests.</strong> The 5 key card tests would fail if their behavior broke. The exception, <code>a_very_long_command_is_never_cut</code>, could not detect CSS hiding (finding 5).</li>
+      <li><strong>Cargo.</strong> <code>cargo test --lib approv</code> passed 33 of 33. The ignored real-CLI tests were not run by the reviewers.</li>
+      </ul>
       <h2>How it is verified</h2>
       <p>Web tests run with <code>pnpm --filter @pr-visulizer/web test</code>. They assert the promises the chat makes.</p>
-      <p>Results of 2026-11-13, verified by the main session after the diagram work:</p>
+      <p>Results of 2026-11-13, verified by the lead at the end of the day, after the approvals, model change, blocks and surface work and the fixes from run 4:</p>
+      <ul>
+      <li>Web typecheck is clean, and Prettier and <code>cargo fmt</code> are clean.</li>
+      <li>Web tests: 1,048 passed and 2 failed. Both failures are the known pair in <code>src/hooks/useDiffViewSettings.test.ts</code>.</li>
+      <li>Rust tests: 156 passed, 0 failed and 3 ignored (no Rust change since).</li>
+      <li>Both ignored real-CLI tests pass (<code>2 passed, 0 failed</code>), run by the Rust engineer.</li>
+      <li>The review UI prompt is 13,093 of 14,000 characters.</li>
+      </ul>
+      <p>Results of 2026-11-13, verified by the main session after the diagram work and before that:</p>
       <ul>
       <li>Web typecheck is clean.</li>
       <li>Web tests: 936 passed and 2 failed, in 144 files. Both failures are in <code>src/hooks/useDiffViewSettings.test.ts</code> (<code>window.localStorage</code> is undefined under Node 26) and are unrelated to this change.</li>
@@ -1692,28 +2223,199 @@
       </table>
       </div>
       <p>Two other items were reported and not resolved. Pane widths changed by themselves at about 02:13 and all three review panes ended collapsed, and the run could not tell whether that was a user drag or the old stored-fit behaviour, which is fixed now. A hot reload restarts a running chat in development, and it re-sends the PR context.</p>
+      <h3>Run 4 (real app)</h3>
+      <p>Run 4 was done on 2026-11-13 in the desktop WKWebView, on PR wisesight/analytics-suite #1424, with the dev app (<code>target/debug/pr-visualizer</code>) at a window of 1512 x 916 in the dark theme. The chat used <code>haiku</code>, except <code>sonnet</code> for part of check 9, and it was one <code>claude -p</code> process (the same pid) for the whole run. The screen did not lock. Measurements are from the DOM, and there are no screenshots, because the app window sat behind other windows.</p>
+      <p>At the start, the webview showed a stuck "Starting Claude… / Connecting to Claude…" state with no <code>claude</code> child process, most likely left over from hot reloads, and it was reloaded once. The summary row also said "Haiku" while the store said Sonnet. That case was not reproduced outside hot reload.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>#</th>
+      <th>Check</th>
+      <th>Result</th>
+      <th>Key evidence</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>1</td>
+      <td>Settings row</td>
+      <td>pass</td>
+      <td>The summary read "Claude · Sonnet" and then "Claude · Haiku". There was no Surface control and 0 radios. Provider to Codex showed the "Codex terminal / Start" slot with no <code>.xterm</code> and no child process, and back to Claude showed "Claude chat / Start" and started nothing.</td>
+      </tr>
+      <tr>
+      <td>2</td>
+      <td>Overview diagram</td>
+      <td>pass</td>
+      <td>The first reply came in 7.4 s. There was no "cannot approve" text. "show me the overview" ran <code>sem diff -v</code> with no card, then drew one <code>Diagram</code> with 0 fallback samples. The svg was <code>role="group"</code> with a <code>&lt;desc&gt;</code> and a "Changes" ledger, and its nodes were <code>role="button"</code> with <code>tabindex="0"</code> and an <code>aria-label</code>. Clicking the CampaignAction node moved the diff to <code>lib/commonentity/campaign_action.go</code>. At the 540 px pane the svg was 333 px and the transcript overflow was 0.</td>
+      </tr>
+      <tr>
+      <td>3</td>
+      <td>Two diagrams</td>
+      <td>pass</td>
+      <td>The turn took 116 s and 17 tool calls. Two <code>SequenceDiagram</code> blocks were both drawn, with 0 notes and 0 fallback samples. One unrequested approval card appeared (see below).</td>
+      </tr>
+      <tr>
+      <td>4</td>
+      <td>Bar chart</td>
+      <td>pass</td>
+      <td>Horizontal bars with no svg, and full paths as labels. At 390 px each label was one line and 0 were cut. At 240 px the labels wrapped to 2 lines, with 0 cut and 0 overflow.</td>
+      </tr>
+      <tr>
+      <td>5</td>
+      <td>Approval, Deny</td>
+      <td>pass</td>
+      <td>The card showed the whole command and the agent's note. Allow once was 73 x 28 px and Deny 43 x 28 px. Focus stayed in the composer, and the composer took typed text while the card was pending. After Deny the card read "Denied by you", the tool row read Denied, and there were 0 extra notices. The agent said it would not retry, and no file was created.</td>
+      </tr>
+      <tr>
+      <td>6</td>
+      <td>Approval, Allow once</td>
+      <td>pass, needed a second ask</td>
+      <td>The identical ask was refused by the agent with no card. After "I changed my mind", a card appeared. The card stayed <code>pending</code> right after the click and read "Allowed" 3 ms later. The command ran and created the file, which <code>ls -l</code> and <code>git status</code> confirmed, and only that file was removed.</td>
+      </tr>
+      <tr>
+      <td>7</td>
+      <td>Approval, Interrupt</td>
+      <td>pass, one inconsistency</td>
+      <td>The card read "Cancelled: you interrupted the turn" 207 ms after Interrupt, followed by the notice "Interrupted.". The session stayed running. The tool row for the same call read "Denied" while the card read Cancelled (fixed after the run, see below).</td>
+      </tr>
+      <tr>
+      <td>8</td>
+      <td>Approval, Enter</td>
+      <td>pass</td>
+      <td>With a card pending, Enter in the composer was default-prevented, the card stayed <code>pending</code>, and the text stayed in the composer. Clicking Deny then gave "Denied by you", and the agent finished the answer.</td>
+      </tr>
+      <tr>
+      <td>9</td>
+      <td>Model switch</td>
+      <td>pass</td>
+      <td>With 41 entries, choosing Sonnet gave the notice "Model changed to Sonnet. It answers from the next message." after 311 ms. The same section stayed, with 42 entries, no Start button and the header still "Claude chat / Stop". The next answer to "Which model are you?" was "Sonnet." in 1.3 s. Back to Haiku gave its notice after 206 ms. The process id was the same before and after both switches.</td>
+      </tr>
+      <tr>
+      <td>10</td>
+      <td>Regression</td>
+      <td>pass</td>
+      <td><code>render_answer</code> showed an inline entry with no window and two referenced-file buttons. A table with 5 <code>FileRef</code> buttons moved the diff when clicked. A pane sweep 240, 390, 640, 1000 and 240 px had 0 overflow everywhere, and the widest prose was 455 px (about 76 characters) at 640 and 1000 px. The two sequence diagrams (488 and 386 px) scrolled inside their own block at 240 px. The console had 0 errors and 0 warnings, 0 requests went outside localhost, and Stop left no <code>claude -p</code> process.</td>
+      </tr>
+      <tr>
+      <td>11</td>
+      <td>220 px settings row in the stacked layout</td>
+      <td>not run</td>
+      <td><code>window.innerWidth</code> was 1512, above 1100, so the stacked layout was unreachable.</td>
+      </tr>
+      <tr>
+      <td>12</td>
+      <td>Close the main window with the answer window open</td>
+      <td>not run</td>
+      <td>A page may not close a window. The close call of the window plugin was refused ("window.close not allowed", capability <code>core:window:allow-close</code>), so the main window is still open.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Run 4b, a short follow-up the same day:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>#</th>
+      <th>Check</th>
+      <th>Result</th>
+      <th>Key evidence</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>A</td>
+      <td>Interrupt row, and Deny row</td>
+      <td>pass</td>
+      <td>After Interrupt with a card pending, the card read "Cancelled" and the tool row read "Interrupted" (<code>data-status="interrupted"</code>), with the notice "Interrupted.". After Deny, the card read "Denied by you" and the tool row read "Denied".</td>
+      </tr>
+      <tr>
+      <td>B</td>
+      <td>No empty status element, live region</td>
+      <td>pass</td>
+      <td>After Stop, the only direct paragraph under the header was "Stopped.", with <code>role="status"</code>. While running, a hidden polite live region held "Claude asks to run Bash. Allow once or Deny it in the chat." when each of 2 cards appeared, and was cleared between them. It was not rendered after Stop.</td>
+      </tr>
+      <tr>
+      <td>C</td>
+      <td>Stop while starting</td>
+      <td>pass</td>
+      <td>After the Start click, the header read "Starting Claude…" with a Stop button at 8 ms. Stop was pressed at 8 ms, and the header read "Claude chat" with a Start button (idle) at 15 ms. No <code>claude -p</code> process was left at 3 s and 6 s.</td>
+      </tr>
+      <tr>
+      <td>D</td>
+      <td>Close the main window, through accessibility</td>
+      <td>not run</td>
+      <td>The accessibility tool only sees apps that ship its own bridge, and pr-visualizer has none, so it could not find the close button.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <h3>How often approvals are asked</h3>
+      <p>In run 4, 1 unrequested card appeared, against about 25 read-only commands (<code>git show</code>, <code>git grep</code>, <code>git diff</code>, <code>sem diff</code>) that needed none. The command that asked was two <code>git grep</code> commands joined with a semicolon, piped through <code>grep -v</code> and <code>head</code>. In the headless round 6 checks (8 runs), 2 commands were denied, in one <code>haiku</code> run, and the run still drew both diagrams.</p>
+      <h3>Fixes after run 4</h3>
+      <p>Three things came out of the run, and each was fixed:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Seen in run 4</th>
+      <th>Fix</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>After an Interrupt with a card pending, the card read "Cancelled" while the tool row for the same call read "Denied"</td>
+      <td>A call the user interrupted reads "Interrupted" on its tool row, and "Denied" stays for a real deny. The signal is the CLI's <code>tool_result_meta[].non_execution_kind</code>, which is <code>"user-rejected"</code> for an interrupt and <code>"permission-rule"</code> (with a <code>permission_decision</code>) for a deny. It was read from real captures and is covered by two fixtures.</td>
+      </tr>
+      <tr>
+      <td>After Stop, the chat section held an empty status paragraph</td>
+      <td>The hidden live region for approval cards exists only while a chat is starting or running, so a stopped chat has no empty status element.</td>
+      </tr>
+      <tr>
+      <td>A start step that never settled (<code>ai_chat_start</code>, <code>ai_chat_watch_approvals</code>, or the catch-up <code>set_model</code>) was a dead end with no control. A stuck "Starting Claude…" was seen once after hot reloads.</td>
+      <td>Stop is available while the chat is starting. It cancels the launch back to idle and stops a half-started session by its id. The stuck state was not reproduced outside hot reload.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <h3>Agent behavior to know about</h3>
+      <p>After a Deny, <code>haiku</code> does not ask for the same command again until it is told the reviewer changed their mind. Check 6 needed one extra turn for this. The denial wording works as intended, and this is a cost to know about.</p>
       <h3>Not verified yet</h3>
       <ul>
+      <li>Closing the main window ends the chat. It needs the owner to press the close button by hand with the answer window open, then to check that no <code>claude -p</code> process is left. The window-destroyed wiring (<code>WindowEvent::Destroyed</code> for "main") also has no automated test.</li>
+      <li>The stacked layout (window 1100 px or narrower), and the 220 px settings row in it. The window stayed at 1512 px in runs 3 and 4.</li>
+      <li>The scroll-to-end gate on a tall command in the approval card, in the WKWebView. It was seen in Chrome only.</li>
       <li>The Windows build was not compiled. The Windows stop path (<code>kill</code>) was not compiled or run.</li>
-      <li>The stacked layout (window 1100 px or narrower), and the short panel inside it. The window stayed at 1512 px in run 3.</li>
-      <li>The settings row fix for a 220 px panel, in the WKWebView. It was measured in Chrome only.</li>
+      <li>The app's MCP tools under a transport-dropped approval call. If the MCP transport drops a <code>tools/call</code> line, no card shows and the app's expiry never starts, and the CLI's own per-server timeout (660 s) ends it. This is not measured directly. Whether a prompt-tool timeout does not run the command was to be confirmed from an earlier capture, and it is not confirmed here.</li>
       <li>Whether an https link really opens on click was not exercised in the app.</li>
-      <li>Diagrams, the horizontal bar chart and the settings row fix in the desktop WKWebView (see "Not verified yet (diagrams)"), and <code>role="group"</code> with inner buttons in WebKit.</li>
-      <li>The app's MCP tools together with diagrams, for example whether a diagram ever goes into <code>render_answer</code>.</li>
-      <li>Run 3 had no screenshots, so check 3 (chart labels) and check 9 (wide pane) rest on measured numbers only.</li>
+      <li>Whether a diagram ever goes into <code>render_answer</code>. In run 4 the app's MCP tools were present and <code>render_answer</code> carried a text summary, and a diagram inside it was not tried.</li>
+      <li>Run 3 and run 4 had no screenshots, so their checks rest on measured numbers only.</li>
       </ul>
+      <p>Run 4 now covers diagrams, the horizontal bar chart, <code>role="group"</code> with inner buttons, approvals, the model switch, Claude chat only and the DOM-based nothing-drawn check in the WKWebView.</p>
       <h2>Known limits and follow-ups</h2>
       <ul>
-      <li>No approval UI. Anything that needs approval is denied. A follow-up can use <code>--permission-prompt-tool</code>, whose wire shape was observed in a spike.</li>
-      <li>Claude only. Codex stays on the terminal.</li>
+      <li>No always-allow. The chat has Allow once and Deny only, by design (R5).</li>
+      <li>Claude only. Codex stays on the terminal, and has no chat.</li>
       <li>No rendered mermaid diagrams in the chat. Open answer shows the report in the window, where mermaid renders. A sandboxed renderer is the possible follow-up. Diagrams in the chat come from the <code>Diagram</code> and <code>SequenceDiagram</code> components instead.</li>
       <li>Diagrams are drawn only in the chat reply, not inside <code>render_answer</code>.</li>
       <li>The horizontal bar chart draws a <code>stacked</code> variant as grouped.</li>
       <li>A new call to an existing function can be drawn as <code>changed</code> (amber, Δ) where it should be <code>added</code> (green, +). <code>sonnet</code> did this in 2 of 2 runs of round 4. The arrow is still marked as touched by the PR, so the reviewer is pointed at the right place with the wrong shade.</li>
       <li>The layout is guarded by a scripted sweep in the real app, not by unit tests, because the test environment does no layout.</li>
-      <li>The lifecycle logic (start gate, provider and model reset, PR change, debounced context, "Stopped.") is written twice, in <code>CodexTerminal.tsx</code> and in <code>useAiChatSession.ts</code>. A change to one belongs in both until a shared hook exists.</li>
+      <li>The app commands are not gated by Tauri capabilities (<code>build.rs</code> has no app manifest), and <code>tauri.conf.json</code> has <code>"csp": null</code>. Any script that runs in the answer window can invoke every app command (<code>ai_chat_send</code>, <code>codex_terminal_write</code>, <code>repo_read_text</code> and the like), and the only barrier is the HTML sanitizer of the answer window. This has been present since 0.7.6. It was raised with the owner and not fixed here. The approval commands do not depend on that barrier, because they check the caller's window themselves.</li>
+      <li>The Codex terminal has the same problem as the chat had before the window-destroyed fix: closing the main window while an answer window keeps the app running can orphan its session. This was found by reading the code and is not fixed.</li>
+      <li>The Claude launch path inside the terminal backend (<code>codex_terminal.rs</code>) is unreachable from the UI and was left in place.</li>
+      <li>The lifecycle logic (start gate, provider reset, PR change, debounced context, "Stopped.") is written twice, in <code>CodexTerminal.tsx</code> and in <code>useAiChatSession.ts</code>. A change to one belongs in both until a shared hook exists.</li>
       <li>Built-in plugins and agents still show in the CLI session. After the hardening, <code>init.plugins</code> lists 4 built-in plugins (agents-md, telemetry, privacy, plugin-authoring) and <code>init.agents</code> names 6 agents (claude, Explore, general-purpose, Plan, statusline-setup, web-fetch), observed in the live <code>init</code> line of the real-CLI test on 2026-11-12. <code>--setting-sources ""</code> and the removed plugin directory variable do not remove them. The <code>Task</code> tool is not on the allowlist, so nothing should be able to start those agents, but that was not tested.</li>
       </ul>
+      <h2>Open decisions for the owner</h2>
+      <ol>
+      <li>Close the command gap: add a command allowlist for the answer window and a CSP (known limit above).</li>
+      <li>Delete the unreachable Claude terminal launch code in <code>codex_terminal.rs</code> (about 35 lines and about 175 lines of tests), or keep it.</li>
+      <li>Stop the Codex terminal when the main window closes, like the chat now does.</li>
+      <li>Let the app compute the arrow status from the diff, so a new call to an existing function cannot be drawn <code>changed</code> (amber) when it is <code>added</code> (green).</li>
+      <li>The older open items still stand: a shared lifecycle hook for the terminal and the chat, a sandboxed mermaid renderer for the chat, and a Codex chat.</li>
+      </ol>
       <h2>Implementation references</h2>
       <p>The Claude Code flags and the stream-json wire format were observed on Claude Code 2.1.322 on 2026-11-12. The captures are the fixtures under <code>apps/web/src/service/aiChat/__fixtures__/claude</code>.</p>
       <p>OpenUI is at <a href="https://github.com/thesysdev/openui">github.com/thesysdev/openui</a>. The OpenUI package facts above were observed on <code>@openuidev/react-lang</code> 1.1.0 and <code>@openuidev/react-ui</code> 0.18.6 on 2026-11-12.</p>

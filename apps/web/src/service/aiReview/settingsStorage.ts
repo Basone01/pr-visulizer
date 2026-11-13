@@ -3,7 +3,6 @@ import type { ReviewProfile } from "@pr-visulizer/shared"
 import type { KeyValueStore } from "@/utils/storage/keyValueStore"
 
 import {
-  type AiPanelSurface,
   type AiReviewSettings,
   DEFAULT_AI_REVIEW_SETTINGS,
   type SelectableAiProviderId,
@@ -99,13 +98,6 @@ export function createAiReviewSettingsStorage(store: KeyValueStore) {
       return mutate(async () => {
         const settings = await loadAiReviewSettings(store)
         return saveAiReviewSettings(store, { ...settings, terminalProvider: provider })
-      })
-    },
-
-    savePanelSurface(panelSurface: AiPanelSurface): Promise<AiReviewSettings> {
-      return mutate(async () => {
-        const settings = await loadAiReviewSettings(store)
-        return saveAiReviewSettings(store, { ...settings, panelSurface })
       })
     },
 

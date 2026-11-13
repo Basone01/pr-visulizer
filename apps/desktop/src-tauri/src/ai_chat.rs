@@ -11,8 +11,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use tauri::ipc::Channel;
 use tauri::{Emitter, Runtime};
 
+use crate::ai_chat_approval::{
+    AiChatApprovalAnswerRequest, AiChatApprovalEvent, ChatApprovals, MAIN_WINDOW_LABEL,
+    REASON_ATTACHED, REASON_INTERRUPTED, REASON_SESSION_ENDED, REASON_STOPPED,
+    REASON_WINDOW_CLOSED,
+};
 use crate::codex_answer::{AnswerPresentation, CodexAnswerContext, CodexAnswerSessions};
 #[cfg(unix)]
 use crate::codex_terminal::stop_process_group;
@@ -38,6 +44,7 @@ const CHAT_REMOVED_ENV: &[&str] = &["CLAUDE_CODE_PLUGIN_DIRS"];
 
 // The chat shows a rendered answer inline, the window opens only on the reviewer's request.
 const CHAT_ANSWER_PRESENTATION: AnswerPresentation = AnswerPresentation::Inline;
+const CHAT_PERMISSION_PROMPT_TOOL: &str = "mcp__pr_visualizer__approve";
 
 const LINE_EVENT: &str = "ai-chat://line";
 const EXIT_EVENT: &str = "ai-chat://exit";
@@ -67,6 +74,15 @@ pub struct AiChatStartRequest {
 pub struct AiChatSendRequest {
     pub session_id: String,
     pub text: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiChatSetModelRequest {
+    pub session_id: String,
+    // Made by the webview, so it can match the CLI's control_response to this change.
+    pub request_id: String,
+    pub model: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,28 +140,32 @@ pub fn ai_chat_start<R: Runtime>(
     app: tauri::AppHandle<R>,
     sessions: tauri::State<'_, AiChatSessions>,
     answer_sessions: tauri::State<'_, CodexAnswerSessions>,
+    approvals: tauri::State<'_, ChatApprovals>,
     request: AiChatStartRequest,
 ) -> Result<AiChatStartResponse, String> {
     let helper_executable = std::env::current_exe()
         .map_err(|error| format!("could not locate the app's MCP helper: {error}"))?;
-    start_chat(
-        app,
-        sessions.inner().clone(),
-        answer_sessions.inner().clone(),
-        request,
-        &helper_executable,
-    )
+    let stores = ChatStores {
+        sessions: sessions.inner().clone(),
+        answer_sessions: answer_sessions.inner().clone(),
+        approvals: approvals.inner().clone(),
+    };
+    start_chat(app, stores, request, &helper_executable)
 }
 
 // The helper executable is a parameter so the real-CLI test can point the MCP server at the
 // built desktop binary, the test binary itself does not understand `--render-mcp`.
 fn start_chat<R: Runtime>(
     app: tauri::AppHandle<R>,
-    sessions: AiChatSessions,
-    answer_sessions: CodexAnswerSessions,
+    stores: ChatStores,
     request: AiChatStartRequest,
     helper_executable: &Path,
 ) -> Result<AiChatStartResponse, String> {
+    let ChatStores {
+        sessions,
+        answer_sessions,
+        ..
+    } = stores.clone();
     let session_id = validated_session_id(&request.session_id)?.to_string();
     validated_chat_provider(request.provider)?;
     let model = validated_model(request.model)?;
@@ -176,8 +196,7 @@ fn start_chat<R: Runtime>(
     });
     let launched = launch_chat(
         app,
-        sessions.clone(),
-        answer_sessions.clone(),
+        stores,
         session_id.clone(),
         command,
         DEFAULT_PIPE_LIMITS,
@@ -194,9 +213,12 @@ fn start_chat<R: Runtime>(
 #[tauri::command]
 pub fn ai_chat_attach(
     sessions: tauri::State<'_, AiChatSessions>,
+    approvals: tauri::State<'_, ChatApprovals>,
     request: AiChatSessionRequest,
 ) -> Result<(), String> {
     let session_id = validated_session_id(&request.session_id)?;
+    // Pending requests are never re-delivered to a new listener (R8).
+    approvals.cancel_all(session_id, REASON_ATTACHED);
     sessions.attach(session_id)
 }
 
@@ -215,9 +237,12 @@ pub fn ai_chat_send(
 #[tauri::command(async)]
 pub fn ai_chat_interrupt(
     sessions: tauri::State<'_, AiChatSessions>,
+    approvals: tauri::State<'_, ChatApprovals>,
     request: AiChatSessionRequest,
 ) -> Result<(), String> {
     let session_id = validated_session_id(&request.session_id)?;
+    // Deny first, so the card says the reviewer interrupted rather than that Claude cancelled.
+    approvals.cancel_all(session_id, REASON_INTERRUPTED);
     let request_id = next_interrupt_request_id();
     sessions.write_line(session_id, &interrupt_line(&request_id))
 }
@@ -225,10 +250,80 @@ pub fn ai_chat_interrupt(
 #[tauri::command(async)]
 pub fn ai_chat_stop(
     sessions: tauri::State<'_, AiChatSessions>,
+    approvals: tauri::State<'_, ChatApprovals>,
     request: AiChatSessionRequest,
 ) -> Result<(), String> {
     let session_id = validated_session_id(&request.session_id)?;
+    approvals.cancel_all(session_id, REASON_STOPPED);
     sessions.with_session(session_id, |session| session.process.request_stop())
+}
+
+// Switches the model of the running chat from its next turn (contract §9). The CLI confirms or
+// refuses through a control_response line. Pending approvals are left as they are.
+#[tauri::command(async)]
+pub fn ai_chat_set_model(
+    sessions: tauri::State<'_, AiChatSessions>,
+    request: AiChatSetModelRequest,
+) -> Result<(), String> {
+    let session_id = validated_session_id(&request.session_id)?;
+    let request_id = validated_uuid(&request.request_id)?;
+    // The start rule (1-128 bytes, no NUL) already accepts the CLI's literal "default".
+    let model = validated_model(Some(request.model))?.unwrap_or_default();
+    sessions.write_line(session_id, &set_model_line(request_id, &model))
+}
+
+// Registers the main window's Channel for one session's approval events (§6.7). A Channel reaches
+// only the webview that created it, unlike an app event, which any webview can listen to.
+#[tauri::command]
+pub fn ai_chat_watch_approvals<R: Runtime>(
+    webview: tauri::Webview<R>,
+    approvals: tauri::State<'_, ChatApprovals>,
+    request: AiChatSessionRequest,
+    on_event: Channel<AiChatApprovalEvent>,
+) -> Result<(), String> {
+    require_main_window(
+        &webview,
+        "approvals can be watched only from the main window",
+    )?;
+    let session_id = validated_session_id(&request.session_id)?;
+    approvals.watch(session_id, on_event)
+}
+
+// The main window is the only UI for a chat. When it is destroyed while another window keeps the
+// app alive, nobody can see or answer the chat, so end it the way a page reload does (§10 F1).
+pub fn end_chats_after_main_window_closed(approvals: &ChatApprovals, sessions: &AiChatSessions) {
+    approvals.close_all(REASON_WINDOW_CLOSED);
+    sessions.shutdown();
+}
+
+// R12. Only the main window may answer.
+#[tauri::command]
+pub fn ai_chat_answer_approval<R: Runtime>(
+    webview: tauri::Webview<R>,
+    approvals: tauri::State<'_, ChatApprovals>,
+    request: AiChatApprovalAnswerRequest,
+) -> Result<(), String> {
+    require_main_window(
+        &webview,
+        "approvals can be answered only from the main window",
+    )?;
+    validated_session_id(&request.session_id)?;
+    approvals.decide(&request)
+}
+
+// Checked inside the command and not only in capability files, because an app command is not
+// ACL-checked for local windows when the app has no command manifest (tauri 2.11.5).
+fn require_main_window<R: Runtime>(
+    webview: &tauri::Webview<R>,
+    refusal: &str,
+) -> Result<(), String> {
+    let is_main_window =
+        webview.label() == MAIN_WINDOW_LABEL && webview.window().label() == MAIN_WINDOW_LABEL;
+    if !is_main_window {
+        return Err(refusal.into());
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -283,6 +378,32 @@ fn interrupt_line(request_id: &str) -> String {
     format!("{request}\n")
 }
 
+fn set_model_line(request_id: &str, model: &str) -> String {
+    let request = serde_json::json!({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": { "subtype": "set_model", "model": model },
+    });
+    format!("{request}\n")
+}
+
+// 8-4-4-4-12 hex digits, the shape `crypto.randomUUID()` produces.
+fn validated_uuid(id: &str) -> Result<&str, String> {
+    const HYPHEN_POSITIONS: [usize; 4] = [8, 13, 18, 23];
+    let is_uuid = id.len() == 36
+        && id.char_indices().all(
+            |(index, character)| match HYPHEN_POSITIONS.contains(&index) {
+                true => character == '-',
+                false => character.is_ascii_hexdigit(),
+            },
+        );
+    if !is_uuid {
+        return Err("model change request ID must be a UUID".into());
+    }
+
+    Ok(id)
+}
+
 fn next_interrupt_request_id() -> String {
     let number = NEXT_INTERRUPT_REQUEST.fetch_add(1, Ordering::Relaxed);
     format!("pr-visualizer-interrupt-{number}")
@@ -322,8 +443,10 @@ fn claude_chat_command(launch: &ClaudeChatLaunch<'_>) -> Command {
     // limits only built-ins, the app's MCP tools stay available.
     command.args(["--tools", &CHAT_BUILT_IN_TOOLS.join(",")]);
     command.arg("--disable-slash-commands");
-    // The chat has no approval UI, so anything that would need approval is denied.
-    command.args(["--permission-prompts", "none"]);
+    // Anything that needs approval is asked through the app's own MCP tool, which the reviewer
+    // answers in the chat. The CLI keeps the prompt tool out of the model's tool list.
+    command.args(["--permission-prompts", "host"]);
+    command.args(["--permission-prompt-tool", CHAT_PERMISSION_PROMPT_TOOL]);
     if let Some(model) = launch.model {
         command.args(["--model", model]);
     }
@@ -454,18 +577,30 @@ impl AiChatSessions {
 
 // Removing the session and revoking its answer socket happen in exactly one place. Taking `self`
 // by value makes a second run a compile error.
-struct SessionCleanup {
+// The three registries one chat session lives in. They always travel together.
+#[derive(Clone, Default)]
+struct ChatStores {
     sessions: AiChatSessions,
     answer_sessions: CodexAnswerSessions,
+    approvals: ChatApprovals,
+}
+
+struct SessionCleanup {
+    stores: ChatStores,
     session_id: String,
     generation: u64,
 }
 
 impl SessionCleanup {
     fn run(self) {
-        self.sessions
-            .remove_generation(&self.session_id, self.generation);
-        self.answer_sessions.revoke(&self.session_id);
+        let ChatStores {
+            sessions,
+            answer_sessions,
+            approvals,
+        } = self.stores;
+        approvals.close(&self.session_id, self.generation, REASON_SESSION_ENDED);
+        sessions.remove_generation(&self.session_id, self.generation);
+        answer_sessions.revoke(&self.session_id);
     }
 }
 
@@ -581,8 +716,7 @@ fn exit_signal(_status: &ExitStatus) -> Option<i32> {
 
 fn launch_chat<R: Runtime>(
     app: tauri::AppHandle<R>,
-    sessions: AiChatSessions,
-    answer_sessions: CodexAnswerSessions,
+    stores: ChatStores,
     session_id: String,
     mut command: Command,
     limits: ChatPipeLimits,
@@ -621,15 +755,15 @@ fn launch_chat<R: Runtime>(
         process: Arc::clone(&process),
         dispatch_sender: dispatch_sender.clone(),
     };
-    if let Err(error) = sessions.activate(&session_id, session) {
+    if let Err(error) = stores.sessions.activate(&session_id, session) {
         let _ = process.terminate();
         let _ = process.wait_for_exit();
         return Err(error);
     }
 
+    stores.approvals.open(&session_id, generation);
     let cleanup = SessionCleanup {
-        sessions,
-        answer_sessions,
+        stores,
         session_id: session_id.clone(),
         generation,
     };
@@ -965,6 +1099,7 @@ impl StderrTail {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+    use tauri::Manager;
 
     fn rendered_args(command: &Command) -> Vec<String> {
         command
@@ -1001,6 +1136,144 @@ mod tests {
         })
     }
 
+    struct ApprovalWindows {
+        app: tauri::App<tauri::test::MockRuntime>,
+        approvals: ChatApprovals,
+        main: tauri::Webview<tauri::test::MockRuntime>,
+        answer: tauri::Webview<tauri::test::MockRuntime>,
+    }
+
+    fn approval_windows(session_id: &str) -> ApprovalWindows {
+        use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+        let app = tauri::test::mock_app();
+        let approvals = ChatApprovals::default();
+        app.manage(approvals.clone());
+        let main = WebviewWindowBuilder::new(&app, MAIN_WINDOW_LABEL, WebviewUrl::default())
+            .build()
+            .expect("main window");
+        let answer = WebviewWindowBuilder::new(&app, "codex-answer-chat-1", WebviewUrl::default())
+            .build()
+            .expect("answer window");
+        approvals.open(session_id, 1);
+        ApprovalWindows {
+            approvals,
+            main: main.as_ref().clone(),
+            answer: answer.as_ref().clone(),
+            app,
+        }
+    }
+
+    fn ask_on_a_thread(
+        approvals: &ChatApprovals,
+        session_id: &'static str,
+    ) -> mpsc::Receiver<serde_json::Value> {
+        let (sender, receiver) = mpsc::channel();
+        let approvals = approvals.clone();
+        thread::spawn(move || {
+            let prompt = serde_json::json!({
+                "tool_name": "Bash",
+                "input": { "command": "touch probe.txt" },
+            });
+            let _ = sender.send(approvals.ask(session_id, prompt, || false));
+        });
+        receiver
+    }
+
+    #[test]
+    fn watching_approvals_from_any_window_but_main_is_refused() {
+        // Arrange
+        let session_id = "chat-watch-r12";
+        let windows = approval_windows(session_id);
+        let (answer_window_channel, answer_window_events) =
+            crate::ai_chat_approval::recording_channel();
+        let request = AiChatSessionRequest {
+            session_id: session_id.into(),
+        };
+
+        // Act
+        let watched = ai_chat_watch_approvals(
+            windows.answer.clone(),
+            windows.app.state(),
+            request,
+            answer_window_channel,
+        );
+        let answer = ask_on_a_thread(&windows.approvals, session_id)
+            .recv_timeout(Duration::from_secs(5))
+            .expect("prompt answered");
+
+        // Assert
+        let expected = Err("approvals can be watched only from the main window".to_string());
+        assert_eq!(watched, expected);
+        assert!(
+            answer_window_events.try_recv().is_err(),
+            "the answer window got nothing"
+        );
+        assert_eq!(
+            answer["behavior"], "deny",
+            "with no main-window watcher the app denies"
+        );
+    }
+
+    #[test]
+    fn answering_an_approval_from_any_window_but_main_is_refused_and_changes_nothing() {
+        // Arrange
+        let session_id = "chat-answer-r12";
+        let windows = approval_windows(session_id);
+        let (channel, events) = crate::ai_chat_approval::recording_channel();
+        let watch_request = AiChatSessionRequest {
+            session_id: session_id.into(),
+        };
+        ai_chat_watch_approvals(
+            windows.main.clone(),
+            windows.app.state(),
+            watch_request,
+            channel,
+        )
+        .expect("main window watches");
+        let answer = ask_on_a_thread(&windows.approvals, session_id);
+        let wait = Duration::from_secs(5);
+        let pending = events.recv_timeout(wait).expect("pending approval");
+        let request_id = pending["requestId"]
+            .as_str()
+            .expect("request id")
+            .to_string();
+        let request_from = |request_id: &str| AiChatApprovalAnswerRequest {
+            session_id: session_id.into(),
+            request_id: request_id.into(),
+            decision: crate::ai_chat_approval::ApprovalDecision::Allow,
+        };
+
+        // Act
+        let from_answer_window = ai_chat_answer_approval(
+            windows.answer.clone(),
+            windows.app.state(),
+            request_from(&request_id),
+        );
+        let applied_early = answer.recv_timeout(Duration::from_millis(300));
+        let from_main_window = ai_chat_answer_approval(
+            windows.main.clone(),
+            windows.app.state(),
+            request_from(&request_id),
+        );
+        let final_answer = answer.recv_timeout(wait);
+
+        // Assert
+        let expected_refusal =
+            Err("approvals can be answered only from the main window".to_string());
+        assert_eq!(from_answer_window, expected_refusal);
+        assert!(
+            applied_early.is_err(),
+            "a refused call must not answer the prompt"
+        );
+        assert_eq!(
+            from_main_window,
+            Ok(()),
+            "the request stayed pending for the main window"
+        );
+        assert_eq!(final_answer.expect("prompt answered")["behavior"], "allow");
+    }
+
     #[test]
     fn chat_command_keeps_terminal_safety_flags_and_adds_isolation_flags() {
         // Arrange
@@ -1029,7 +1302,8 @@ mod tests {
             ("--output-format", "stream-json"),
             ("--setting-sources", ""),
             ("--permission-mode", "manual"),
-            ("--permission-prompts", "none"),
+            ("--permission-prompts", "host"),
+            ("--permission-prompt-tool", "mcp__pr_visualizer__approve"),
             ("--tools", "Bash,Read,Grep,Glob"),
         ];
         for (flag, value) in expected_flag_values {
@@ -1073,6 +1347,7 @@ mod tests {
                         "PR_VISUALIZER_RENDER_TOKEN": "token",
                         "PR_VISUALIZER_ANSWER_PRESENTATION": "inline",
                     },
+                    "timeout": 660000,
                 },
             },
         });
@@ -1190,6 +1465,95 @@ mod tests {
             "request": { "subtype": "interrupt" },
         });
         assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn set_model_line_is_one_control_request_with_the_given_id_and_model() {
+        // Arrange
+        let request_id = "3f2a9c1e-8b4d-4e6f-9a1b-2c3d4e5f6a7b";
+        let model = "sonnet";
+
+        // Act
+        let line = set_model_line(request_id, model);
+
+        // Assert
+        assert_eq!(line.matches('\n').count(), 1);
+        let parsed: serde_json::Value = serde_json::from_str(&line).expect("valid JSON line");
+        let expected = serde_json::json!({
+            "type": "control_request",
+            "request_id": request_id,
+            "request": { "subtype": "set_model", "model": model },
+        });
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn set_model_refuses_a_request_id_that_is_not_a_uuid() {
+        // Arrange
+        let not_uuids = [
+            "sm1",
+            "",
+            "3f2a9c1e-8b4d-4e6f-9a1b-2c3d4e5f6a7",
+            "3f2a9c1e_8b4d_4e6f_9a1b_2c3d4e5f6a7b",
+            "3f2a9c1e-8b4d-4e6f-9a1b-2c3d4e5f6a7z",
+        ];
+        let uuid = "3F2A9C1E-8B4D-4E6F-9A1B-2C3D4E5F6A7B";
+
+        // Act
+        let refused: Vec<bool> = not_uuids
+            .iter()
+            .map(|id| validated_uuid(id).is_err())
+            .collect();
+        let accepted = validated_uuid(uuid);
+
+        // Assert
+        assert_eq!(refused, vec![true; not_uuids.len()]);
+        assert_eq!(accepted, Ok(uuid));
+    }
+
+    #[test]
+    fn set_model_refuses_a_bad_model_string_before_writing() {
+        // Arrange
+        let app = tauri::test::mock_app();
+        app.manage(AiChatSessions::default());
+        let request_id = "3f2a9c1e-8b4d-4e6f-9a1b-2c3d4e5f6a7b";
+        let bad_models = [String::new(), "son\0net".to_string(), "m".repeat(129)];
+
+        // Act
+        let results: Vec<Result<(), String>> = bad_models
+            .iter()
+            .map(|model| {
+                let request = AiChatSetModelRequest {
+                    session_id: "chat-1".into(),
+                    request_id: request_id.into(),
+                    model: model.clone(),
+                };
+                ai_chat_set_model(app.state(), request)
+            })
+            .collect();
+
+        // Assert
+        let refusal = Err("model must be a non-empty string up to 128 characters".to_string());
+        let expected = vec![refusal; bad_models.len()];
+        assert_eq!(results, expected);
+    }
+
+    #[test]
+    fn set_model_for_a_session_that_does_not_exist_is_an_error() {
+        // Arrange
+        let app = tauri::test::mock_app();
+        app.manage(AiChatSessions::default());
+        let request = AiChatSetModelRequest {
+            session_id: "chat-missing".into(),
+            request_id: "3f2a9c1e-8b4d-4e6f-9a1b-2c3d4e5f6a7b".into(),
+            model: "default".into(),
+        };
+
+        // Act
+        let result = ai_chat_set_model(app.state(), request);
+
+        // Assert
+        assert_eq!(result, Err("chat session is no longer active".to_string()));
     }
 
     #[test]
@@ -1439,6 +1803,7 @@ mod tests {
             app: tauri::App<tauri::test::MockRuntime>,
             sessions: AiChatSessions,
             answer_sessions: CodexAnswerSessions,
+            approvals: ChatApprovals,
             lines: mpsc::Receiver<serde_json::Value>,
             exits: mpsc::Receiver<serde_json::Value>,
         }
@@ -1478,19 +1843,19 @@ mod tests {
                     CHAT_ANSWER_PRESENTATION,
                 )
                 .expect("start answer session");
-            launch_chat(
-                handle,
-                sessions.clone(),
-                answer_sessions.clone(),
-                session_id.to_string(),
-                command,
-                limits,
-            )
-            .expect("launch shell fixture");
+            let approvals = ChatApprovals::default();
+            let stores = ChatStores {
+                sessions: sessions.clone(),
+                answer_sessions: answer_sessions.clone(),
+                approvals: approvals.clone(),
+            };
+            launch_chat(handle, stores, session_id.to_string(), command, limits)
+                .expect("launch shell fixture");
             ChatHarness {
                 app,
                 sessions,
                 answer_sessions,
+                approvals,
                 lines,
                 exits,
             }
@@ -1623,6 +1988,45 @@ mod tests {
         }
 
         #[test]
+        fn closing_the_main_window_ends_pending_approvals_and_stops_the_chat() {
+            // Arrange
+            let session_id = "chat-main-window-closed";
+            let harness = launch_shell_chat(session_id, "sleep 30", DEFAULT_PIPE_LIMITS);
+            harness.sessions.attach(session_id).expect("attach");
+            let (channel, approval_events) = crate::ai_chat_approval::recording_channel();
+            harness
+                .approvals
+                .watch(session_id, channel)
+                .expect("the main window watches");
+            let (answer_sender, answer) = mpsc::channel();
+            let asking = harness.approvals.clone();
+            thread::spawn(move || {
+                let prompt = serde_json::json!({
+                    "tool_name": "Bash",
+                    "input": { "command": "touch probe.txt" },
+                });
+                let _ = answer_sender.send(asking.ask(session_id, prompt, || false));
+            });
+            let pending = approval_events
+                .recv_timeout(EVENT_TIMEOUT)
+                .expect("pending");
+
+            // Act
+            end_chats_after_main_window_closed(&harness.approvals, &harness.sessions);
+            let answer = answer.recv_timeout(EVENT_TIMEOUT);
+            let ended = approval_events.recv_timeout(EVENT_TIMEOUT);
+            let unregistered = wait_until(|| !is_registered(&harness.sessions, session_id));
+
+            // Assert
+            assert_eq!(pending["state"], "pending");
+            assert_eq!(answer.expect("prompt answered")["behavior"], "deny");
+            let ended = ended.expect("the card is told why");
+            assert_eq!(ended["state"], "cancelled");
+            assert_eq!(ended["reason"], REASON_WINDOW_CLOSED);
+            assert!(unregistered, "the chat child must be stopped");
+        }
+
+        #[test]
         fn stop_without_attach_unregisters_the_session_and_revokes_its_answer_session() {
             // Arrange
             let session_id = "chat-stop-unattached";
@@ -1748,6 +2152,7 @@ mod tests {
         const TURN_TIMEOUT: Duration = Duration::from_secs(120);
         const EXIT_TIMEOUT: Duration = Duration::from_secs(10);
         const MARKER: &str = "ZXQ-7";
+        const LIVE_APPROVAL_TIMEOUT: Duration = Duration::from_secs(20);
 
         struct Turn {
             lines: Vec<serde_json::Value>,
@@ -1761,6 +2166,21 @@ mod tests {
 
             fn text_deltas(&self) -> Vec<&str> {
                 self.lines.iter().filter_map(text_delta).collect()
+            }
+
+            fn tool_result_text(&self) -> String {
+                self.lines
+                    .iter()
+                    .filter(|line| line["type"] == "user")
+                    .flat_map(|line| {
+                        line["message"]["content"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default()
+                    })
+                    .filter(|content| content["type"] == "tool_result")
+                    .map(|content| content["content"].to_string())
+                    .collect()
             }
 
             fn has_permission_denial(&self) -> bool {
@@ -1793,6 +2213,106 @@ mod tests {
             lines: mpsc::Receiver<String>,
             exits: mpsc::Receiver<serde_json::Value>,
             capture: Option<File>,
+            // Every approval event, in arrival order.
+            approvals: Arc<Mutex<Vec<serde_json::Value>>>,
+        }
+
+        #[derive(Clone, Copy, Debug)]
+        enum ReviewerAction {
+            Allow,
+            Deny,
+            Interrupt,
+            Ignore,
+        }
+
+        // Plays the reviewer: answers each pending approval by the policy, on its own thread,
+        // because no stdout line arrives while the CLI waits for the answer.
+        fn start_reviewer(
+            handle: &tauri::AppHandle<tauri::test::MockRuntime>,
+            session_id: &str,
+            policy: fn(&serde_json::Value) -> ReviewerAction,
+        ) -> Arc<Mutex<Vec<serde_json::Value>>> {
+            let record = Arc::new(Mutex::new(Vec::new()));
+            let thread_record = Arc::clone(&record);
+            let handle = handle.clone();
+            let session_id = session_id.to_string();
+            // The reviewer answers from the main window, as the app requires (R12).
+            let main_webview: tauri::Webview<tauri::test::MockRuntime> =
+                tauri::WebviewWindowBuilder::new(&handle, "main", tauri::WebviewUrl::default())
+                    .build()
+                    .expect("main window")
+                    .as_ref()
+                    .clone();
+            // The same command the chat calls right after start and attach, so the test drives
+            // the real Channel path (§6.7).
+            let (channel, events) = crate::ai_chat_approval::recording_channel();
+            let watch_request = AiChatSessionRequest {
+                session_id: session_id.clone(),
+            };
+            ai_chat_watch_approvals(main_webview.clone(), handle.state(), watch_request, channel)
+                .expect("the main window watches approvals");
+            thread::spawn(move || {
+                for event in events {
+                    if let Ok(mut record) = thread_record.lock() {
+                        record.push(event.clone());
+                    }
+                    if event["state"] != "pending" {
+                        continue;
+                    }
+                    let request_id = event["requestId"].as_str().unwrap_or_default().to_string();
+                    let decision = match policy(&event) {
+                        ReviewerAction::Allow => crate::ai_chat_approval::ApprovalDecision::Allow,
+                        ReviewerAction::Deny => crate::ai_chat_approval::ApprovalDecision::Deny,
+                        ReviewerAction::Ignore => continue,
+                        ReviewerAction::Interrupt => {
+                            let request = AiChatSessionRequest {
+                                session_id: session_id.clone(),
+                            };
+                            let _ = ai_chat_interrupt(handle.state(), handle.state(), request);
+                            continue;
+                        }
+                    };
+                    let request = AiChatApprovalAnswerRequest {
+                        session_id: session_id.clone(),
+                        request_id,
+                        decision,
+                    };
+                    let _ = ai_chat_answer_approval(main_webview.clone(), handle.state(), request);
+                }
+            });
+            record
+        }
+
+        fn states_for(chat: &LiveChat, probe: &str) -> Vec<String> {
+            approval_states(chat)
+                .into_iter()
+                .filter(|(command, _, _)| command.contains(probe))
+                .map(|(_, state, denied_by)| match denied_by.is_empty() {
+                    true => state,
+                    false => format!("{state} by {denied_by}"),
+                })
+                .collect()
+        }
+
+        fn approval_states(chat: &LiveChat) -> Vec<(String, String, String)> {
+            chat.approvals
+                .lock()
+                .map(|events| {
+                    events
+                        .iter()
+                        .map(|event| {
+                            (
+                                event["input"]["command"]
+                                    .as_str()
+                                    .unwrap_or_default()
+                                    .to_string(),
+                                event["state"].as_str().unwrap_or_default().to_string(),
+                                event["deniedBy"].as_str().unwrap_or_default().to_string(),
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
         }
 
         impl LiveChat {
@@ -1860,9 +2380,11 @@ mod tests {
             assert!(status.success(), "git {args:?} failed");
         }
 
-        fn fixture_repository() -> PathBuf {
-            let repository = std::env::temp_dir()
-                .join(format!("pr-visualizer-ai-chat-live-{}", std::process::id()));
+        fn fixture_repository(name: &str) -> PathBuf {
+            let repository = std::env::temp_dir().join(format!(
+                "pr-visualizer-ai-chat-live-{name}-{}",
+                std::process::id()
+            ));
             let _ = std::fs::remove_dir_all(&repository);
             std::fs::create_dir_all(&repository).expect("create fixture repository");
             git(&repository, &["init", "-q"]);
@@ -1891,7 +2413,7 @@ mod tests {
             map: impl Fn(serde_json::Value) -> Option<T> + Send + 'static,
         ) -> mpsc::Receiver<T> {
             let (sender, receiver) = mpsc::channel();
-            handle.listen(event, move |event| {
+            handle.listen_any(event, move |event| {
                 let payload = serde_json::from_str(event.payload()).ok().and_then(&map);
                 if let Some(payload) = payload {
                     let _ = sender.send(payload);
@@ -1900,18 +2422,25 @@ mod tests {
             receiver
         }
 
-        fn start_live_chat(repository: &Path, helper_executable: &Path) -> LiveChat {
+        fn start_live_chat(
+            name: &str,
+            repository: &Path,
+            helper_executable: &Path,
+            policy: fn(&serde_json::Value) -> ReviewerAction,
+        ) -> LiveChat {
             let app = tauri::test::mock_app();
             let handle = app.handle().clone();
             handle.manage(AiChatSessions::default());
             handle.manage(CodexAnswerSessions::default());
+            // Short, so a prompt nobody answers ends inside one test turn.
+            handle.manage(ChatApprovals::with_timeout(LIVE_APPROVAL_TIMEOUT));
             let lines = forward_payloads(&handle, LINE_EVENT, |payload| {
                 payload["line"].as_str().map(str::to_string)
             });
             let exits = forward_payloads(&handle, EXIT_EVENT, Some);
-            let capture = std::env::var_os("AI_CHAT_CAPTURE_PATH")
-                .map(|path| File::create(path).expect("create capture file"));
-            let session_id = format!("live-chat-{}", std::process::id());
+            let capture =
+                capture_path(name).map(|path| File::create(path).expect("create capture file"));
+            let session_id = format!("live-{name}-{}", std::process::id());
             let request = AiChatStartRequest {
                 session_id: session_id.clone(),
                 provider: TerminalProvider::Claude,
@@ -1921,28 +2450,40 @@ mod tests {
                 context: fixture_context(),
             };
 
-            start_chat(
-                handle.clone(),
-                handle.state::<AiChatSessions>().inner().clone(),
-                handle.state::<CodexAnswerSessions>().inner().clone(),
-                request,
-                helper_executable,
-            )
-            .expect("start the real Claude chat");
+            let stores = ChatStores {
+                sessions: handle.state::<AiChatSessions>().inner().clone(),
+                answer_sessions: handle.state::<CodexAnswerSessions>().inner().clone(),
+                approvals: handle.state::<ChatApprovals>().inner().clone(),
+            };
+            start_chat(handle.clone(), stores, request, helper_executable)
+                .expect("start the real Claude chat");
             ai_chat_attach(
+                handle.state(),
                 handle.state(),
                 AiChatSessionRequest {
                     session_id: session_id.clone(),
                 },
             )
             .expect("attach");
+            let approvals = start_reviewer(&handle, &session_id, policy);
             LiveChat {
                 app,
                 session_id,
                 lines,
                 exits,
                 capture,
+                approvals,
             }
+        }
+
+        // The first live test keeps the exact capture path, the others write next to it.
+        fn capture_path(name: &str) -> Option<PathBuf> {
+            let path = PathBuf::from(std::env::var_os("AI_CHAT_CAPTURE_PATH")?);
+            if name == "chat" {
+                return Some(path);
+            }
+
+            Some(path.with_extension(format!("{name}.jsonl")))
         }
 
         // The test binary cannot serve `--render-mcp`, the built desktop binary can.
@@ -1981,13 +2522,16 @@ mod tests {
                 eprintln!("skipping: `claude` is not on PATH");
                 return;
             }
-            let repository = fixture_repository();
+            let repository = fixture_repository("chat");
             let denied_probe = repository.join("chat-denied-probe.txt");
             let desktop_binary = built_desktop_binary();
             let helper_executable = desktop_binary
                 .clone()
                 .unwrap_or_else(|| std::env::current_exe().expect("test executable"));
-            let mut chat = start_live_chat(&repository, &helper_executable);
+            // Nobody answers, so the shell write must end as a deny when the approval expires.
+            let mut chat = start_live_chat("chat", &repository, &helper_executable, |_| {
+                ReviewerAction::Ignore
+            });
             let process_group = chat
                 .handle()
                 .state::<AiChatSessions>()
@@ -2017,18 +2561,29 @@ mod tests {
                 let request = AiChatSessionRequest {
                     session_id: interrupt_session_id.clone(),
                 };
-                ai_chat_interrupt(interrupt_handle.state(), request).expect("interrupt");
+                ai_chat_interrupt(interrupt_handle.state(), interrupt_handle.state(), request)
+                    .expect("interrupt");
             });
             eprintln!("turn 3 (interrupted): {:?}", interrupted_turn.elapsed);
 
+            let set_model_request_id = "3f2a9c1e-8b4d-4e6f-9a1b-2c3d4e5f6a7b";
+            let set_model_request = AiChatSetModelRequest {
+                session_id: chat.session_id.clone(),
+                request_id: set_model_request_id.into(),
+                model: "sonnet".into(),
+            };
+            ai_chat_set_model(chat.handle().state(), set_model_request).expect("set model");
             chat.send("Reply with the single word ok.");
             let survived_turn = chat.read_turn(|_| {});
-            eprintln!("turn 4 (after interrupt): {:?}", survived_turn.elapsed);
+            eprintln!(
+                "turn 4 (after interrupt, on sonnet): {:?}",
+                survived_turn.elapsed
+            );
 
             let stop_request = AiChatSessionRequest {
                 session_id: chat.session_id.clone(),
             };
-            ai_chat_stop(chat.handle().state(), stop_request).expect("stop");
+            ai_chat_stop(chat.handle().state(), chat.handle().state(), stop_request).expect("stop");
             let exit_event = chat.exits.recv_timeout(EXIT_TIMEOUT);
             let _ = std::fs::remove_dir_all(&repository);
 
@@ -2113,6 +2668,21 @@ mod tests {
                 "the shell write must be denied: {:?}",
                 denied_turn.result()
             );
+            let denied_command_states: Vec<String> = approval_states(&chat)
+                .into_iter()
+                .filter(|(command, _, _)| command.contains("chat-denied-probe"))
+                .map(|(_, state, _)| state)
+                .collect();
+            assert_eq!(
+                denied_command_states.first().map(String::as_str),
+                Some("pending"),
+                "the write must be offered to the reviewer: {denied_command_states:?}"
+            );
+            assert_eq!(
+                denied_command_states.last().map(String::as_str),
+                Some("expired"),
+                "an unanswered approval must end as expired: {denied_command_states:?}"
+            );
             assert!(
                 !denied_probe.exists(),
                 "a denied write must not create the file"
@@ -2131,6 +2701,29 @@ mod tests {
                 !survived_turn.text_deltas().is_empty(),
                 "the session must still answer after an interrupt"
             );
+            let model_change = survived_turn
+                .lines
+                .iter()
+                .find(|line| {
+                    line["type"] == "control_response"
+                        && line["response"]["request_id"] == set_model_request_id
+                })
+                .expect("the CLI must answer the model change");
+            assert_eq!(
+                model_change["response"]["subtype"], "success",
+                "{model_change}"
+            );
+            let next_turn_model = survived_turn
+                .lines
+                .iter()
+                .find(|line| line["type"] == "system" && line["subtype"] == "init")
+                .and_then(|init| init["model"].as_str())
+                .unwrap_or_default()
+                .to_string();
+            assert!(
+                next_turn_model.contains("sonnet"),
+                "the next turn must run on the new model: {next_turn_model}"
+            );
 
             let exit_event = exit_event.expect("exit event after stop");
             assert_eq!(exit_event["error"], serde_json::Value::Null);
@@ -2138,6 +2731,94 @@ mod tests {
                 process_group_is_gone(process_group),
                 "no child of the chat may be left running"
             );
+        }
+
+        #[test]
+        #[ignore = "requires the installed Claude CLI, user authentication and network"]
+        fn real_claude_chat_runs_only_what_the_reviewer_allows() {
+            // Arrange
+            if !claude_is_installed() {
+                eprintln!("skipping: `claude` is not on PATH");
+                return;
+            }
+            let repository = fixture_repository("approvals");
+            let helper_executable = built_desktop_binary()
+                .unwrap_or_else(|| std::env::current_exe().expect("test executable"));
+            let policy: fn(&serde_json::Value) -> ReviewerAction = |event| {
+                let command = event["input"]["command"].as_str().unwrap_or_default();
+                if command.contains("allowed-probe") {
+                    return ReviewerAction::Allow;
+                }
+                if command.contains("interrupted-probe") {
+                    return ReviewerAction::Interrupt;
+                }
+                ReviewerAction::Deny
+            };
+            let mut chat = start_live_chat("approvals", &repository, &helper_executable, policy);
+
+            // Act
+            chat.send("Run the Bash command `touch allowed-probe.txt` once. Reply done.");
+            let allowed_turn = chat.read_turn(|_| {});
+            eprintln!("allowed turn: {:?}", allowed_turn.elapsed);
+            chat.send(
+                "Run the Bash command `touch denied-probe.txt` once. If it is denied, do not retry, reply denied.",
+            );
+            let denied_turn = chat.read_turn(|_| {});
+            eprintln!("denied turn: {:?}", denied_turn.elapsed);
+            chat.send("Run the Bash command `touch interrupted-probe.txt` once. Reply done.");
+            let interrupted_turn = chat.read_turn(|_| {});
+            eprintln!("interrupted turn: {:?}", interrupted_turn.elapsed);
+            chat.send("Reply with the single word ok.");
+            let survived_turn = chat.read_turn(|_| {});
+            eprintln!("survived turn: {:?}", survived_turn.elapsed);
+            let stop_request = AiChatSessionRequest {
+                session_id: chat.session_id.clone(),
+            };
+            ai_chat_stop(chat.handle().state(), chat.handle().state(), stop_request).expect("stop");
+            let exit_event = chat.exits.recv_timeout(EXIT_TIMEOUT);
+            let allowed_file_exists = repository.join("allowed-probe.txt").exists();
+            let denied_file_exists = repository.join("denied-probe.txt").exists();
+            let interrupted_file_exists = repository.join("interrupted-probe.txt").exists();
+            let _ = std::fs::remove_dir_all(&repository);
+
+            // Assert
+            assert_eq!(
+                states_for(&chat, "allowed-probe"),
+                vec!["pending", "allowed"]
+            );
+            assert!(allowed_file_exists, "an allowed command must run");
+            assert_eq!(allowed_turn.result()["subtype"], "success");
+
+            assert_eq!(
+                states_for(&chat, "denied-probe"),
+                vec!["pending", "denied by reviewer"]
+            );
+            assert!(!denied_file_exists, "a denied command must not run");
+            assert!(denied_turn.has_permission_denial());
+            assert!(
+                denied_turn
+                    .tool_result_text()
+                    .contains("The reviewer denied this command"),
+                "the model must learn who denied it: {}",
+                denied_turn.tool_result_text()
+            );
+
+            assert_eq!(
+                states_for(&chat, "interrupted-probe"),
+                vec!["pending", "cancelled"]
+            );
+            assert!(
+                !interrupted_file_exists,
+                "an interrupted approval must not run"
+            );
+            assert_eq!(
+                interrupted_turn.result()["subtype"],
+                "error_during_execution"
+            );
+
+            assert_eq!(survived_turn.result()["subtype"], "success");
+            let exit_event = exit_event.expect("exit event after stop");
+            assert_eq!(exit_event["error"], serde_json::Value::Null);
         }
     }
 }

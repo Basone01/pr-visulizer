@@ -1,13 +1,20 @@
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{ServerCapabilities, ServerConfig},
-    schemars, tool, tool_handler, tool_router, ServerHandler, ServiceExt,
+    schemars,
+    service::RequestContext,
+    tool, tool_handler, tool_router, RoleServer, ServerHandler, ServiceExt,
 };
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::time::Duration;
 
+use crate::ai_chat_approval::DEFAULT_APPROVAL_TIMEOUT;
 use crate::codex_answer::{AnswerPresentation, ANSWER_PRESENTATION_ENV};
+
+// A little above the app's expiry, so the app's own deny always arrives first.
+const HELPER_APPROVAL_READ_TIMEOUT: Duration =
+    Duration::from_secs(DEFAULT_APPROVAL_TIMEOUT.as_secs() + 30);
 
 const MAX_MARKDOWN_BYTES: usize = 256 * 1024;
 const MAX_TITLE_BYTES: usize = 240;
@@ -33,6 +40,14 @@ struct RenderAnswerRequest {
     title: String,
     markdown: String,
     file_refs: Option<Vec<FileReference>>,
+}
+
+// What the CLI sends to the prompt tool, forwarded to the app unchanged.
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+struct ApprovalPromptRequest {
+    tool_name: String,
+    input: serde_json::Value,
+    tool_use_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -86,6 +101,7 @@ impl AnswerPresentation {
 fn tool_router_for(presentation: AnswerPresentation) -> ToolRouter<AppToolServer> {
     let mut router = AppToolServer::tool_router();
     if presentation == AnswerPresentation::Inline {
+        router.merge(AppToolServer::approval_tool_router());
         if let Some(route) = router.map.get_mut("render_answer") {
             route.attr.description = Some(INLINE_RENDER_ANSWER_DESCRIPTION.into());
         }
@@ -116,47 +132,123 @@ impl AppToolServer {
     ) -> Result<serde_json::Value, String> {
         #[cfg(unix)]
         {
-            let mut stream = std::os::unix::net::UnixStream::connect(&self.socket_path)
-                .map_err(|error| format!("app tool unavailable: {error}"))?;
-            stream
-                .set_read_timeout(Some(Duration::from_secs(10)))
-                .map_err(|error| format!("could not set app tool timeout: {error}"))?;
-            stream
-                .set_write_timeout(Some(Duration::from_secs(10)))
-                .map_err(|error| format!("could not set app tool timeout: {error}"))?;
-            let request = AppRequest {
-                token: self.token.clone(),
-                operation,
-                payload,
-            };
-            serde_json::to_writer(&mut stream, &request)
-                .map_err(|error| format!("could not encode app tool request: {error}"))?;
-            stream
-                .write_all(b"\n")
-                .map_err(|error| format!("could not send app tool request: {error}"))?;
-            stream
-                .flush()
-                .map_err(|error| format!("could not flush app tool request: {error}"))?;
-            let mut line = String::new();
-            BufReader::new(stream)
-                .read_line(&mut line)
-                .map_err(|error| format!("could not read app tool response: {error}"))?;
-            let response: AppResponse = serde_json::from_str(&line)
-                .map_err(|_| "app tool returned invalid JSON".to_string())?;
-            if !response.ok {
-                return Err(response
-                    .error
-                    .unwrap_or_else(|| "app tool rejected request".into()));
-            }
-            response
-                .result
-                .ok_or_else(|| "app tool returned no result".into())
+            let stream = self.send_request(operation, payload, Duration::from_secs(10))?;
+            read_response(stream)
         }
         #[cfg(not(unix))]
         {
             let _ = (operation, payload);
             Err("app tools require a Unix socket on this platform".into())
         }
+    }
+
+    #[cfg(unix)]
+    fn send_request<T: Serialize>(
+        &self,
+        operation: &'static str,
+        payload: T,
+        read_timeout: Duration,
+    ) -> Result<std::os::unix::net::UnixStream, String> {
+        let mut stream = std::os::unix::net::UnixStream::connect(&self.socket_path)
+            .map_err(|error| format!("app tool unavailable: {error}"))?;
+        stream
+            .set_read_timeout(Some(read_timeout))
+            .map_err(|error| format!("could not set app tool timeout: {error}"))?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(10)))
+            .map_err(|error| format!("could not set app tool timeout: {error}"))?;
+        let request = AppRequest {
+            token: self.token.clone(),
+            operation,
+            payload,
+        };
+        serde_json::to_writer(&mut stream, &request)
+            .map_err(|error| format!("could not encode app tool request: {error}"))?;
+        stream
+            .write_all(b"\n")
+            .map_err(|error| format!("could not send app tool request: {error}"))?;
+        stream
+            .flush()
+            .map_err(|error| format!("could not flush app tool request: {error}"))?;
+        Ok(stream)
+    }
+
+    // The CLI waits on this answer, so every failure becomes a deny instead of a tool error.
+    // When the CLI cancels the prompt, hanging up tells the app nobody is waiting any more.
+    async fn ask_reviewer(
+        &self,
+        prompt: ApprovalPromptRequest,
+        context: RequestContext<RoleServer>,
+    ) -> String {
+        #[cfg(unix)]
+        {
+            let stream = match self.send_request("approve", &prompt, HELPER_APPROVAL_READ_TIMEOUT) {
+                Ok(stream) => stream,
+                Err(error) => return helper_deny(&error),
+            };
+            let hang_up = match stream.try_clone() {
+                Ok(hang_up) => hang_up,
+                Err(error) => return helper_deny(&error.to_string()),
+            };
+            let reply = tokio::task::spawn_blocking(move || read_response(stream));
+            tokio::select! {
+                joined = reply => match joined {
+                    Ok(Ok(answer)) => answer.to_string(),
+                    Ok(Err(error)) => helper_deny(&error),
+                    Err(_) => helper_deny("the app stopped answering"),
+                },
+                _ = context.ct.cancelled() => {
+                    let _ = hang_up.shutdown(std::net::Shutdown::Both);
+                    helper_deny("Claude cancelled the request")
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (prompt, context);
+            helper_deny("approvals need a Unix socket on this platform")
+        }
+    }
+}
+
+#[cfg(unix)]
+fn read_response(stream: std::os::unix::net::UnixStream) -> Result<serde_json::Value, String> {
+    let mut line = String::new();
+    BufReader::new(stream)
+        .read_line(&mut line)
+        .map_err(|error| format!("could not read app tool response: {error}"))?;
+    let response: AppResponse =
+        serde_json::from_str(&line).map_err(|_| "app tool returned invalid JSON".to_string())?;
+    if !response.ok {
+        return Err(response
+            .error
+            .unwrap_or_else(|| "app tool rejected request".into()));
+    }
+    response
+        .result
+        .ok_or_else(|| "app tool returned no result".into())
+}
+
+fn helper_deny(reason: &str) -> String {
+    let message = format!(
+        "PR Visualizer could not ask the reviewer: {reason}. Do not retry it. Continue with a simpler read-only command."
+    );
+    serde_json::json!({ "behavior": "deny", "message": message }).to_string()
+}
+
+// Answers the CLI's permission prompts (`--permission-prompt-tool`). The CLI keeps it out of the
+// model's tool list. It is served only for chat sessions, the terminal asks in its own UI.
+#[tool_router(router = approval_tool_router)]
+impl AppToolServer {
+    #[tool(
+        description = "Answers Claude Code permission prompts for the PR Visualizer chat by asking the reviewer. Used through --permission-prompt-tool, not by the model."
+    )]
+    async fn approve(
+        &self,
+        Parameters(prompt): Parameters<ApprovalPromptRequest>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<String, String> {
+        Ok(self.ask_reviewer(prompt, context).await)
     }
 }
 
@@ -285,7 +377,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chat_helper_advertises_inline_wording_with_the_same_tools_and_schemas() {
+    async fn chat_helper_advertises_inline_wording_the_same_app_tools_and_the_prompt_tool() {
         // Arrange
         let server = AppToolServer {
             socket_path: "/tmp/not-used.sock".into(),
@@ -331,7 +423,16 @@ mod tests {
             shape.sort_by(|left, right| left.0.cmp(&right.0));
             shape
         };
-        assert_eq!(shape(&chat_tools), shape(&terminal_tools));
+        let chat_app_tools: Vec<rmcp::model::Tool> = chat_tools
+            .iter()
+            .filter(|tool| tool.name != "approve")
+            .cloned()
+            .collect();
+        assert_eq!(shape(&chat_app_tools), shape(&terminal_tools));
+        assert!(
+            chat_tools.iter().any(|tool| tool.name == "approve"),
+            "the chat helper must serve the permission prompt tool"
+        );
         let render_answer = chat_tools
             .iter()
             .find(|tool| tool.name == "render_answer")
@@ -340,6 +441,38 @@ mod tests {
             render_answer.description.as_deref(),
             Some(INLINE_RENDER_ANSWER_DESCRIPTION)
         );
+    }
+
+    #[test]
+    fn only_the_chat_helper_serves_the_permission_prompt_tool() {
+        // Arrange
+        let terminal = AnswerPresentation::Window;
+        let chat = AnswerPresentation::Inline;
+
+        // Act
+        let terminal_router = tool_router_for(terminal);
+        let chat_router = tool_router_for(chat);
+
+        // Assert
+        assert!(!terminal_router.has_route("approve"));
+        assert!(chat_router.has_route("approve"));
+    }
+
+    #[test]
+    fn a_helper_failure_is_answered_as_a_deny_the_cli_accepts() {
+        // Arrange
+        let reason = "app tool unavailable: connection refused";
+
+        // Act
+        let answer: serde_json::Value =
+            serde_json::from_str(&helper_deny(reason)).expect("deny is JSON");
+
+        // Assert
+        let expected = serde_json::json!({
+            "behavior": "deny",
+            "message": "PR Visualizer could not ask the reviewer: app tool unavailable: connection refused. Do not retry it. Continue with a simpler read-only command.",
+        });
+        assert_eq!(answer, expected);
     }
 
     #[test]

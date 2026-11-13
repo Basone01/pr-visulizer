@@ -11,6 +11,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use tauri::{Emitter, Runtime};
 
+use crate::ai_chat_approval::CHAT_MCP_TOOL_TIMEOUT_MS;
 use crate::codex_answer::{
     AnswerPresentation, CodexAnswerContext, CodexAnswerSessions, ANSWER_PRESENTATION_ENV,
 };
@@ -413,16 +414,18 @@ pub(crate) fn claude_safety_profile(
     if let Some(value) = presentation.helper_env_value() {
         helper_env[ANSWER_PRESENTATION_ENV] = value.into();
     }
-    let mcp_config = serde_json::json!({
-        "mcpServers": {
-            "pr_visualizer": {
-                "type": "stdio",
-                "command": helper_executable.to_string_lossy(),
-                "args": ["--render-mcp"],
-                "env": helper_env,
-            },
-        },
+    let mut app_server = serde_json::json!({
+        "type": "stdio",
+        "command": helper_executable.to_string_lossy(),
+        "args": ["--render-mcp"],
+        "env": helper_env,
     });
+    // The chat answers permission prompts through this server and the reviewer may take minutes.
+    // A per-server timeout overrides MCP_TOOL_TIMEOUT and the idle timeout from the user's env.
+    if presentation == AnswerPresentation::Inline {
+        app_server["timeout"] = CHAT_MCP_TOOL_TIMEOUT_MS.into();
+    }
+    let mcp_config = serde_json::json!({ "mcpServers": { "pr_visualizer": app_server } });
     let args = vec![
         "--mcp-config".to_string(),
         mcp_config.to_string(),

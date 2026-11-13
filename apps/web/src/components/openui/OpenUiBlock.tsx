@@ -2,18 +2,22 @@ import { type ActionEvent, type ParseResult, Renderer } from "@openuidev/react-l
 import { ThemeProvider } from "@openuidev/react-ui"
 // OpenUI's component styles. Only `.text-content*` is unprefixed, and the app doesn't use it.
 import "@openuidev/react-ui/styles/index.css"
-import { type ReactNode, useCallback, useId, useMemo, useState } from "react"
+import { type ReactNode, useCallback, useId, useMemo, useRef, useState } from "react"
 
 import { openExternalUrl } from "@/utils/externalLink/openExternal"
 import { stripBidiControls } from "@/utils/text/bidiControls"
+
+import { hasRootStatement, synthesizedRoot } from "@/entity/openuiBlock/blockProgram"
 
 import { ContainedRoot } from "./ContainedRoot"
 import styles from "./OpenUiBlock.module.css"
 import { createArmedLinkOpener, routeBlockAction, toHttpsUrl } from "./blockActions"
 import { type BlockHost, BlockHostContext } from "./blockHost"
+import { readStatements } from "./blockStatements"
 import { APP_TOKEN_THEME } from "./openUiTheme"
-import { reviewLibrary } from "./reviewLibrary"
+import { REVIEW_ROOT_COMPONENT, canDrawOnItsOwn, reviewLibrary } from "./reviewLibrary"
 import { useAppThemeMode } from "./useAppThemeMode"
+import { useHasVisibleContent } from "./useHasVisibleContent"
 
 // The only entry point to OpenUI for the rest of the app (contract §2). Loaded with React.lazy,
 // so nothing from OpenUI lands in the eager chunk.
@@ -39,13 +43,24 @@ export type OpenUiBlockProps = {
 export default function OpenUiBlock(props: OpenUiBlockProps): ReactNode {
   // No block, however broken, may take down the chat: see ContainedRoot for the failure it stops.
   return (
-    <ContainedRoot className={styles.host} fallback={<BlockFallback code={props.code} />}>
+    <ContainedRoot
+      className={styles.host}
+      fallback={<BlockFallback code={props.code} reason="failed" />}
+    >
       <RenderedBlock {...props} />
     </ContainedRoot>
   )
 }
 
-type RootState = "unknown" | "present" | "absent"
+// What the last parse of the block found. "unknown" until the first parse.
+type BlockState = { kind: "unknown" } | { kind: "parsed"; hasRoot: boolean; droppedParts: string[] }
+
+// Why a closed block shows its fallback instead of what it drew.
+//   no-root: no root statement, and nothing to build one from.
+//   root-failed: a root statement, but its root could not be built (e.g. a misspelled Stak).
+//   nothing-drawn: a root, but nothing in the block shows.
+//   failed: rendering threw.
+type FallbackReason = "empty" | "no-root" | "root-failed" | "nothing-drawn" | "failed"
 
 function RenderedBlock({
   code,
@@ -55,8 +70,9 @@ function RenderedBlock({
   onFollowUp,
 }: OpenUiBlockProps): ReactNode {
   const mode = useAppThemeMode()
-  const [rootState, setRootState] = useState<RootState>("unknown")
-  const [droppedParts, setDroppedParts] = useState<string[]>([])
+  const [blockState, setBlockState] = useState<BlockState>({ kind: "unknown" })
+  const drawingRef = useRef<HTMLDivElement>(null)
+  const hasVisibleContent = useHasVisibleContent(drawingRef)
 
   // A Button or ListItem arms the one URL it shows, and an open_url event opens only that URL.
   const [armedLinks] = useState(createArmedLinkOpener)
@@ -71,6 +87,15 @@ function RenderedBlock({
     [canOpenFile, onOpenFile, armedLinks]
   )
 
+  // A model sometimes splits one program across two fences, and the second has no root. Once the
+  // fence is closed, such a block gets a root over its top-level components, so it still draws
+  // where the agent put it. While streaming, no root just means "not yet".
+  const statements = useMemo(() => (streaming ? [] : readStatements(code)), [code, streaming])
+  const program = useMemo(() => {
+    const root = synthesizedRoot(statements, REVIEW_ROOT_COMPONENT, canDrawOnItsOwn)
+    return root ? `${code}\n${root}` : code
+  }, [code, statements])
+
   const handleAction = useCallback(
     (event: ActionEvent) => {
       const route = routeBlockAction(event)
@@ -81,12 +106,22 @@ function RenderedBlock({
   )
 
   const handleParseResult = useCallback((result: ParseResult | null) => {
-    setRootState(result?.root ? "present" : "absent")
-    setDroppedParts(describeDroppedParts(result?.meta.errors ?? []))
+    setBlockState({
+      kind: "parsed",
+      hasRoot: result?.root != null,
+      droppedParts: describeDroppedParts(result?.meta.errors ?? [], result?.meta.unresolved ?? []),
+    })
   }, [])
 
-  // While streaming, an empty program is just "not yet". Once the fence closed, it's a failure.
-  const isUnrenderable = !streaming && rootState === "absent"
+  const fallbackReason = streaming
+    ? null
+    : fallbackReasonFor({
+        code,
+        blockState,
+        hasVisibleContent,
+        hasRootStatement: hasRootStatement(statements),
+      })
+  const droppedParts = blockState.kind === "parsed" ? blockState.droppedParts : []
 
   return (
     <div className={styles.block}>
@@ -97,23 +132,48 @@ function RenderedBlock({
         darkTheme={APP_TOKEN_THEME}
       >
         <BlockHostContext.Provider value={host}>
-          <Renderer
-            response={code}
-            library={reviewLibrary}
-            isStreaming={streaming}
-            onAction={handleAction}
-            onParseResult={handleParseResult}
-          />
+          <div ref={drawingRef}>
+            <Renderer
+              response={program}
+              library={reviewLibrary}
+              isStreaming={streaming}
+              onAction={handleAction}
+              onParseResult={handleParseResult}
+            />
+          </div>
         </BlockHostContext.Provider>
       </ThemeProvider>
-      {isUnrenderable && <BlockFallback code={code} />}
-      {!streaming && rootState === "present" && droppedParts.length > 0 && (
+      {fallbackReason && <BlockFallback code={code} reason={fallbackReason} />}
+      {!streaming && droppedParts.length > 0 && (
         <p className={styles.droppedNote} role="note">
           {`Part of this block could not be shown: ${droppedParts.join(", ")}.`}
         </p>
       )}
     </div>
   )
+}
+
+type FallbackInputs = {
+  code: string
+  blockState: BlockState
+  hasVisibleContent: boolean | null
+  hasRootStatement: boolean
+}
+
+function fallbackReasonFor({
+  code,
+  blockState,
+  hasVisibleContent,
+  hasRootStatement,
+}: FallbackInputs): FallbackReason | null {
+  if (code.trim() === "") return "empty"
+  if (blockState.kind === "unknown") return null
+  if (!blockState.hasRoot) return hasRootStatement ? "root-failed" : "no-root"
+  // Judged on what actually shows, not on the parse tree: text in a Stack or a Callout root draws,
+  // a root of parts that render nothing does not.
+  if (hasVisibleContent === false) return "nothing-drawn"
+
+  return null
 }
 
 // OpenUI drops a component it cannot build and renders the rest silently, so a misspelled
@@ -124,7 +184,10 @@ const MAX_NAMED_PARTS = 3
 
 type ValidationError = ParseResult["meta"]["errors"][number]
 
-function describeDroppedParts(errors: ValidationError[]): string[] {
+function describeDroppedParts(errors: ValidationError[], unresolved: string[]): string[] {
+  const undefinedNames = unresolved.map(
+    (name) => `${stripBidiControls(name)} is not defined in this block`
+  )
   const parts = errors
     .filter((error) => DROPPING_ERRORS.has(error.code))
     .map((error) => {
@@ -133,7 +196,7 @@ function describeDroppedParts(errors: ValidationError[]): string[] {
         ? `${component} is not a known component`
         : `${component} is missing ${stripBidiControls(error.path.replace(/^\//, ""))}`
     })
-  const uniqueParts = [...new Set(parts)]
+  const uniqueParts = [...new Set([...undefinedNames, ...parts])]
   if (uniqueParts.length <= MAX_NAMED_PARTS) return uniqueParts
 
   const hiddenCount = uniqueParts.length - MAX_NAMED_PARTS
@@ -150,15 +213,33 @@ function openHttpsUrl(raw: string): void {
 
 type BlockFallbackProps = {
   code: string
+  reason: FallbackReason
 }
 
-function BlockFallback({ code }: BlockFallbackProps): ReactNode {
+const FALLBACK_NOTES: Record<Exclude<FallbackReason, "empty">, string> = {
+  "no-root": "This block has no root statement and nothing to build one from. Its source:",
+  "root-failed": "This block's root could not be built. Its source:",
+  "nothing-drawn": "Nothing in this block could be drawn. Its source:",
+  failed: "This block could not be shown. Its source:",
+}
+
+function BlockFallback({ code, reason }: BlockFallbackProps): ReactNode {
   const noteId = useId()
+
+  if (reason === "empty") {
+    return (
+      <figure className={styles.fallback} aria-labelledby={noteId}>
+        <figcaption id={noteId} className={styles.fallbackNote}>
+          This block is empty.
+        </figcaption>
+      </figure>
+    )
+  }
 
   return (
     <figure className={styles.fallback} aria-labelledby={noteId}>
       <figcaption id={noteId} className={styles.fallbackNote}>
-        This block could not be shown. Its source:
+        {FALLBACK_NOTES[reason]}
       </figcaption>
       <pre className={styles.fallbackCode}>
         <code>{code}</code>

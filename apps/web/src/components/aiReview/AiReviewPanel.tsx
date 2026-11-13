@@ -1,18 +1,16 @@
 import type { AiReviewTarget } from "@pr-visulizer/shared"
-import { useEffect, useId, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import type { KeyValueStore } from "@/utils/storage/keyValueStore"
 
 import {
-  AI_PANEL_SURFACE_LABELS,
-  type AiPanelSurface,
   type AiReviewSettings,
   DEFAULT_AI_REVIEW_SETTINGS,
   type SelectableAiProviderId,
   TERMINAL_PROVIDERS,
   TERMINAL_PROVIDER_ORDER,
   describePanelSettings,
-  resolvePanelSurface,
+  panelSurfaceFor,
   selectableAiProviderIdSchema,
 } from "@/entity/aiReviewSettings"
 import {
@@ -100,9 +98,8 @@ export function createChatInitialPrompt(input: InitialPromptInput): string {
   return [
     ...describePullRequest(input),
     `Prefer sem diff -v --from ${input.baseSha} --to ${input.headSha} for a semantic, entity-level view of the change. Only if that command fails, run git diff as a separate second command, never joined to it with ||.`,
-    // Observed with the chat's own flags (2026-11-13): these are denied without asking, while
-    // &&, ||, ;, pipes and 2>&1 between read-only commands are allowed.
-    "Some shell commands are denied in this chat without asking: subshells in parentheses, git rev-parse, and git diff with -U<n>. A denial applies to that one command only, so run a simpler read-only command such as git diff, git diff --stat, git show or git grep, and carry on.",
+    // The chat asks the reviewer before a command that needs approval (CONTRACT.md 6).
+    "Some shell commands need the reviewer’s approval: the reviewer is asked and may deny it. A denial applies to that one command only, so carry on with a simpler read-only command such as git diff, git diff --stat, git show or git grep.",
     "Answer in this chat, in Markdown.",
     "Mermaid diagrams are not rendered in this chat, so draw a diagram with an openui-lang Diagram or SequenceDiagram block.",
     "Make every location in a file of this PR clickable: write it as a Markdown link to the repo-relative path, with the line when known, such as [src/app.ts:42](src/app.ts#L42).",
@@ -136,6 +133,8 @@ export function AiReviewPanel({
   const [settingsOpen, setSettingsOpen] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  // Counts saves, so a save result can tell whether a newer save has started since.
+  const latestSaveRef = useRef(0)
 
   useEffect(() => {
     let active = true
@@ -197,9 +196,8 @@ export function AiReviewPanel({
   const provider = settings.terminalProvider
   const terminalLabel =
     provider === null ? UNCHOSEN_TERMINAL_LABEL : TERMINAL_PROVIDERS[provider].label
-  const surface =
-    provider === null ? "terminal" : resolvePanelSurface(provider, settings.panelSurface)
-  const surfaceFieldName = useId()
+  // The provider decides the surface: Claude chats, Codex runs in the terminal.
+  const surface = provider === null ? "terminal" : panelSurfaceFor(provider)
   // Built-in shortcuts depend on the surface (only the chat can draw a diagram block),
   // the reviewer's custom shortcuts go on both.
   const promptShortcuts = useMemo(
@@ -226,13 +224,21 @@ export function AiReviewPanel({
 
   // The local update applies first so the select responds at once,
   // then the saved settings replace it.
+  // Only the newest save may replace it. An older save that lands later would put back the
+  // model of an earlier pick, and in a running chat every model flip is a real switch request.
   function persist(
     localUpdate: AiReviewSettings,
     save: (settingsStorage: AiReviewSettingsStorage) => Promise<AiReviewSettings>
   ): void {
+    latestSaveRef.current += 1
+    const saveNumber = latestSaveRef.current
     setSettings(localUpdate)
     setSaveError(null)
-    void save(createAiReviewSettingsStorage(storage)).then(setSettings).catch(showSaveError)
+    void save(createAiReviewSettingsStorage(storage))
+      .then((savedSettings) => {
+        if (saveNumber === latestSaveRef.current) setSettings(savedSettings)
+      })
+      .catch(showSaveError)
   }
 
   function showSaveError(error: unknown): void {
@@ -243,12 +249,6 @@ export function AiReviewPanel({
     showModelControls(settings, nextProvider)
     persist({ ...settings, terminalProvider: nextProvider }, (settingsStorage) =>
       settingsStorage.saveTerminalProvider(nextProvider)
-    )
-  }
-
-  function saveSurface(nextSurface: AiPanelSurface): void {
-    persist({ ...settings, panelSurface: nextSurface }, (settingsStorage) =>
-      settingsStorage.savePanelSurface(nextSurface)
     )
   }
 
@@ -313,9 +313,7 @@ export function AiReviewPanel({
           open={settingsOpen}
           onToggle={(event) => setSettingsOpen(event.currentTarget.open)}
         >
-          <summary className={styles.settingsSummary}>
-            {describePanelSettings(settings, surface)}
-          </summary>
+          <summary className={styles.settingsSummary}>{describePanelSettings(settings)}</summary>
           <div>
             <label className={styles.field}>
               Provider
@@ -371,24 +369,6 @@ export function AiReviewPanel({
                     <option value="__custom__">Custom model ID…</option>
                   </select>
                 </label>
-                {/* Offered only when the provider has more than one surface (Claude). */}
-                {TERMINAL_PROVIDERS[provider].surfaces.length > 1 && (
-                  <fieldset className={styles.surfaceSwitch}>
-                    <legend className={styles.surfaceLegend}>Surface</legend>
-                    {TERMINAL_PROVIDERS[provider].surfaces.map((surfaceOption) => (
-                      <label key={surfaceOption} className={styles.surfaceOption}>
-                        <input
-                          type="radio"
-                          name={surfaceFieldName}
-                          value={surfaceOption}
-                          checked={surface === surfaceOption}
-                          onChange={() => saveSurface(surfaceOption)}
-                        />
-                        {AI_PANEL_SURFACE_LABELS[surfaceOption]}
-                      </label>
-                    ))}
-                  </fieldset>
-                )}
                 {usingCustomModel && (
                   <label className={styles.field}>
                     Custom model ID
@@ -432,7 +412,8 @@ export function AiReviewPanel({
           // The slot keeps the surface a usable height, the open settings above it yield first.
           <div className={styles.surfaceSlot}>
             {surface === "chat" ? (
-              // Switching surface unmounts the other one, which ends its session. Nothing relaunches.
+              // A provider change swaps the surface, which ends the left one's session.
+              // Nothing relaunches on its own.
               <AiChatSurface
                 provider={provider}
                 shortcuts={promptShortcuts}

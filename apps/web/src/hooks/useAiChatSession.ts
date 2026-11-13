@@ -11,9 +11,13 @@ import {
   EMPTY_CHAT_TRANSCRIPT,
   applyChatEvents,
 } from "@/entity/aiChat/chatTranscript"
+import type { ToolApprovalDecision } from "@/entity/aiChat/toolApproval"
 import {
   type SelectableAiProviderId,
   TERMINAL_PROVIDERS,
+  isResolvedModel,
+  modelDisplayName,
+  modelNameForResolvedId,
   offersChat,
 } from "@/entity/aiReviewSettings"
 
@@ -21,6 +25,7 @@ import {
   type AiChatSession,
   type AiSessionContext,
   startAiChatSession,
+  stopAiChatSession,
 } from "@/service/aiChat/chatSession"
 import {
   openAnswerFile,
@@ -28,9 +33,11 @@ import {
   subscribeAnswerReports,
 } from "@/service/terminal/answerWindow"
 
-// The lifecycle keeps the same promises as CodexTerminal.tsx (start gate, provider/model reset,
+// The lifecycle keeps the same promises as CodexTerminal.tsx (start gate, provider reset,
 // PR change ends the session, debounced context, Stop reads "Stopped."). That component mixes
 // the same logic with xterm and is not shared yet, so a change to one belongs in both.
+// The one intended difference is the model: the terminal resets on a model change, the chat
+// switches the running session and keeps its conversation.
 
 export type AiChatStatus = "idle" | "starting" | "running" | "stopped" | "error"
 
@@ -64,9 +71,16 @@ type AiChatSessionState = {
   // onUnsent hands the text back when the native side rejects a send that already left.
   send: (text: string, onUnsent: (text: string) => void) => AiChatSendResult
   interrupt: () => void
+  // Rejects when the app did not apply the answer. The card's state still comes from events.
+  answerApproval: (requestId: string, decision: ToolApprovalDecision) => Promise<void>
   reopenAnswer: () => void
   openFile: (path: string, line: number | undefined) => Promise<void>
 }
+
+// What the CLI calls its own default model in a set_model request (measured 2.1.323).
+const CLI_DEFAULT_MODEL_ALIAS = "default"
+// The error_code the CLI gives for a model it does not know (measured 2.1.323).
+const MODEL_NOT_FOUND_CODE = "not_found"
 
 // Draft bodies save on every keystroke, so context changes are coalesced before they cross IPC.
 const CONTEXT_PUSH_DEBOUNCE_MS = 150
@@ -99,14 +113,27 @@ export function useAiChatSession({
   const [hasAnswer, setHasAnswer] = useState(false)
   // 0 means the reviewer has not pressed Start yet, Start and Restart both bump it.
   const [launchKey, setLaunchKey] = useState(0)
-  // A provider or model change never launches: it drops back to idle in every state.
+  // A provider change never launches: it drops back to idle in every state.
   // Resetting during render (not in an effect) means the start effect never sees
   // the old launchKey paired with the new provider, so nothing starts even briefly.
-  const [launchTarget, setLaunchTarget] = useState({ provider, model })
-  if (launchTarget.provider !== provider || launchTarget.model !== model) {
-    setLaunchTarget({ provider, model })
+  // A model change does not reset: a running chat switches model and keeps its conversation.
+  const [launchProvider, setLaunchProvider] = useState(provider)
+  if (launchProvider !== provider) {
+    setLaunchProvider(provider)
     setLaunchKey(0)
   }
+
+  // The model the next Start launches with, read at start time.
+  const modelRef = useRef(model)
+  modelRef.current = model
+  // The model the CLI says the running session is on ("claude-haiku-5-5"), null until it says.
+  // Only the CLI sets it, never a request, so a refused change cannot make it wrong.
+  const runningModelRef = useRef<string | null>(null)
+  // Model changes sent and not answered yet, by request id, with the model the reviewer chose.
+  const pendingModelChangesRef = useRef(new Map<string, string | null>())
+  // The running session's event sink, so a refused model change outside the start effect
+  // reaches the transcript through the same path.
+  const applyModelEventsRef = useRef<(events: ReadonlyArray<ChatEvent>) => void>(() => {})
 
   // Read at start time only: a new selected file must not restart the session.
   const contextRef = useRef(context)
@@ -145,8 +172,13 @@ export function useAiChatSession({
     }
 
     const linkedRepositoryPath = repositoryPath
+    const launchModel = modelRef.current
+    runningModelRef.current = null
+    pendingModelChangesRef.current.clear()
+    applyModelEventsRef.current = (events) => applyEvents(events)
     let active = true
     let exited = false
+    let startRequested = false
     let session: AiChatSession | null = null
     const sessionId = createSessionId()
     activeSessionIdRef.current = sessionId
@@ -173,19 +205,53 @@ export function useAiChatSession({
       .catch(() => undefined)
 
     function applyEvents(events: ReadonlyArray<ChatEvent>): void {
-      if (active) setTranscript((current) => applyChatEvents(current, events))
+      if (!active) return
+
+      const transcriptEvents = events.flatMap((event): ChatEvent[] => {
+        if (event.kind === "model_change_answered") return settleModelChange(event)
+        if (event.kind === "model_reported") runningModelRef.current = event.resolvedModel
+        return [event]
+      })
+      setTranscript((current) => applyChatEvents(current, transcriptEvents))
+    }
+
+    // Only a reply to one of this session's own requests becomes a notice, so the chat says a
+    // model changed only when the provider confirmed it.
+    function settleModelChange(
+      answer: Extract<ChatEvent, { kind: "model_change_answered" }>
+    ): ChatEvent[] {
+      const pending = pendingModelChangesRef.current
+      if (!pending.has(answer.requestId)) return []
+
+      const chosenModel = pending.get(answer.requestId) ?? null
+      pending.delete(answer.requestId)
+      if (answer.resolvedModel !== null) runningModelRef.current = answer.resolvedModel
+      const modelName = modelDisplayName(provider, chosenModel)
+      if (answer.accepted) return [{ kind: "model_changed", modelName }]
+
+      return [
+        {
+          kind: "model_change_refused",
+          modelName,
+          previousModelName: runningModelName(),
+          reason: answer.error ?? "the CLI refused it",
+          // A model that does not exist will not start either, so the notice promises nothing.
+          staysSelected: answer.errorCode !== MODEL_NOT_FOUND_CODE,
+        },
+      ]
     }
 
     async function startSession(): Promise<void> {
       const systemPromptAppend = await loadSystemPromptRef.current()
       if (!active) return
 
+      startRequested = true
       const startedSession = await startAiChatSession(
         {
           sessionId,
           provider,
           repositoryPath: linkedRepositoryPath,
-          model,
+          model: launchModel,
           systemPromptAppend,
           context: contextRef.current,
         },
@@ -195,6 +261,7 @@ export function useAiChatSession({
             if (!active || activeSessionIdRef.current !== exit.sessionId) return
 
             exited = true
+            pendingModelChangesRef.current.clear()
             applyEvents([{ kind: "session_ended" }])
             sessionRef.current = null
             onSessionEnded(sessionId)
@@ -214,6 +281,12 @@ export function useAiChatSession({
       session = startedSession
       sessionRef.current = startedSession
       onSessionStarted(sessionId)
+      // A model picked while the session was starting missed the model effect, so catch up now.
+      // Awaited, so its line reaches the CLI before the first turn and that turn uses it.
+      if (modelRef.current !== launchModel) {
+        await switchSessionModel(startedSession, modelRef.current)
+        if (!active || exited) return
+      }
       void startedSession.updateContext(contextRef.current).catch((error: unknown) => {
         if (active) showError(error)
       })
@@ -231,24 +304,75 @@ export function useAiChatSession({
 
     return () => {
       active = false
+      pendingModelChangesRef.current.clear()
       answerUnlisten?.()
       if (activeSessionIdRef.current === sessionId) activeSessionIdRef.current = null
       onSessionEnded(sessionId)
       if (sessionRef.current === session) sessionRef.current = null
       // After an exit the native side has already dropped the session, so a stop would only reject.
       if (session) void (exited ? session.dispose() : stopAndDispose(session))
+      // A start still in flight (a command that never settles) is stopped by its id, so a
+      // cancelled launch leaves no process behind. A late session object is disposed above.
+      if (session === null && startRequested && !exited) {
+        void stopAiChatSession(sessionId).catch(() => undefined)
+      }
     }
     // initialPrompt and context are read through refs on purpose, see contextRef above.
-  }, [
-    label,
-    launchKey,
-    model,
-    onSessionEnded,
-    onSessionStarted,
-    provider,
-    repositoryPath,
-    prIdentity,
-  ])
+  }, [label, launchKey, onSessionEnded, onSessionStarted, provider, repositoryPath, prIdentity])
+
+  // A model change while a chat runs switches the running session, its conversation stays.
+  // The CLI accepts it even mid-turn, and the next turn runs on the new model (measured 2.1.323).
+  // With no session, the new model only changes what the next Start launches.
+  useEffect(() => {
+    const session = sessionRef.current
+    if (session !== null) void switchSessionModel(session, model)
+  }, [model])
+
+  // Resolves once the command settled, a failure is turned into a notice and never rejects.
+  async function switchSessionModel(
+    session: AiChatSession,
+    nextModel: string | null
+  ): Promise<void> {
+    if (isHeadingToModel(nextModel)) return
+
+    const requestId = createSessionId()
+    // Registered before the call: the CLI's reply can arrive before the invoke settles.
+    pendingModelChangesRef.current.set(requestId, nextModel)
+    try {
+      await session.setModel(requestId, nextModel ?? CLI_DEFAULT_MODEL_ALIAS)
+    } catch (error) {
+      // Already dropped means the session ended first, so there is nothing left to tell.
+      if (!pendingModelChangesRef.current.delete(requestId)) return
+
+      applyModelEventsRef.current([
+        {
+          kind: "model_change_refused",
+          modelName: modelDisplayName(provider, nextModel),
+          previousModelName: runningModelName(),
+          reason: errorText(error),
+          staysSelected: true,
+        },
+      ])
+    }
+  }
+
+  // Whether the chat already runs this model, or will once the newest request is answered.
+  // A pick back to the running model while another request is pending still has to be sent.
+  function isHeadingToModel(nextModel: string | null): boolean {
+    const pendingModels = [...pendingModelChangesRef.current.values()]
+    if (pendingModels.length > 0) return pendingModels.at(-1) === nextModel
+
+    const runningModel = runningModelRef.current
+    // The CLI default has no alias to compare with, so picking it is always sent.
+    if (runningModel === null || nextModel === null) return false
+
+    return isResolvedModel(provider, runningModel, nextModel)
+  }
+
+  function runningModelName(): string | null {
+    const runningModel = runningModelRef.current
+    return runningModel === null ? null : modelNameForResolvedId(provider, runningModel)
+  }
 
   // Only changes are debounced. The first push after Start happens in the start path above,
   // straight after the session comes up, so it is never delayed.
@@ -269,6 +393,12 @@ export function useAiChatSession({
   }
 
   function stop(): void {
+    // Still starting: cancel the launch, which drops back to idle and stops what was started.
+    if (sessionRef.current === null && status === "starting") {
+      setLaunchKey(0)
+      return
+    }
+
     stopRequestedRef.current = true
     void sessionRef.current?.stop().catch((error: unknown) => {
       stopRequestedRef.current = false
@@ -299,6 +429,17 @@ export function useAiChatSession({
     return "sent"
   }
 
+  // Stable, so memoized transcript entries do not re-render on every streamed delta.
+  const answerApproval = useCallback(
+    async (requestId: string, decision: ToolApprovalDecision): Promise<void> => {
+      const session = sessionRef.current
+      if (session === null) throw new Error("The chat session has ended.")
+
+      await session.answerApproval(requestId, decision)
+    },
+    []
+  )
+
   function interrupt(): void {
     void sessionRef.current?.interrupt().catch(showError)
   }
@@ -327,6 +468,7 @@ export function useAiChatSession({
     stop,
     send,
     interrupt,
+    answerApproval,
     reopenAnswer,
     openFile,
   }

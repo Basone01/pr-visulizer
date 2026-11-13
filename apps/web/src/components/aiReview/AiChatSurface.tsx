@@ -17,6 +17,7 @@ import { githubPrUrl } from "@/utils/prUrl/githubFileUrl"
 import type { AnswerFileReference, RenderedAnswer } from "@/entity/aiChat/chatEvent"
 import type { ChatEntry, ChatTranscript, ToolActivityStatus } from "@/entity/aiChat/chatTranscript"
 import { splitMessageSegments } from "@/entity/aiChat/messageSegments"
+import type { ToolApprovalDecision } from "@/entity/aiChat/toolApproval"
 import { type SelectableAiProviderId, TERMINAL_PROVIDERS } from "@/entity/aiReviewSettings"
 import type { TerminalPromptShortcut } from "@/entity/terminalPromptShortcuts"
 
@@ -27,6 +28,7 @@ import { type AiChatStatus, MAX_MESSAGE_BYTES, useAiChatSession } from "@/hooks/
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { MarkdownContent, type MarkdownFileReference } from "@/components/markdown/MarkdownContent"
 
+import { AiChatApprovalCard } from "./AiChatApprovalCard"
 import styles from "./AiChatSurface.module.css"
 
 // OpenUI stays out of the eager entry chunk: both the blocks and their prompt load on demand.
@@ -52,6 +54,7 @@ type AiChatSurfaceProps = {
 
 type OpenFile = (path: string, line: number | undefined) => void
 type CanOpenFile = (path: string) => boolean
+type AnswerApproval = (requestId: string, decision: ToolApprovalDecision) => Promise<void>
 
 // Blocks may write ./src/a.ts for src/a.ts. The check and the open use this one normalization.
 function toRepoPath(path: string): string {
@@ -65,6 +68,7 @@ const TOOL_STATUS_LABELS: Record<ToolActivityStatus, string> = {
   failed: "Failed",
   denied: "Denied",
   stopped: "Stopped",
+  interrupted: "Interrupted",
 }
 
 // WebKit (the desktop WKWebView) fires the Enter that accepts an IME candidate after
@@ -107,7 +111,17 @@ export function AiChatSurface({
   const [fileError, setFileError] = useState<string | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const isRunning = chat.status === "running"
+  const isSessionLive = chat.status === "starting" || isRunning
   const isTurnRunning = isRunning && chat.transcript.turn === "running"
+  // The transcript is busy while a turn streams, which silences it for a screen reader, and a
+  // request for approval always arrives mid-turn. So a waiting request is announced on its own.
+  const waitingApproval = chat.transcript.entries.findLast(
+    (entry) => entry.kind === "tool_approval" && entry.approval.state === "pending"
+  )
+  const approvalAnnouncement =
+    waitingApproval?.kind === "tool_approval"
+      ? `${label} asks to run ${waitingApproval.approval.toolName}. Allow once or Deny it in the chat.`
+      : ""
   const headerText = headerTitle(chat.status, isTurnRunning, label)
   // Keyed on the paths' text, not the review object: the review is rebuilt on every selection
   // or draft change, and a new array would re-render every message in the transcript.
@@ -190,7 +204,8 @@ export function AiChatSurface({
               Start
             </button>
           )}
-          {isRunning && (
+          {/* Also while starting, so a start step that never finishes is never a dead end. */}
+          {isSessionLive && (
             <button type="button" className={styles.action} onClick={chat.stop}>
               Stop
             </button>
@@ -232,8 +247,16 @@ export function AiChatSurface({
         prFileReferences={prFileReferences}
         onOpenFile={handleOpenFile}
         canOpenFile={canOpenFile}
+        onAnswerApproval={chat.answerApproval}
         onFollowUp={prefillComposer}
       />
+      {/* Mounted ahead of any text, or screen readers can miss it. Approvals only arrive while
+          a session is live, so it exists only then and leaves no empty paragraph after Stop. */}
+      {isSessionLive && (
+        <p className={styles.visuallyHidden} aria-live="polite">
+          {approvalAnnouncement}
+        </p>
+      )}
       {fileError && (
         <p className={styles.fileError} role="alert">
           Couldn&apos;t open the file: {fileError}
@@ -322,6 +345,7 @@ type ChatTranscriptLogProps = {
   prFileReferences: ReadonlyArray<MarkdownFileReference>
   onOpenFile: OpenFile
   canOpenFile: CanOpenFile
+  onAnswerApproval: AnswerApproval
   onFollowUp: FollowUp
 }
 
@@ -333,6 +357,7 @@ function ChatTranscriptLog({
   prFileReferences,
   onOpenFile,
   canOpenFile,
+  onAnswerApproval,
   onFollowUp,
 }: ChatTranscriptLogProps) {
   const logRef = useRef<HTMLDivElement | null>(null)
@@ -381,6 +406,7 @@ function ChatTranscriptLog({
               prFileReferences={prFileReferences}
               onOpenFile={onOpenFile}
               canOpenFile={canOpenFile}
+              onAnswerApproval={onAnswerApproval}
               onFollowUp={onFollowUp}
             />
           ))}
@@ -469,6 +495,7 @@ type ChatEntryViewProps = {
   prFileReferences: ReadonlyArray<MarkdownFileReference>
   onOpenFile: OpenFile
   canOpenFile: CanOpenFile
+  onAnswerApproval: AnswerApproval
   onFollowUp: FollowUp
 }
 
@@ -481,6 +508,7 @@ const ChatEntryView = memo(function ChatEntryView({
   prFileReferences,
   onOpenFile,
   canOpenFile,
+  onAnswerApproval,
   onFollowUp,
 }: ChatEntryViewProps) {
   switch (entry.kind) {
@@ -535,6 +563,14 @@ const ChatEntryView = memo(function ChatEntryView({
             onOpenFile={onOpenFile}
           />
         </li>
+      )
+    case "tool_approval":
+      return (
+        <AiChatApprovalCard
+          approval={entry.approval}
+          agentLabel={label}
+          onAnswer={onAnswerApproval}
+        />
       )
   }
 })

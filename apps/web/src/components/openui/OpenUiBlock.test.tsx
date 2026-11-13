@@ -101,7 +101,7 @@ describe("OpenUiBlock renders review content", () => {
     await renderBlock(props)
 
     // Assert
-    const fallback = screen.getByRole("figure", { name: /could not be shown/i })
+    const fallback = screen.getByRole("figure", { name: /Its source:/ })
     expect(fallback).toHaveTextContent(unrenderableCode)
   })
 })
@@ -254,6 +254,23 @@ describe("OpenUiBlock says when part of a block was left out", () => {
     expect(screen.getByRole("note").textContent).toBe(expected)
   })
 
+  it("a misspelled component in a block with no root is named in the note, a built-in action never", async () => {
+    // Arrange
+    const code = program(
+      'a = Diagram("Queue", [n], [])',
+      'n = DiagramNode("n", "API")',
+      'b = Diagramm("Typo", [], [])',
+      'ask = @ToAssistant("Explain the queue")'
+    )
+
+    // Act
+    await renderBlock(blockProps({ code }))
+
+    // Assert
+    const expected = "Part of this block could not be shown: Diagramm is not a known component."
+    expect(screen.getByRole("note").textContent).toBe(expected)
+  })
+
   it("a block still streaming shows no such note", async () => {
     // Arrange
     const code = program("root = Stack([d])", 'd = Diagramm("Queue", [], [])')
@@ -263,6 +280,169 @@ describe("OpenUiBlock says when part of a block was left out", () => {
 
     // Assert
     expect(screen.queryByRole("note")).toBeNull()
+  })
+})
+
+describe("OpenUiBlock copes with a program split across blocks", () => {
+  const SECOND_DIAGRAM = program(
+    'd2 = Diagram("Second diagram", [api_node], [])',
+    'api_node = DiagramNode("api", "Orders API", "added")'
+  )
+
+  it("a closed block with no root still draws its diagram", async () => {
+    // Arrange
+    const code = SECOND_DIAGRAM
+
+    // Act
+    await renderBlock(blockProps({ code }))
+
+    // Assert
+    expect({
+      diagramTitle: screen.queryByText("Second diagram")?.tagName,
+      fallback: screen.queryByRole("figure", { name: /Its source:/ }),
+    }).toEqual({ diagramTitle: "FIGCAPTION", fallback: null })
+  })
+
+  it("a block whose root names something undefined draws the rest and says which name is missing", async () => {
+    // Arrange
+    const code = program(
+      "root = Stack([d1, d2])",
+      'd1 = Diagram("First diagram", [a], [])',
+      'a = DiagramNode("a", "API")'
+    )
+
+    // Act
+    await renderBlock(blockProps({ code }))
+
+    // Assert
+    expect({
+      drawn: screen.queryByText("First diagram")?.tagName,
+      note: screen.getByRole("note").textContent,
+    }).toEqual({
+      drawn: "FIGCAPTION",
+      note: "Part of this block could not be shown: d2 is not defined in this block.",
+    })
+  })
+
+  it("a block with a root but nothing to draw shows the fallback, not a blank", async () => {
+    // Arrange
+    const code = "root = Stack([d1, d2])"
+
+    // Act
+    await renderBlock(blockProps({ code }))
+
+    // Assert
+    const expected = "Nothing in this block could be drawn. Its source:"
+    expect(screen.getByText(expected).tagName).toBe("FIGCAPTION")
+  })
+
+  it("an empty block says it is empty, with no empty source box", async () => {
+    // Arrange
+    const code = "  \n"
+
+    // Act
+    const { container } = await renderBlock(blockProps({ code }))
+
+    // Assert
+    expect({
+      message: screen.queryByText("This block is empty.") !== null,
+      sourceBoxes: container.ownerDocument.querySelectorAll("pre").length,
+    }).toEqual({ message: true, sourceBoxes: 0 })
+  })
+
+  it("a rootless block of parts that only draw inside a diagram shows the fallback, never a blank box", async () => {
+    // Arrange
+    const code = program(
+      'n3 = DiagramNode("cache", "Cache", "added")',
+      'e3 = DiagramEdge("api", "cache", "read", "added")'
+    )
+
+    // Act
+    await renderBlock(blockProps({ code }))
+
+    // Assert
+    const expected = "This block has no root statement and nothing to build one from. Its source:"
+    expect(screen.getByText(expected).tagName).toBe("FIGCAPTION")
+  })
+
+  it("a fallback still names what was left out", async () => {
+    // Arrange
+    const code = "root = Stack([summary])"
+
+    // Act
+    await renderBlock(blockProps({ code }))
+
+    // Assert
+    expect({
+      fallback: screen.queryByRole("figure", { name: /Its source:/ }) !== null,
+      note: screen.getByRole("note").textContent,
+    }).toEqual({
+      fallback: true,
+      note: "Part of this block could not be shown: summary is not defined in this block.",
+    })
+  })
+
+  it("a root statement that could not be built is not called missing", async () => {
+    // Arrange
+    const code = program("root = Stak([c])", 'c = Callout("info", "Heads up", "text")')
+
+    // Act
+    await renderBlock(blockProps({ code }))
+
+    // Assert
+    expect({
+      caption: screen.queryByText("This block's root could not be built. Its source:")?.tagName,
+      note: screen.getByRole("note").textContent,
+    }).toEqual({
+      caption: "FIGCAPTION",
+      note: "Part of this block could not be shown: Stak is not a known component.",
+    })
+  })
+
+  it.each([
+    ["a Stack that holds only text", 'root = Stack(["just text"])', "just text"],
+    [
+      "a root that is itself a Callout",
+      'root = Callout("info", "Heads up", "callout body")',
+      "Heads up",
+    ],
+  ])("a valid block is never failed: %s", async (_case, code, shownText) => {
+    // Arrange
+    const props = blockProps({ code })
+
+    // Act
+    await renderBlock(props)
+
+    // Assert
+    expect({
+      shown: screen.queryAllByText(shownText).length > 0,
+      fallback: screen.queryByRole("figure", { name: /Its source:/ }),
+    }).toEqual({ shown: true, fallback: null })
+  })
+
+  it("a part defined twice in a rootless block is drawn once", async () => {
+    // Arrange
+    const code = program(
+      'a = Callout("info", "First", "one")',
+      'a = Callout("info", "Second", "two")'
+    )
+
+    // Act
+    await renderBlock(blockProps({ code }))
+
+    // Assert
+    expect(screen.getAllByText("two")).toHaveLength(1)
+  })
+
+  it("a rootless block is not given a root while it is still streaming", async () => {
+    // Arrange
+    const code = SECOND_DIAGRAM
+
+    // Act
+    await renderBlock(blockProps({ code, streaming: true }))
+
+    // Assert
+    expect(screen.queryByText("Second diagram")).toBeNull()
   })
 })
 

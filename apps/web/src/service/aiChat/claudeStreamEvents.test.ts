@@ -9,6 +9,8 @@ import {
 
 import deniedThenInterruptedFixture from "./__fixtures__/claude/denied-then-interrupted-four-turns.jsonl?raw"
 import deniedTurnFixture from "./__fixtures__/claude/denied-turn.jsonl?raw"
+import interruptedPendingApprovalFixture from "./__fixtures__/claude/interrupted-pending-approval.jsonl?raw"
+import reviewerDeniedApprovalFixture from "./__fixtures__/claude/reviewer-denied-approval.jsonl?raw"
 import textTurnFixture from "./__fixtures__/claude/text-turn.jsonl?raw"
 import toolTurnFixture from "./__fixtures__/claude/tool-turn.jsonl?raw"
 import { parseClaudeStreamLine } from "./claudeStreamEvents"
@@ -140,7 +142,9 @@ describe("Claude stream-json to chat transcript", () => {
     ).toEqual(expected)
   })
 
-  it("a_denied_tool_adds_the_approval_notice", () => {
+  // This capture is from before the approval prompt: the CLI denied on its own rules and wrote
+  // a system/permission_denied line, so no card records it and a notice says so.
+  it("a_denial_without_an_approval_card_adds_a_notice_saying_it_was_not_asked", () => {
     // Arrange
     const lines = fixtureLines(deniedTurnFixture)
 
@@ -148,7 +152,7 @@ describe("Claude stream-json to chat transcript", () => {
     const transcript = replayLines(lines, startedTurn())
 
     // Assert
-    const expected = ["Bash needed approval, and this chat cannot approve actions yet."]
+    const expected = ["Bash was denied without asking you."]
     expect(entriesOfKind(transcript, "notice").map((entry) => entry.text)).toEqual(expected)
   })
 
@@ -161,8 +165,58 @@ describe("Claude stream-json to chat transcript", () => {
     const events = parseClaudeStreamLine(resultLine)
 
     // Assert
-    const expected = [{ kind: "turn_ended", outcome: "completed", message: null }]
+    const expected = [
+      { kind: "tool_denied", toolCallId: "toolu_01", toolName: "Bash", announce: false },
+      { kind: "turn_ended", outcome: "completed", message: null },
+    ]
     expect(events).toEqual(expected)
+  })
+
+  it("a_denial_through_the_approval_prompt_marks_the_tool_denied_without_a_second_notice", () => {
+    // Arrange
+    // The measured shape of a prompt-tool deny (CONTRACT.md 6.6): no system/permission_denied
+    // line, an is_error tool result, then the denial in result.permission_denials.
+    const toolUseId = "toolu_09"
+    const lines = [
+      JSON.stringify({
+        type: "stream_event",
+        api_message_id: "msg_09",
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "tool_use", id: toolUseId, name: "Bash", input: {} },
+        },
+      }),
+      JSON.stringify({
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: toolUseId,
+              is_error: true,
+              content: "Denied by the reviewer.",
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        permission_denials: [{ tool_name: "Bash", tool_use_id: toolUseId, tool_input: {} }],
+      }),
+    ]
+
+    // Act
+    const transcript = replayLines(lines, startedTurn())
+
+    // Assert
+    const expected = { statuses: ["denied"], notices: [] }
+    expect({
+      statuses: entriesOfKind(transcript, "tool_activity").map((entry) => entry.status),
+      notices: entriesOfKind(transcript, "notice").map((entry) => entry.text),
+    }).toEqual(expected)
   })
 
   it("an_interrupted_turn_ends_as_interrupted", () => {
@@ -335,7 +389,7 @@ describe("Claude stream-json live four-turn capture", () => {
     expect(outcomes).toEqual(expected)
   })
 
-  it("shows_the_denied_tool_row_and_exactly_one_approval_notice", () => {
+  it("shows_the_denied_tool_row_and_exactly_one_denial_notice", () => {
     // Arrange
     const lines = fixtureLines(deniedThenInterruptedFixture)
 
@@ -347,7 +401,7 @@ describe("Claude stream-json live four-turn capture", () => {
       .filter((entry) => entry.status === "denied")
       .map(({ toolName, summary }) => ({ toolName, summary }))
     const approvalNotices = entriesOfKind(transcript, "notice").filter((entry) =>
-      entry.text.includes("needed approval")
+      entry.text.includes("denied without asking you")
     )
     expect(deniedTools).toEqual([{ toolName: "Bash", summary: "touch chat-denied-probe.txt" }])
     expect(approvalNotices).toHaveLength(1)
@@ -387,5 +441,131 @@ describe("Claude stream-json live four-turn capture", () => {
       kind: lastEntry?.kind,
       text: lastEntry?.kind === "assistant_message" ? lastEntry.text : null,
     }).toEqual(expected)
+  })
+})
+
+// Shapes measured from Claude Code 2.1.323 set_model replies, see the set-model probe captures.
+describe("Claude set_model control responses", () => {
+  it("a_confirmed_model_change_carries_its_request_id_and_the_resolved_model", () => {
+    // Arrange
+    const requestId = "4f1c2b8e-0000-4000-8000-000000000001"
+    const line = JSON.stringify({
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: requestId,
+        response: { model: "claude-sonnet-5-5" },
+      },
+    })
+
+    // Act
+    const events = parseClaudeStreamLine(line)
+
+    // Assert
+    const expected = [
+      {
+        kind: "model_change_answered",
+        requestId,
+        accepted: true,
+        resolvedModel: "claude-sonnet-5-5",
+        error: null,
+        errorCode: null,
+      },
+    ]
+    expect(events).toEqual(expected)
+  })
+
+  it("the_init_line_of_a_turn_reports_the_model_it_runs_on", () => {
+    // Arrange
+    const line = JSON.stringify({
+      type: "system",
+      subtype: "init",
+      cwd: "/repo",
+      session_id: "s1",
+      model: "claude-opus-5-5",
+    })
+
+    // Act
+    const events = parseClaudeStreamLine(line)
+
+    // Assert
+    expect(events).toEqual([{ kind: "model_reported", resolvedModel: "claude-opus-5-5" }])
+  })
+
+  it("an_interrupt_reply_is_not_read_as_a_model_change", () => {
+    // Arrange
+    const line = JSON.stringify({
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: "pr-visualizer-interrupt-1",
+        response: { still_queued: [] },
+      },
+    })
+
+    // Act
+    const events = parseClaudeStreamLine(line)
+
+    // Assert
+    expect(events).toEqual([])
+  })
+
+  it("a_refused_model_change_carries_the_reason_and_the_model_it_stays_on", () => {
+    // Arrange
+    const requestId = "4f1c2b8e-0000-4000-8000-000000000002"
+    const line = JSON.stringify({
+      type: "control_response",
+      response: {
+        subtype: "error",
+        request_id: requestId,
+        error: "Model 'not-a-model-xyz' not found",
+        error_code: "not_found",
+        model: "claude-haiku-5-5",
+      },
+    })
+
+    // Act
+    const events = parseClaudeStreamLine(line)
+
+    // Assert
+    const expected = [
+      {
+        kind: "model_change_answered",
+        requestId,
+        accepted: false,
+        resolvedModel: "claude-haiku-5-5",
+        error: "Model 'not-a-model-xyz' not found",
+        errorCode: "not_found",
+      },
+    ]
+    expect(events).toEqual(expected)
+  })
+})
+
+// Real Claude Code 2.1.323 approval-prompt captures (approve-probe U3 and U2/U4), sanitized.
+describe("Claude calls cut off by an interrupt", () => {
+  it("a_call_interrupted_while_its_approval_was_pending_reads_interrupted_not_denied", () => {
+    // Arrange
+    const lines = fixtureLines(interruptedPendingApprovalFixture)
+
+    // Act
+    const transcript = replayLines(lines)
+
+    // Assert
+    const statuses = entriesOfKind(transcript, "tool_activity").map((tool) => tool.status)
+    expect(statuses).toEqual(["interrupted"])
+  })
+
+  it("a_call_the_reviewer_denied_still_reads_denied", () => {
+    // Arrange
+    const lines = fixtureLines(reviewerDeniedApprovalFixture)
+
+    // Act
+    const transcript = replayLines(lines)
+
+    // Assert
+    const statuses = entriesOfKind(transcript, "tool_activity").map((tool) => tool.status)
+    expect(statuses).toContain("denied")
+    expect(statuses).not.toContain("interrupted")
   })
 })

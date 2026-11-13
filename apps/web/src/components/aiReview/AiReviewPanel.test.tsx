@@ -16,18 +16,13 @@ async function createStoreWithCodexChosen(): Promise<KeyValueStore> {
   return store
 }
 
-async function createStoreWithProviderAndSurface(
-  provider: "claude" | "codex",
-  surface: "terminal" | "chat"
-): Promise<KeyValueStore> {
+async function createStoreWithClaudeChosen(): Promise<KeyValueStore> {
   const store = createMemoryKeyValueStore()
-  const settingsStorage = createAiReviewSettingsStorage(store)
-  await settingsStorage.saveTerminalProvider(provider)
-  await settingsStorage.savePanelSurface(surface)
+  await createAiReviewSettingsStorage(store).saveTerminalProvider("claude")
   return store
 }
 
-// The settings row: its summary names the current choice, e.g. "Claude · Haiku · Chat".
+// The settings row: its summary names the current choice, e.g. "Claude · Haiku".
 function settingsSummary(): HTMLElement {
   return screen.getByText(/^(Choose a provider$|(Codex|Claude) · (?!Hide))/, {
     selector: "summary",
@@ -106,7 +101,7 @@ describe("AiReviewPanel terminal surface", () => {
     )
   })
 
-  it("switching_provider_to_claude_relabels_the_terminal_and_lists_claude_models", async () => {
+  it("switching_provider_to_claude_relabels_the_panel_and_lists_claude_models", async () => {
     // Arrange
     const user = userEvent.setup()
     renderPanel(await createStoreWithCodexChosen())
@@ -118,7 +113,7 @@ describe("AiReviewPanel terminal surface", () => {
 
     // Assert
     const modelSelect = screen.getByLabelText("Model")
-    expect(await screen.findByLabelText("Claude terminal")).toBeInTheDocument()
+    expect(await screen.findByLabelText("Claude chat")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Claude · Hide" })).toBeInTheDocument()
     expect(within(modelSelect).getByRole("option", { name: "Opus — balanced" })).toBeInTheDocument()
     expect(
@@ -151,14 +146,14 @@ describe("AiReviewPanel terminal surface", () => {
     await screen.findByLabelText("Codex terminal")
     await openSettings(user)
     await user.selectOptions(screen.getByLabelText("Provider"), "Claude")
-    await screen.findByLabelText("Claude terminal")
+    await screen.findByLabelText("Claude chat")
     firstMount.unmount()
 
     // Act
     renderPanel(storage)
 
     // Assert
-    expect(await screen.findByLabelText("Claude terminal")).toBeInTheDocument()
+    expect(await screen.findByLabelText("Claude chat")).toBeInTheDocument()
   })
 
   it("tells_the_agent_to_prefer_sem_diff_over_the_pr_range_when_sem_is_installed", () => {
@@ -221,51 +216,40 @@ describe("AiReviewPanel terminal surface", () => {
     // Assert
     expect(headerButton).not.toBeInTheDocument()
   })
-  it("the_surface_defaults_to_the_terminal_for_claude", async () => {
+  it("claude_opens_in_chat_with_no_surface_choice", async () => {
     // Arrange
     const user = userEvent.setup()
-    renderPanel(await createStoreWithCodexChosen())
-    await screen.findByLabelText("Codex terminal")
-    await openSettings(user)
-
-    // Act
-    await user.selectOptions(screen.getByLabelText("Provider"), "Claude")
-
-    // Assert
-    expect(await screen.findByLabelText("Claude terminal")).toBeInTheDocument()
-    expect(screen.getByRole("radio", { name: "Terminal" })).toBeChecked()
-  })
-
-  it("offers_the_chat_surface_only_for_claude", async () => {
-    // Arrange
-    const user = userEvent.setup()
-    renderPanel(await createStoreWithCodexChosen())
-    await screen.findByLabelText("Codex terminal")
+    renderPanel(await createStoreWithClaudeChosen())
+    await screen.findByLabelText("Claude chat")
 
     // Act
     await openSettings(user)
 
     // Assert
-    expect(screen.queryByRole("radio", { name: "Chat" })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Claude terminal")).not.toBeInTheDocument()
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument()
+    expect(screen.queryByText("Surface")).not.toBeInTheDocument()
   })
 
-  it("a_saved_chat_surface_with_codex_shows_the_terminal_and_keeps_the_setting", async () => {
+  it("codex_opens_in_the_terminal_with_no_surface_choice", async () => {
     // Arrange
-    const storage = await createStoreWithProviderAndSurface("codex", "chat")
+    const user = userEvent.setup()
+    renderPanel(await createStoreWithCodexChosen())
+    await screen.findByLabelText("Codex terminal")
 
     // Act
-    renderPanel(storage)
+    await openSettings(user)
 
     // Assert
-    expect(await screen.findByLabelText("Codex terminal")).toBeInTheDocument()
     expect(screen.queryByLabelText("Codex chat")).not.toBeInTheDocument()
-    expect((await createAiReviewSettingsStorage(storage).load()).panelSurface).toBe("chat")
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument()
+    expect(screen.queryByText("Surface")).not.toBeInTheDocument()
   })
 
   it("a_provider_change_from_claude_chat_to_codex_shows_the_codex_terminal", async () => {
     // Arrange
     const user = userEvent.setup()
-    renderPanel(await createStoreWithProviderAndSurface("claude", "chat"))
+    renderPanel(await createStoreWithClaudeChosen())
     await screen.findByLabelText("Claude chat")
     await openSettings(user)
 
@@ -356,8 +340,8 @@ describe("AiReviewPanel terminal surface", () => {
       "Only if that command fails, run git diff as a separate second command, never joined to it with ||.",
     ],
     [
-      "the_chat_prompt_names_the_denied_commands_and_says_a_denial_is_for_that_command_only",
-      "Some shell commands are denied in this chat without asking: subshells in parentheses, git rev-parse, and git diff with -U<n>. A denial applies to that one command only, so run a simpler read-only command such as git diff, git diff --stat, git show or git grep, and carry on.",
+      "the_chat_prompt_says_the_reviewer_may_deny_a_command_and_a_denial_is_for_that_command_only",
+      "Some shell commands need the reviewer’s approval: the reviewer is asked and may deny it. A denial applies to that one command only, so carry on with a simpler read-only command such as git diff, git diff --stat, git show or git grep.",
     ],
     [
       "the_chat_prompt_says_single_line_breaks_are_not_shown",
@@ -400,9 +384,9 @@ describe("AiReviewPanel settings row", () => {
     expect(screen.getByLabelText("Model")).toBeVisible()
   })
 
-  it("once_a_provider_is_saved_the_settings_start_as_one_closed_row_naming_provider_model_and_surface", async () => {
+  it("once_a_provider_is_saved_the_settings_start_as_one_closed_row_naming_provider_and_model", async () => {
     // Arrange
-    const storage = await createStoreWithProviderAndSurface("claude", "chat")
+    const storage = await createStoreWithClaudeChosen()
 
     // Act
     renderPanel(storage)
@@ -410,7 +394,7 @@ describe("AiReviewPanel settings row", () => {
     // Assert
     await screen.findByLabelText("Claude chat")
     const summary = settingsSummary()
-    expect(summary).toHaveTextContent("Claude · Haiku · Chat")
+    expect(summary).toHaveTextContent(/^Claude · Haiku$/)
     expect(summary.parentElement).not.toHaveAttribute("open")
     expect(screen.getByLabelText("Model")).not.toBeVisible()
   })
@@ -418,9 +402,9 @@ describe("AiReviewPanel settings row", () => {
   it("opening_the_row_shows_the_controls_and_a_model_change_still_saves", async () => {
     // Arrange
     const user = userEvent.setup()
-    const storage = await createStoreWithProviderAndSurface("claude", "terminal")
+    const storage = await createStoreWithClaudeChosen()
     renderPanel(storage)
-    await screen.findByLabelText("Claude terminal")
+    await screen.findByLabelText("Claude chat")
 
     // Act
     await user.click(settingsSummary())
@@ -432,10 +416,10 @@ describe("AiReviewPanel settings row", () => {
         (await createAiReviewSettingsStorage(storage).load()).providers.claude.selectedModel
       ).toBe("opus")
     )
-    expect(settingsSummary()).toHaveTextContent("Claude · Opus · Terminal")
+    expect(settingsSummary()).toHaveTextContent(/^Claude · Opus$/)
   })
 
-  it("the_codex_row_shows_no_surface_part", async () => {
+  it("the_codex_row_names_the_provider_and_model", async () => {
     // Arrange
     const storage = await createStoreWithCodexChosen()
 
@@ -450,13 +434,13 @@ describe("AiReviewPanel settings row", () => {
   it("a_failed_save_stays_visible_next_to_the_row_after_it_is_closed", async () => {
     // Arrange
     const user = userEvent.setup()
-    const savedStore = await createStoreWithProviderAndSurface("claude", "terminal")
+    const savedStore = await createStoreWithClaudeChosen()
     const failingStore: KeyValueStore = {
       ...savedStore,
       set: () => Promise.reject(new Error("disk full")),
     }
     renderPanel(failingStore)
-    await screen.findByLabelText("Claude terminal")
+    await screen.findByLabelText("Claude chat")
     await user.click(settingsSummary())
     await user.selectOptions(screen.getByLabelText("Model"), "Opus — balanced")
 

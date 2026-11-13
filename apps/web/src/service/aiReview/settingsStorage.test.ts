@@ -53,7 +53,6 @@ describe("AI review settings storage", () => {
       codexModelDefaultApplied: true,
       claudeModelDefaultApplied: true,
       terminalProvider: null,
-      panelSurface: "terminal",
     })
   })
 
@@ -86,7 +85,6 @@ describe("AI review settings storage", () => {
       codexModelDefaultApplied: true,
       claudeModelDefaultApplied: true,
       terminalProvider: null,
-      panelSurface: "terminal",
     })
   })
 
@@ -263,7 +261,7 @@ describe("AI review settings storage", () => {
     // Assert
     expect(reloadedSettings.providers.claude.selectedModel).toBeNull()
   })
-  it("loads_settings_saved_before_the_chat_existed_with_the_terminal_surface", async () => {
+  it("loads_settings_saved_before_the_chat_existed", async () => {
     // Arrange
     const store = createMemoryKeyValueStore()
     const storage = createAiReviewSettingsStorage(store)
@@ -284,21 +282,67 @@ describe("AI review settings storage", () => {
     const settings = await storage.load()
 
     // Assert
-    const expected = { ...settingsSavedBeforeChat, panelSurface: "terminal" }
-    expect(settings).toEqual(expected)
+    expect(settings).toEqual(settingsSavedBeforeChat)
   })
 
-  it("remembers_the_saved_panel_surface", async () => {
+  // 0.7.7 stored the Terminal | Chat choice. The surface now follows the provider,
+  // so the old key is dropped on load and is gone after the next save.
+  it.each(["terminal", "chat"] as const)(
+    "settings_saved_by_0_7_7_with_a_panel_surface_still_load: %s",
+    async (savedSurface) => {
+      // Arrange
+      const store = createMemoryKeyValueStore()
+      const storage = createAiReviewSettingsStorage(store)
+      const settingsSavedBy077 = {
+        defaultProvider: "codex",
+        defaultProfile: "thorough",
+        providers: {
+          claude: { selectedModel: "sonnet", successfulModelIds: ["opus"] },
+          codex: { selectedModel: "gpt-5.6-terra", successfulModelIds: [] },
+        },
+        codexModelDefaultApplied: true,
+        claudeModelDefaultApplied: true,
+        terminalProvider: "claude",
+        panelSurface: savedSurface,
+      }
+      await store.set("ai-review:settings", JSON.stringify(settingsSavedBy077))
+
+      // Act
+      const settings = await storage.load()
+
+      // Assert
+      const { panelSurface: _droppedSurface, ...expected } = settingsSavedBy077
+      expect(settings).toEqual(expected)
+    }
+  )
+
+  it("the_next_save_drops_the_0_7_7_panel_surface_key", async () => {
     // Arrange
     const store = createMemoryKeyValueStore()
     const storage = createAiReviewSettingsStorage(store)
-    const panelSurface = "chat"
+    const settingsSavedBy077 = {
+      defaultProvider: null,
+      defaultProfile: "balanced",
+      providers: {
+        claude: { selectedModel: "haiku", successfulModelIds: [] },
+        codex: { selectedModel: "gpt-5.6-luna", successfulModelIds: [] },
+      },
+      codexModelDefaultApplied: true,
+      claudeModelDefaultApplied: true,
+      terminalProvider: "claude",
+      panelSurface: "chat",
+    }
+    await store.set("ai-review:settings", JSON.stringify(settingsSavedBy077))
+    const nextModel = "opus"
 
     // Act
-    await storage.savePanelSurface(panelSurface)
-    const reloadedSettings = await createAiReviewSettingsStorage(store).load()
+    await storage.saveSelectedModel("claude", nextModel)
 
     // Assert
-    expect(reloadedSettings.panelSurface).toBe(panelSurface)
+    const stored = JSON.parse((await store.get("ai-review:settings")) ?? "{}") as Record<
+      string,
+      unknown
+    >
+    expect(stored).not.toHaveProperty("panelSurface")
   })
 })

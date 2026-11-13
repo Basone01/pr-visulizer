@@ -7,6 +7,8 @@ use std::thread;
 use std::time::Duration;
 use tauri::{Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 
+use crate::ai_chat_approval::{unavailable_approval_answer, ChatApprovals};
+
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
@@ -404,65 +406,132 @@ fn handle_socket_request<R: Runtime>(
     token: &str,
     mut stream: std::os::unix::net::UnixStream,
 ) {
-    let response = (|| -> Result<serde_json::Value, String> {
-        // The listener polls non-blocking for shutdown, and on macOS an accepted stream inherits
-        // that flag, so a read before the helper's bytes land fails with EAGAIN instead of waiting.
-        stream
-            .set_nonblocking(false)
-            .map_err(|error| format!("could not set request mode: {error}"))?;
-        stream
-            .set_read_timeout(Some(Duration::from_secs(10)))
-            .map_err(|error| format!("could not set request timeout: {error}"))?;
-        let mut request_bytes = Vec::with_capacity(4096);
-        BufReader::new(stream.try_clone().map_err(|error| error.to_string())?)
-            .take((MAX_SOCKET_REQUEST_BYTES + 1) as u64)
-            .read_until(b'\n', &mut request_bytes)
-            .map_err(|error| format!("could not read app tool request: {error}"))?;
-        if request_bytes.len() > MAX_SOCKET_REQUEST_BYTES {
-            return Err("app tool request exceeds 512 KiB".into());
+    let request = match read_socket_request(&mut stream, token) {
+        Ok(request) => request,
+        Err(error) => return write_socket_response(&mut stream, Err(error)),
+    };
+    // A permission prompt waits minutes for the reviewer, so it gets its own thread and the other
+    // app tools keep answering meanwhile. Every other operation is answered inline, as before.
+    if request.operation == "approve" {
+        let app = app.clone();
+        let session_id = session_id.to_string();
+        thread::spawn(move || {
+            let answer = approval_answer(&app, &session_id, request.payload, &stream);
+            write_socket_response(&mut stream, Ok(answer));
+        });
+        return;
+    }
+
+    let response = answer_socket_request(app, sessions, session_id, request);
+    write_socket_response(&mut stream, response);
+}
+
+fn read_socket_request(
+    stream: &mut std::os::unix::net::UnixStream,
+    token: &str,
+) -> Result<SocketRequest, String> {
+    // The listener polls non-blocking for shutdown, and on macOS an accepted stream inherits
+    // that flag, so a read before the helper's bytes land fails with EAGAIN instead of waiting.
+    stream
+        .set_nonblocking(false)
+        .map_err(|error| format!("could not set request mode: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .map_err(|error| format!("could not set request timeout: {error}"))?;
+    let mut request_bytes = Vec::with_capacity(4096);
+    BufReader::new(stream.try_clone().map_err(|error| error.to_string())?)
+        .take((MAX_SOCKET_REQUEST_BYTES + 1) as u64)
+        .read_until(b'\n', &mut request_bytes)
+        .map_err(|error| format!("could not read app tool request: {error}"))?;
+    if request_bytes.len() > MAX_SOCKET_REQUEST_BYTES {
+        return Err("app tool request exceeds 512 KiB".into());
+    }
+    let request: SocketRequest = serde_json::from_slice(&request_bytes)
+        .map_err(|_| "app tool request is not valid JSON".to_string())?;
+    if request.token != token {
+        return Err("app tool token is invalid".into());
+    }
+    Ok(request)
+}
+
+fn answer_socket_request<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    sessions: &CodexAnswerSessions,
+    session_id: &str,
+    request: SocketRequest,
+) -> Result<serde_json::Value, String> {
+    match request.operation.as_str() {
+        "get_pr_context" if request.payload == serde_json::json!({}) => {
+            serde_json::to_value(sessions.active_context(session_id)?)
+                .map_err(|error| error.to_string())
         }
-        let request: SocketRequest = serde_json::from_slice(&request_bytes)
-            .map_err(|_| "app tool request is not valid JSON".to_string())?;
-        if request.token != token {
-            return Err("app tool token is invalid".into());
+        "get_current_file" if request.payload == serde_json::json!({}) => {
+            current_file_view(&sessions.active_context(session_id)?)
         }
-        match request.operation.as_str() {
-            "get_pr_context" if request.payload == serde_json::json!({}) => {
-                serde_json::to_value(sessions.active_context(session_id)?)
-                    .map_err(|error| error.to_string())
-            }
-            "get_current_file" if request.payload == serde_json::json!({}) => {
-                current_file_view(&sessions.active_context(session_id)?)
-            }
-            "list_pr_files" if request.payload == serde_json::json!({}) => {
-                pr_files_view(&sessions.active_context(session_id)?)
-            }
-            "get_review_drafts" if request.payload == serde_json::json!({}) => {
-                review_drafts_view(&sessions.active_context(session_id)?)
-            }
-            "open_file" => {
-                let request: OpenFilePayload = serde_json::from_value(request.payload)
-                    .map_err(|_| "open_file requires a path".to_string())?;
-                validate_relative_path(&request.path)?;
-                validate_optional_line(request.line)?;
-                sessions.active_context(session_id)?;
-                open_file_in_main_window(app, session_id, &request.path, request.line)?;
-                Ok(serde_json::json!({ "opened": true }))
-            }
-            "render_answer" => {
-                let request: RenderAnswerRequest = serde_json::from_value(request.payload)
-                    .map_err(|_| "render_answer request is invalid".to_string())?;
-                let report = sessions.store_report(session_id, request)?;
-                if sessions.presentation(session_id)? == AnswerPresentation::Window {
-                    show_report_window(app, &report)?;
-                }
-                app.emit("codex-answer://updated", &report)
-                    .map_err(|error| error.to_string())?;
-                Ok(serde_json::json!({ "rendered": true }))
-            }
-            _ => Err("unknown app tool operation".into()),
+        "list_pr_files" if request.payload == serde_json::json!({}) => {
+            pr_files_view(&sessions.active_context(session_id)?)
         }
-    })();
+        "get_review_drafts" if request.payload == serde_json::json!({}) => {
+            review_drafts_view(&sessions.active_context(session_id)?)
+        }
+        "open_file" => {
+            let request: OpenFilePayload = serde_json::from_value(request.payload)
+                .map_err(|_| "open_file requires a path".to_string())?;
+            validate_relative_path(&request.path)?;
+            validate_optional_line(request.line)?;
+            sessions.active_context(session_id)?;
+            open_file_in_main_window(app, session_id, &request.path, request.line)?;
+            Ok(serde_json::json!({ "opened": true }))
+        }
+        "render_answer" => {
+            let request: RenderAnswerRequest = serde_json::from_value(request.payload)
+                .map_err(|_| "render_answer request is invalid".to_string())?;
+            let report = sessions.store_report(session_id, request)?;
+            if sessions.presentation(session_id)? == AnswerPresentation::Window {
+                show_report_window(app, &report)?;
+            }
+            app.emit("codex-answer://updated", &report)
+                .map_err(|error| error.to_string())?;
+            Ok(serde_json::json!({ "rendered": true }))
+        }
+        _ => Err("unknown app tool operation".into()),
+    }
+}
+
+// Only chat sessions open approvals, so a prompt on a terminal session's socket is denied.
+fn approval_answer<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    session_id: &str,
+    payload: serde_json::Value,
+    stream: &std::os::unix::net::UnixStream,
+) -> serde_json::Value {
+    let Some(approvals) = app.try_state::<ChatApprovals>() else {
+        return unavailable_approval_answer();
+    };
+
+    approvals.ask(session_id, payload, || caller_hung_up(stream))
+}
+
+// The helper closes its end when the CLI cancels the prompt. It sends nothing after its request
+// line, so a non-blocking read of end-of-file means nobody is waiting for this answer any more.
+fn caller_hung_up(stream: &std::os::unix::net::UnixStream) -> bool {
+    if stream.set_nonblocking(true).is_err() {
+        return true;
+    }
+    let mut byte = [0_u8; 1];
+    let hung_up = match (&*stream).read(&mut byte) {
+        Ok(0) => true,
+        Ok(_) => false,
+        Err(error) => error.kind() != std::io::ErrorKind::WouldBlock,
+    };
+    let _ = stream.set_nonblocking(false);
+    hung_up
+}
+
+fn write_socket_response(
+    stream: &mut std::os::unix::net::UnixStream,
+    response: Result<serde_json::Value, String>,
+) {
     let response = match response {
         Ok(result) => SocketResponse {
             ok: true,
@@ -475,7 +544,7 @@ fn handle_socket_request<R: Runtime>(
             error: Some(error),
         },
     };
-    let _ = serde_json::to_writer(&mut stream, &response);
+    let _ = serde_json::to_writer(&mut *stream, &response);
     let _ = stream.write_all(b"\n");
     let _ = stream.flush();
 }
@@ -1023,6 +1092,106 @@ mod tests {
         assert_eq!(AnswerPresentation::from_helper_env(inline_value), inline);
         assert_eq!(AnswerPresentation::from_helper_env(None), window);
         assert_eq!(AnswerPresentation::from_helper_env(Some("other")), window);
+    }
+
+    fn approve_request(token: &str) -> serde_json::Value {
+        serde_json::json!({
+            "token": token,
+            "operation": "approve",
+            "payload": {
+                "tool_name": "Bash",
+                "input": { "command": "touch probe.txt", "description": "Create a probe" },
+                "tool_use_id": "toolu_01"
+            }
+        })
+    }
+
+    #[test]
+    fn a_pending_approval_does_not_block_the_other_app_tools() {
+        // Arrange
+        let app = tauri::test::mock_app();
+        let approvals = ChatApprovals::default();
+        app.manage(approvals.clone());
+        let sessions = CodexAnswerSessions::default();
+        let session_id = "answer-approval-socket";
+        let (socket_path, token) = sessions
+            .start(
+                app.handle().clone(),
+                session_id,
+                context(),
+                AnswerPresentation::Inline,
+            )
+            .expect("start answer session");
+        approvals.open(session_id, 1);
+        let (channel, approval_events) = crate::ai_chat_approval::recording_channel();
+        approvals
+            .watch(session_id, channel)
+            .expect("the chat window watches");
+        let approve_socket = socket_path.clone();
+        let approve_token = token.clone();
+        let (answer_sender, answer_receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let answer = socket_request(&approve_socket, approve_request(&approve_token));
+            let _ = answer_sender.send(answer);
+        });
+        let pending = approval_events
+            .recv_timeout(Duration::from_secs(5))
+            .expect("pending approval");
+
+        // Act
+        let context_request = serde_json::json!({
+            "token": token,
+            "operation": "get_pr_context",
+            "payload": {}
+        });
+        let context_response = socket_request(&socket_path, context_request);
+        let decision = crate::ai_chat_approval::AiChatApprovalAnswerRequest {
+            session_id: session_id.into(),
+            request_id: pending["requestId"].as_str().expect("request id").into(),
+            decision: crate::ai_chat_approval::ApprovalDecision::Allow,
+        };
+        approvals.decide(&decision).expect("decision applies");
+        let answer = answer_receiver.recv_timeout(Duration::from_secs(5));
+        sessions.revoke(session_id);
+
+        // Assert
+        assert_eq!(context_response["ok"], true, "{context_response}");
+        let answer = answer.expect("approve answered");
+        let expected_result = serde_json::json!({
+            "behavior": "allow",
+            "updatedInput": { "command": "touch probe.txt", "description": "Create a probe" },
+        });
+        assert_eq!(answer["result"], expected_result);
+    }
+
+    #[test]
+    fn an_approval_on_a_terminal_session_socket_is_denied_by_the_app() {
+        // Arrange
+        let app = tauri::test::mock_app();
+        app.manage(ChatApprovals::default());
+        let sessions = CodexAnswerSessions::default();
+        let session_id = "answer-approval-terminal";
+        let (socket_path, token) = sessions
+            .start(
+                app.handle().clone(),
+                session_id,
+                context(),
+                AnswerPresentation::Window,
+            )
+            .expect("start answer session");
+
+        // Act
+        let response = socket_request(&socket_path, approve_request(&token));
+        sessions.revoke(session_id);
+
+        // Assert
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["behavior"], "deny");
+        let message = response["result"]["message"].as_str().unwrap_or_default();
+        assert!(
+            message.starts_with("PR Visualizer denied this command without asking"),
+            "{message}"
+        );
     }
 
     #[test]

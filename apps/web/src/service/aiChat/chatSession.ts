@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import type { ChatEvent } from "@/entity/aiChat/chatEvent"
+import { type ToolApprovalDecision, toolApprovalEventSchema } from "@/entity/aiChat/toolApproval"
 import type { SelectableAiProviderId } from "@/entity/aiReviewSettings"
 
 import type { CodexTerminalContext } from "@/service/terminal/codexTerminal"
@@ -43,6 +44,11 @@ export type AiChatStart = {
 export type AiChatSession = {
   send(text: string): Promise<void>
   interrupt(): Promise<void>
+  // The caller makes requestId and registers it before calling: the reply can reach the line
+  // stream before this promise settles. model is the alias, or "default" for the CLI default.
+  setModel(requestId: string, model: string): Promise<void>
+  // Sends only the decision. The app runs the input it stored, never one from the webview.
+  answerApproval(requestId: string, decision: ToolApprovalDecision): Promise<void>
   updateContext(context: AiSessionContext): Promise<void>
   stop(): Promise<void>
   dispose(): Promise<void>
@@ -56,6 +62,17 @@ async function invoke<T>(command: string, args: Record<string, unknown>): Promis
   tauriCore ??= import("@tauri-apps/api/core")
   const { invoke: tauriInvoke } = await tauriCore
   return tauriInvoke<T>(command, args)
+}
+
+async function createChannel(onMessage: (message: unknown) => void): Promise<object> {
+  tauriCore ??= import("@tauri-apps/api/core")
+  const { Channel } = await tauriCore
+  return new Channel<unknown>(onMessage)
+}
+
+// Stops a session by id, for a start that is still in flight and has no session object yet.
+export function stopAiChatSession(sessionId: string): Promise<void> {
+  return invoke("ai_chat_stop", { request: { sessionId } })
 }
 
 // This is the only webview-facing chat protocol. Event payloads are parsed and filtered by session
@@ -79,6 +96,11 @@ export async function startAiChatSession(
   let lineUnlisten = () => {}
   let exitUnlisten = () => {}
 
+  function unlistenAll(): void {
+    lineUnlisten()
+    exitUnlisten()
+  }
+
   try {
     lineUnlisten = await listen("ai-chat://line", (event: { payload: unknown }) => {
       const line = chatLineSchema.safeParse(event.payload)
@@ -98,17 +120,46 @@ export async function startAiChatSession(
     if (started) {
       await invoke("ai_chat_stop", { request: { sessionId } }).catch(() => undefined)
     }
-    lineUnlisten()
-    exitUnlisten()
+    unlistenAll()
     throw error
+  }
+
+  // Before the first turn, so no request of that turn arrives with nobody watching.
+  await watchApprovals()
+
+  // Approvals travel on a channel, not an event: any webview that listens can read an event,
+  // and the answer window renders agent-written HTML (CONTRACT.md §6.7).
+  async function watchApprovals(): Promise<void> {
+    try {
+      const onEvent = await createChannel(showApproval)
+      await invoke("ai_chat_watch_approvals", { request: { sessionId }, onEvent })
+    } catch {
+      // The app denies every request that has no watcher, so the chat says so instead of failing.
+      handlers.onEvents([{ kind: "approvals_unavailable" }])
+    }
+  }
+
+  function showApproval(message: unknown): void {
+    if (disposed) return
+
+    const approval = toolApprovalEventSchema.safeParse(message)
+    if (!approval.success) {
+      // Never shown as a card: a request the app cannot vouch for must not be answerable.
+      console.warn("Dropped an approval message that did not parse", approval.error)
+      return
+    }
+    // The channel is already this session's own, the id check stays as a second guard.
+    if (approval.data.sessionId !== sessionId) return
+
+    const { sessionId: _session, ...toolApproval } = approval.data
+    handlers.onEvents([{ kind: "tool_approval_changed", approval: toolApproval }])
   }
 
   async function dispose(): Promise<void> {
     if (disposed) return
 
     disposed = true
-    lineUnlisten()
-    exitUnlisten()
+    unlistenAll()
   }
 
   return {
@@ -122,6 +173,12 @@ export async function startAiChatSession(
     },
     interrupt() {
       return invoke("ai_chat_interrupt", { request: { sessionId } })
+    },
+    setModel(requestId, model) {
+      return invoke("ai_chat_set_model", { request: { sessionId, requestId, model } })
+    },
+    answerApproval(requestId, decision) {
+      return invoke("ai_chat_answer_approval", { request: { sessionId, requestId, decision } })
     },
     // The answer window and the MCP tools read context by sessionId, whichever surface started it.
     updateContext(context) {

@@ -31,21 +31,15 @@ export const CLAUDE_MODEL_SUGGESTIONS = [
 export type ModelSuggestion = { id: string; name: string; label: string }
 
 // How the AI panel talks to the agent: the CLI in a terminal, or a chat driving it headless.
-const aiPanelSurfaceSchema = z.enum(["terminal", "chat"])
-export type AiPanelSurface = z.infer<typeof aiPanelSurfaceSchema>
-
-export const AI_PANEL_SURFACE_LABELS: Record<AiPanelSurface, string> = {
-  terminal: "Terminal",
-  chat: "Chat",
-}
+// It is a fact of the provider, never a saved preference.
+export type AiPanelSurface = "terminal" | "chat"
 
 export type TerminalProviderDescriptor = {
   label: string
   modelSuggestions: ReadonlyArray<ModelSuggestion>
   // Preselected until the reviewer picks another model, so a first run is quick.
   fastestModelId: string
-  // The first one is the fallback when a saved surface is not offered for this provider.
-  surfaces: ReadonlyArray<AiPanelSurface>
+  surface: AiPanelSurface
 }
 
 // The AI panel terminal reads its labels and model choices from here, so adding a provider
@@ -55,13 +49,13 @@ export const TERMINAL_PROVIDERS: Record<SelectableAiProviderId, TerminalProvider
     label: "Codex",
     modelSuggestions: CODEX_MODEL_SUGGESTIONS,
     fastestModelId: DEFAULT_CODEX_MODEL_ID,
-    surfaces: ["terminal"],
+    surface: "terminal",
   },
   claude: {
     label: "Claude",
     modelSuggestions: CLAUDE_MODEL_SUGGESTIONS,
     fastestModelId: "haiku",
-    surfaces: ["terminal", "chat"],
+    surface: "chat",
   },
 }
 
@@ -97,8 +91,8 @@ export const aiReviewSettingsSchema = z.object({
   // Which CLI the AI panel terminal runs. Null until the reviewer chooses, for the same reason
   // as defaultProvider: no hidden default may send repository content to a provider.
   terminalProvider: selectableAiProviderIdSchema.nullable().default(null),
-  // Defaults to the terminal so settings saved before the chat existed load unchanged.
-  panelSurface: aiPanelSurfaceSchema.default("terminal"),
+  // 0.7.7 also stored a panelSurface choice. The object schema drops unknown keys,
+  // so those settings still load and the key is gone after the next save.
 })
 export type AiReviewSettings = z.infer<typeof aiReviewSettingsSchema>
 
@@ -112,22 +106,14 @@ export const DEFAULT_AI_REVIEW_SETTINGS: AiReviewSettings = {
   codexModelDefaultApplied: true,
   claudeModelDefaultApplied: true,
   terminalProvider: null,
-  panelSurface: "terminal",
 }
 
-// The provider descriptor's surfaces list is the one place that decides where a chat exists.
+export function panelSurfaceFor(provider: SelectableAiProviderId): AiPanelSurface {
+  return TERMINAL_PROVIDERS[provider].surface
+}
+
 export function offersChat(provider: SelectableAiProviderId): boolean {
-  return TERMINAL_PROVIDERS[provider].surfaces.includes("chat")
-}
-
-// A saved surface the provider does not offer (chat saved, then Codex chosen) shows that
-// provider's first surface. The saved preference is left alone for when the provider changes back.
-export function resolvePanelSurface(
-  provider: SelectableAiProviderId,
-  savedSurface: AiPanelSurface
-): AiPanelSurface {
-  const surfaces = TERMINAL_PROVIDERS[provider].surfaces
-  return surfaces.includes(savedSurface) ? savedSurface : (surfaces[0] ?? "terminal")
+  return panelSurfaceFor(provider) === "chat"
 }
 
 // Explicit provider selection wins over a saved preference. This function intentionally never
@@ -166,20 +152,43 @@ export function getSelectableModelIds(
 export const NO_PROVIDER_SUMMARY = "Choose a provider"
 export const CLI_DEFAULT_MODEL_NAME = "CLI default"
 
-// The one-line summary of the AI panel settings, such as "Claude · Haiku · Chat". It is read
-// from the same descriptors the controls use. The surface part appears only when there is a choice.
-export function describePanelSettings(settings: AiReviewSettings, surface: AiPanelSurface): string {
+// The one-line summary of the AI panel settings, such as "Claude · Haiku". It is read
+// from the same descriptors the controls use.
+export function describePanelSettings(settings: AiReviewSettings): string {
   const provider = settings.terminalProvider
   if (provider === null) return NO_PROVIDER_SUMMARY
 
-  const descriptor = TERMINAL_PROVIDERS[provider]
-  const modelId = settings.providers[provider].selectedModel
-  const suggestion = descriptor.modelSuggestions.find((model) => model.id === modelId)
-  const modelName = modelId === null ? CLI_DEFAULT_MODEL_NAME : (suggestion?.name ?? modelId)
-  const offersSurfaceChoice = descriptor.surfaces.length > 1
-  const parts = offersSurfaceChoice
-    ? [descriptor.label, modelName, AI_PANEL_SURFACE_LABELS[surface]]
-    : [descriptor.label, modelName]
+  const modelName = modelDisplayName(provider, settings.providers[provider].selectedModel)
+  return `${TERMINAL_PROVIDERS[provider].label} · ${modelName}`
+}
 
-  return parts.join(" · ")
+// The short name the app uses for a model choice: "Haiku", "CLI default", or a custom id as written.
+export function modelDisplayName(provider: SelectableAiProviderId, modelId: string | null): string {
+  if (modelId === null) return CLI_DEFAULT_MODEL_NAME
+
+  const suggestion = TERMINAL_PROVIDERS[provider].modelSuggestions.find(
+    (model) => model.id === modelId
+  )
+  return suggestion?.name ?? modelId
+}
+
+// The CLI reports the resolved model ("claude-haiku-5-5"), the app names its aliases ("haiku").
+// Null when the resolved id belongs to none of this provider's suggestions.
+export function modelNameForResolvedId(
+  provider: SelectableAiProviderId,
+  resolvedModelId: string
+): string | null {
+  const suggestion = TERMINAL_PROVIDERS[provider].modelSuggestions.find((model) =>
+    isResolvedModel(provider, resolvedModelId, model.id)
+  )
+  return suggestion?.name ?? null
+}
+
+// Whether the CLI's resolved id ("claude-haiku-5-5") is the app's model choice ("haiku").
+export function isResolvedModel(
+  provider: SelectableAiProviderId,
+  resolvedModelId: string,
+  modelId: string
+): boolean {
+  return resolvedModelId === modelId || resolvedModelId.startsWith(`${provider}-${modelId}-`)
 }

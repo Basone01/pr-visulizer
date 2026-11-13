@@ -108,6 +108,39 @@ describe("buildReviewUiPrompt teaches the review library", () => {
     expect(rules.filter((rule) => !prompt.includes(rule))).toEqual([])
   })
 
+  it("states once that every block is its own complete program with its own root, and never asks for only the changed statements", () => {
+    // Arrange
+    const blockRule =
+      "Every block is a separate, complete program: it starts with its own root = Stack(...) and defines every name it uses. Names are never shared between blocks. Two diagrams are one block whose root lists both, or two blocks that each have their own root."
+    const changedOnlyText = "ONLY the changed/new statements"
+    const inlineModeHeading = "## Inline Mode"
+
+    // Act
+    const prompt = buildReviewUiPrompt()
+
+    // Assert
+    expect({
+      statesBlockRule: prompt.split(blockRule).length - 1,
+      asksForChangedOnly: prompt.includes(changedOnlyText),
+      hasInlineMode: prompt.includes(inlineModeHeading),
+    }).toEqual({ statesBlockRule: 1, asksForChangedOnly: false, hasInlineMode: false })
+  })
+
+  it("shows each example as the reply shape it asks for: a line of prose, then a fenced program", () => {
+    // Arrange
+    const fencedReply = /\n[^\n`]+\n```openui-lang\nroot = Stack\(\[[^\n]*\]\)\n[\s\S]*?\n```/g
+
+    // Act
+    const prompt = buildReviewUiPrompt()
+    const examples = prompt.slice(
+      prompt.indexOf("## Examples"),
+      prompt.indexOf("## Important Rules")
+    )
+
+    // Assert
+    expect(examples.match(fencedReply)?.length).toBe(2)
+  })
+
   it("no longer tells the agent its entire response must be openui-lang", () => {
     // Arrange
     const wholeResponseRule = "ENTIRE response"

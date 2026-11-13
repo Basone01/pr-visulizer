@@ -1,5 +1,6 @@
 mod ai_broker;
 mod ai_chat;
+mod ai_chat_approval;
 mod ai_snapshot;
 mod app_tool_mcp;
 mod codex_answer;
@@ -679,6 +680,7 @@ pub fn run() {
         .manage(ai_broker::CodexSafeProfileStartupRecovery::default())
         .manage(codex_terminal::CodexTerminalSessions::default())
         .manage(ai_chat::AiChatSessions::default())
+        .manage(ai_chat_approval::ChatApprovals::default())
         .manage(codex_answer::CodexAnswerSessions::default())
         // A browser reload discards the terminal and chat listeners, so end any child owned by
         // the prior document before the replacement UI starts listening.
@@ -694,10 +696,30 @@ pub fn run() {
             {
                 terminal_sessions.shutdown();
             }
+            if let Some(approvals) = webview.try_state::<ai_chat_approval::ChatApprovals>() {
+                approvals.close_all(ai_chat_approval::REASON_RELOADED);
+            }
             if let Some(chat_sessions) = webview.try_state::<ai_chat::AiChatSessions>() {
                 chat_sessions.shutdown();
             }
         });
+
+    // Closing the main window while an answer window keeps the app running would orphan the chat,
+    // so it ends the chat the same way a reload of that window does.
+    builder = builder.on_window_event(|window, event| {
+        let is_main_window_destroyed =
+            matches!(event, tauri::WindowEvent::Destroyed) && window.label() == "main";
+        if !is_main_window_destroyed {
+            return;
+        }
+
+        if let (Some(approvals), Some(chat_sessions)) = (
+            window.try_state::<ai_chat_approval::ChatApprovals>(),
+            window.try_state::<ai_chat::AiChatSessions>(),
+        ) {
+            ai_chat::end_chats_after_main_window_closed(&approvals, &chat_sessions);
+        }
+    });
 
     // Single Instance must be registered FIRST (plugin ordering requirement). A second
     // `pr-visualizer <url>` focuses the open window and hands it the argv; the webview parses
@@ -734,6 +756,9 @@ pub fn run() {
             ai_chat::ai_chat_send,
             ai_chat::ai_chat_interrupt,
             ai_chat::ai_chat_stop,
+            ai_chat::ai_chat_watch_approvals,
+            ai_chat::ai_chat_answer_approval,
+            ai_chat::ai_chat_set_model,
             codex_answer::codex_terminal_update_context,
             codex_answer::codex_answer_window_state,
             codex_answer::codex_answer_window_open_file,
@@ -778,6 +803,9 @@ pub fn run() {
                 app_handle.try_state::<codex_terminal::CodexTerminalSessions>()
             {
                 terminal_sessions.shutdown();
+            }
+            if let Some(approvals) = app_handle.try_state::<ai_chat_approval::ChatApprovals>() {
+                approvals.close_all(ai_chat_approval::REASON_APP_QUIT);
             }
             if let Some(chat_sessions) = app_handle.try_state::<ai_chat::AiChatSessions>() {
                 chat_sessions.shutdown();
