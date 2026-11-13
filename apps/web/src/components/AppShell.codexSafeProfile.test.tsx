@@ -549,4 +549,41 @@ describe("AppShell — Codex safe profile through its production composition", (
       })
     })
   })
+
+  it("lets_the_codex_pane_be_dragged_over_the_review_and_keeps_the_saved_side_pane_widths", async () => {
+    // Arrange
+    await addRepoLink(desktop.storage, { path: "/repo", owner: TARGET.owner, repo: TARGET.repo })
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1700 })
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 1000 })
+    renderShell()
+    await pressTerminalStart()
+    await waitFor(() => expect(broker.terminalStarts).toHaveLength(1), { timeout: WAIT_TIMEOUT })
+
+    const workspace = document.querySelector<HTMLElement>("[data-workspace]")
+    if (!workspace) throw new Error("Workspace is missing")
+
+    const codexPane = screen.getByLabelText("Codex")
+    Object.defineProperty(workspace, "clientWidth", { configurable: true, value: 1700 })
+    vi.spyOn(codexPane, "getBoundingClientRect").mockReturnValue(new DOMRect(1310, 0, 390, 860))
+
+    const codexDivider = screen.getByRole("separator", { name: "Resize Codex pane" })
+    const dragStartX = 1310
+    // 1200 px to the left. The graph, diff and tray panes together need 1032 px of the 1700.
+    const dragEndX = 110
+
+    // Act
+    fireEvent.pointerDown(codexDivider, { pointerId: 1, clientX: dragStartX })
+    fireEvent.pointerMove(codexDivider, { pointerId: 1, clientX: dragEndX })
+    fireEvent.pointerUp(codexDivider, { pointerId: 1, clientX: dragEndX })
+
+    // Assert
+    const expectedCodexWidth = "1590px"
+    expect(workspace.style.getPropertyValue("--codex-width")).toBe(expectedCodexWidth)
+
+    const expectedSavedSizes = { codex: 1590, codexHeight: 390, graph: 400, tray: 300 }
+    await waitFor(async () => {
+      const persisted = await desktop.storage.get("panelSizes")
+      expect(JSON.parse(persisted ?? "{}")).toEqual(expectedSavedSizes)
+    })
+  })
 })

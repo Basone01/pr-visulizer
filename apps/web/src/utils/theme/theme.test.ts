@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   type ThemePreference,
@@ -7,6 +7,7 @@ import {
   attributeFor,
   nextPreference,
   resolvePreference,
+  resolvedThemeMode,
 } from "./theme"
 
 describe("resolvePreference", () => {
@@ -124,5 +125,65 @@ describe("applyPreference — the side effect at the edge", () => {
 
     // Assert
     expect(root.hasAttribute("data-theme")).toBe(false)
+  })
+})
+
+describe("resolvedThemeMode — the light/dark mode the app shows right now", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function stubOsPrefersDark(prefersDark: boolean): void {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: prefersDark, media: query }))
+  }
+
+  it("follows an explicit light attribute even when the OS prefers dark", () => {
+    // Arrange
+    const root = document.createElement("html")
+    root.setAttribute("data-theme", "light")
+    stubOsPrefersDark(true)
+
+    // Act
+    const mode = resolvedThemeMode(root)
+
+    // Assert
+    expect(mode).toBe("light")
+  })
+
+  it("follows an explicit dark attribute even when the OS prefers light", () => {
+    // Arrange
+    const root = document.createElement("html")
+    root.setAttribute("data-theme", "dark")
+    stubOsPrefersDark(false)
+
+    // Act
+    const mode = resolvedThemeMode(root)
+
+    // Assert
+    expect(mode).toBe("dark")
+  })
+
+  it("follows the OS when no attribute is set and the OS prefers dark", () => {
+    // Arrange
+    const root = document.createElement("html")
+    stubOsPrefersDark(true)
+
+    // Act
+    const mode = resolvedThemeMode(root)
+
+    // Assert
+    expect(mode).toBe("dark")
+  })
+
+  it("follows the OS when no attribute is set and the OS prefers light", () => {
+    // Arrange
+    const root = document.createElement("html")
+    stubOsPrefersDark(false)
+
+    // Act
+    const mode = resolvedThemeMode(root)
+
+    // Assert
+    expect(mode).toBe("light")
   })
 })

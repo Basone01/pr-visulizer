@@ -109,6 +109,15 @@
   cursor: pointer;
   font: inherit;
   text-decoration: underline;
+  position: relative;
+}
+
+/* WCAG 2.2 SC 2.5.8: the hit area grows to at least 24x24px around the link. The link itself
+   keeps its text height (20px), so the line spacing of the prose does not change. */
+.fileLink::after {
+  content: "";
+  position: absolute;
+  inset: min(0px, calc(50% - 12px));
 }
 
 .markdownPreview pre {
@@ -179,6 +188,12 @@
 
 .link:hover {
   text-decoration: underline;
+}
+
+/* The host after an agent-written link ("strict" policy): isolated so the label cannot reorder it. */
+.linkTarget {
+  color: var(--muted);
+  unicode-bidi: isolate;
 }
 
 .image {

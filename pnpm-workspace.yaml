@@ -6,6 +6,9 @@ packages:
 # install script only verifies that binary, so it is safe to allow.
 # better-sqlite3 compiles a native addon (node-gyp) on install — the drizzle
 # driver for the SQLite progress store (§3, §11); its build is required.
+# @openuidev/lang-core's postinstall only sends install telemetry, so it stays off. Without an
+# explicit entry pnpm fails every install (ERR_PNPM_IGNORED_BUILDS), and `pnpm --filter` with it.
 allowBuilds:
   esbuild: true
   better-sqlite3: true
+  '@openuidev/lang-core': false

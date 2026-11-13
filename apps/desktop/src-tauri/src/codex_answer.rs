@@ -153,6 +153,34 @@ struct SocketResponse {
     error: Option<String>,
 }
 
+// Where a rendered answer shows. The terminal pops a separate window, the chat shows it inline
+// and opens the window only when the reviewer asks for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnswerPresentation {
+    Window,
+    Inline,
+}
+
+// Tells the `--render-mcp` helper which surface it serves, so its instructions match.
+pub(crate) const ANSWER_PRESENTATION_ENV: &str = "PR_VISUALIZER_ANSWER_PRESENTATION";
+
+impl AnswerPresentation {
+    // Only inline is passed on, so the terminal's helper environment stays exactly as it was.
+    pub(crate) fn helper_env_value(self) -> Option<&'static str> {
+        match self {
+            Self::Window => None,
+            Self::Inline => Some("inline"),
+        }
+    }
+
+    pub(crate) fn from_helper_env(value: Option<&str>) -> Self {
+        match value {
+            Some("inline") => Self::Inline,
+            _ => Self::Window,
+        }
+    }
+}
+
 struct SocketHost {
     path: std::path::PathBuf,
     stop_sender: mpsc::Sender<()>,
@@ -160,6 +188,7 @@ struct SocketHost {
 
 struct AnswerSession {
     context: CodexAnswerContext,
+    presentation: AnswerPresentation,
     report: Option<AnswerReport>,
     active: bool,
     socket: Option<SocketHost>,
@@ -176,6 +205,7 @@ impl CodexAnswerSessions {
         app: tauri::AppHandle<R>,
         session_id: &str,
         context: CodexAnswerContext,
+        presentation: AnswerPresentation,
     ) -> Result<(String, String), String> {
         validate_context(&context)?;
         if self
@@ -196,6 +226,7 @@ impl CodexAnswerSessions {
 
         let session = AnswerSession {
             context,
+            presentation,
             report: None,
             active: true,
             socket: Some(SocketHost {
@@ -287,6 +318,17 @@ impl CodexAnswerSessions {
             .get(session_id)
             .ok_or_else(|| "answer session is no longer available".to_string())?;
         Ok(session.report.clone())
+    }
+
+    fn presentation(&self, session_id: &str) -> Result<AnswerPresentation, String> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| "answer session state is unavailable".to_string())?;
+        sessions
+            .get(session_id)
+            .map(|session| session.presentation)
+            .ok_or_else(|| "answer session is no longer available".to_string())
     }
 
     fn active_context(&self, session_id: &str) -> Result<CodexAnswerContext, String> {
@@ -411,7 +453,9 @@ fn handle_socket_request<R: Runtime>(
                 let request: RenderAnswerRequest = serde_json::from_value(request.payload)
                     .map_err(|_| "render_answer request is invalid".to_string())?;
                 let report = sessions.store_report(session_id, request)?;
-                show_report_window(app, &report)?;
+                if sessions.presentation(session_id)? == AnswerPresentation::Window {
+                    show_report_window(app, &report)?;
+                }
                 app.emit("codex-answer://updated", &report)
                     .map_err(|error| error.to_string())?;
                 Ok(serde_json::json!({ "rendered": true }))
@@ -800,6 +844,7 @@ mod tests {
     ) {
         let session = AnswerSession {
             context,
+            presentation: AnswerPresentation::Window,
             report: None,
             active: true,
             socket: None,
@@ -831,7 +876,12 @@ mod tests {
         let sessions = CodexAnswerSessions::default();
         let session_id = "answer-socket-test";
         let (socket_path, token) = sessions
-            .start(app.handle().clone(), session_id, context())
+            .start(
+                app.handle().clone(),
+                session_id,
+                context(),
+                AnswerPresentation::Window,
+            )
             .expect("start answer socket");
         let context_request = serde_json::json!({
             "token": token,
@@ -852,6 +902,129 @@ mod tests {
         );
     }
 
+    fn render_answer_request(token: &str) -> serde_json::Value {
+        serde_json::json!({
+            "token": token,
+            "operation": "render_answer",
+            "payload": {
+                "version": 1,
+                "title": "Cache review",
+                "markdown": "See `src/cache.rs`.",
+                "fileRefs": [{ "path": "src/cache.rs", "line": 12 }]
+            }
+        })
+    }
+
+    fn record_updated_reports(
+        app: &tauri::App<tauri::test::MockRuntime>,
+    ) -> mpsc::Receiver<serde_json::Value> {
+        use tauri::Listener;
+
+        let (sender, receiver) = mpsc::channel();
+        app.handle().listen("codex-answer://updated", move |event| {
+            if let Ok(payload) = serde_json::from_str(event.payload()) {
+                let _ = sender.send(payload);
+            }
+        });
+        receiver
+    }
+
+    fn rendered_answer_in(
+        presentation: AnswerPresentation,
+        session_id: &str,
+    ) -> (
+        tauri::App<tauri::test::MockRuntime>,
+        CodexAnswerSessions,
+        serde_json::Value,
+        Option<serde_json::Value>,
+    ) {
+        let app = tauri::test::mock_app();
+        let updates = record_updated_reports(&app);
+        let sessions = CodexAnswerSessions::default();
+        let (socket_path, token) = sessions
+            .start(app.handle().clone(), session_id, context(), presentation)
+            .expect("start answer session");
+        let response = socket_request(&socket_path, render_answer_request(&token));
+        let update = updates.recv_timeout(Duration::from_secs(2)).ok();
+        (app, sessions, response, update)
+    }
+
+    #[test]
+    fn inline_session_stores_and_announces_a_rendered_answer_but_opens_no_window() {
+        // Arrange
+        let session_id = "answer-inline-render";
+        let presentation = AnswerPresentation::Inline;
+
+        // Act
+        let (app, sessions, response, update) = rendered_answer_in(presentation, session_id);
+        let stored = sessions.report(session_id).expect("read stored report");
+        let window = app.get_webview_window(&report_window_label(session_id));
+        sessions.revoke(session_id);
+
+        // Assert
+        assert_eq!(response["ok"], true, "{response}");
+        let update = update.expect("codex-answer://updated must be emitted");
+        assert_eq!(update["sessionId"], session_id);
+        assert_eq!(update["title"], "Cache review");
+        assert!(stored.is_some(), "the report must be stored");
+        assert!(window.is_none(), "an inline answer must not open a window");
+    }
+
+    #[test]
+    fn window_session_still_opens_the_answer_window_on_render() {
+        // Arrange
+        let session_id = "answer-window-render";
+        let presentation = AnswerPresentation::Window;
+
+        // Act
+        let (app, sessions, response, update) = rendered_answer_in(presentation, session_id);
+        let window = app.get_webview_window(&report_window_label(session_id));
+        sessions.revoke(session_id);
+
+        // Assert
+        assert_eq!(response["ok"], true, "{response}");
+        assert!(update.is_some(), "codex-answer://updated must be emitted");
+        assert!(window.is_some(), "a terminal answer must open its window");
+    }
+
+    #[test]
+    fn inline_session_opens_the_answer_window_when_asked() {
+        // Arrange
+        let session_id = "answer-inline-show";
+        let (app, sessions, _response, _update) =
+            rendered_answer_in(AnswerPresentation::Inline, session_id);
+
+        // Act
+        let shown = show_stored_report(app.handle(), &sessions, session_id);
+        let window = app.get_webview_window(&report_window_label(session_id));
+        sessions.revoke(session_id);
+
+        // Assert
+        assert_eq!(shown, Ok(()));
+        assert!(
+            window.is_some(),
+            "Open answer must pop the report out on request"
+        );
+    }
+
+    #[test]
+    fn helper_env_carries_only_the_inline_presentation() {
+        // Arrange
+        let window = AnswerPresentation::Window;
+        let inline = AnswerPresentation::Inline;
+
+        // Act
+        let window_value = window.helper_env_value();
+        let inline_value = inline.helper_env_value();
+
+        // Assert
+        assert_eq!(window_value, None);
+        assert_eq!(inline_value, Some("inline"));
+        assert_eq!(AnswerPresentation::from_helper_env(inline_value), inline);
+        assert_eq!(AnswerPresentation::from_helper_env(None), window);
+        assert_eq!(AnswerPresentation::from_helper_env(Some("other")), window);
+    }
+
     #[test]
     fn show_stored_report_reports_a_session_without_an_answer() {
         // Arrange
@@ -859,7 +1032,12 @@ mod tests {
         let sessions = CodexAnswerSessions::default();
         let session_id = "answer-show-without-report";
         sessions
-            .start(app.handle().clone(), session_id, context())
+            .start(
+                app.handle().clone(),
+                session_id,
+                context(),
+                AnswerPresentation::Window,
+            )
             .expect("start answer session");
 
         // Act
@@ -1095,7 +1273,12 @@ mod tests {
         let mut session_context = context();
         session_context.review = Some(review_snapshot());
         let (socket_path, token) = sessions
-            .start(app.handle().clone(), session_id, session_context)
+            .start(
+                app.handle().clone(),
+                session_id,
+                session_context,
+                AnswerPresentation::Window,
+            )
             .expect("start answer socket");
         let current_file_request = serde_json::json!({
             "token": token,
@@ -1130,6 +1313,7 @@ mod tests {
         next_context.head_sha = "another-head".into();
         let session = AnswerSession {
             context: context(),
+            presentation: AnswerPresentation::Window,
             report: None,
             active: true,
             socket: None,

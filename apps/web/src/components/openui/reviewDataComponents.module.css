@@ -1,0 +1,36 @@
+/* OpenUI sets white-space: nowrap on every table cell, so one long note set the table width.
+   The td/th prefix outranks OpenUI's single-class rule whatever order the sheets load in. */
+
+/* Text columns wrap, and a long unbroken token (a path, a hash) breaks instead of widening the
+   column. The minimum keeps a narrow panel at a readable scroll, not one word per line. */
+td.textCell,
+th.textCell {
+  min-width: 16ch;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Numbers and action cells read badly when broken: one line, digits aligned. */
+td.numberCell,
+th.numberCell {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+td.actionCell,
+th.actionCell {
+  white-space: nowrap;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.pageNumber {
+  color: var(--muted);
+  font-size: 13px;
+}

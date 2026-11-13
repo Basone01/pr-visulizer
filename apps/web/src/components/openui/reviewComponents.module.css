@@ -1,0 +1,80 @@
+/* FileRef and markdown links are buttons (they never navigate the webview), styled as links. */
+.fileRef,
+.markdownLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.fileRef {
+  /* Its own width, not the column's: a Card or Stack stretches its children by default.
+     A long path wraps inside the block, and the title still carries the full location. */
+  width: fit-content;
+  max-width: 100%;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+/* A FileRef to a file outside the PR: readable, not interactive. */
+.fileRefText {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+.fileRef:hover,
+.markdownLink:hover {
+  background: var(--accent-soft);
+}
+
+/* The host a link leaves the app for, visible before the click. */
+.linkTarget {
+  /* Isolated from the label's direction, so a bidi control in the label can't reorder it. */
+  direction: ltr;
+  unicode-bidi: isolate;
+  color: var(--muted);
+  font-size: 0.85em;
+  text-decoration: none;
+}
+
+/* A list item's action: the item title as a real button, so Enter and Space work. */
+.listItemAction {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.listItemAction:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.listItemAction:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.listItemActionLabel {
+  color: var(--muted);
+}

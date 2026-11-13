@@ -1,0 +1,25 @@
+{
+  "entries": [
+    {
+      "kind": "user_message",
+      "text": "Hi",
+      "id": 1
+    },
+    {
+      "kind": "tool_activity",
+      "toolCallId": "toolu_01",
+      "toolName": "Read",
+      "summary": "<REPO>/README.md",
+      "status": "done",
+      "id": 2
+    },
+    {
+      "kind": "assistant_message",
+      "partId": "msg_02:1",
+      "text": "The secret word is **PELICAN**. It's on line 2 of `README.md`, which reads: \"The secret word is PELICAN.\"\n\n`★ Insight ─────────────────────────────────────`\nThis repo is a tiny probe with one content line, so the read was a single `Read` call. Reading the file directly is the right tool here, since the answer lives in the file itself.\n`─────────────────────────────────────────────────`",
+      "id": 3
+    }
+  ],
+  "turn": "idle",
+  "nextEntryId": 4
+}

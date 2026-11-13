@@ -153,6 +153,11 @@
         replaces the custom chat interface and its per-message diff packaging. The graph, diff
         viewer, review queue, and GitHub submission flow are unchanged.
       </p>
+      <p>
+        For Claude, the panel now also offers a chat surface beside the terminal, described in
+        <a href="openui-chat.html">Chat surface for Claude (OpenUI)</a>. The terminal remains the
+        default surface and works as described here.
+      </p>
       <h2>Context</h2>
       <p>
         The app passes a small initial prompt containing the PR URL, title, base commit, head
@@ -179,6 +184,14 @@
         read-only sandbox. This is a normal interactive CLI session, not the legacy prompt-only
         broker&#x27;s restricted execution profile. The hosted web app cannot start local terminal
         processes.
+      </p>
+      <p>
+        Provider, Model, Custom model ID, Surface (Claude only) and Custom shortcuts sit in one
+        settings row, a native disclosure. Its summary names the current choice, for example
+        &quot;Claude · Haiku · Chat&quot;. The row is open until a provider is chosen and closed
+        once one is saved. The open state is not saved, and opening or closing the row never
+        restarts a session. The session surface keeps a 150 px minimum height, and open settings
+        scroll inside themselves.
       </p>
       <h2>Implementation references</h2>
       <p>

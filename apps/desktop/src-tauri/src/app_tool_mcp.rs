@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::time::Duration;
 
+use crate::codex_answer::{AnswerPresentation, ANSWER_PRESENTATION_ENV};
+
 const MAX_MARKDOWN_BYTES: usize = 256 * 1024;
 const MAX_TITLE_BYTES: usize = 240;
 const MAX_FILE_REFS: usize = 64;
@@ -51,7 +53,44 @@ struct AppResponse {
 pub struct AppToolServer {
     socket_path: String,
     token: String,
+    presentation: AnswerPresentation,
     tool_router: ToolRouter<Self>,
+}
+
+// The terminal wording is unchanged from before the chat existed. The chat wording makes the
+// chat reply the default answer, because a rendered answer there shows inline, not in a window.
+const WINDOW_INSTRUCTIONS: &str = "Use app tools for this one PR session. Whenever an answer mentions a file or line the reviewer may need to open, you must call render_answer successfully before finishing, even for a short answer. Include every mentioned file in fileRefs, with its line when known, and use repo-relative Markdown links or inline paths. If rendering fails, correct the request and retry, then report any unresolved failure. Use the terminal for progress, questions, and answers without file references. Call render_answer only for the final response, then give a brief terminal confirmation. Call get_current_file first when the reviewer asks about 'this file', 'these lines' or 'here'.";
+const INLINE_INSTRUCTIONS: &str = "Use app tools for this one PR session. Answer in the chat by default, your reply is what the reviewer reads. render_answer is optional. When you use it, include every mentioned file in fileRefs with its line when known. Its answer is shown inline in the chat, so do not repeat it in your reply, add at most one short sentence. If rendering fails, correct the request and retry, or answer in the chat instead. Call get_current_file first when the reviewer asks about 'this file', 'these lines' or 'here'.";
+const INLINE_RENDER_ANSWER_DESCRIPTION: &str = "Show a Markdown answer inline in the PR Visualizer chat. Optional, answering in the chat reply is the default. Include every mentioned file in fileRefs with its line when known. The answer already appears in the chat, so do not repeat it in your reply.";
+const WINDOW_RENDER_RESULT: &str = "Answer rendered in PR Visualizer.";
+const INLINE_RENDER_RESULT: &str =
+    "Answer shown inline in the chat. Do not repeat it in your reply.";
+
+impl AnswerPresentation {
+    fn server_instructions(self) -> &'static str {
+        match self {
+            Self::Window => WINDOW_INSTRUCTIONS,
+            Self::Inline => INLINE_INSTRUCTIONS,
+        }
+    }
+
+    fn render_result(self) -> &'static str {
+        match self {
+            Self::Window => WINDOW_RENDER_RESULT,
+            Self::Inline => INLINE_RENDER_RESULT,
+        }
+    }
+}
+
+// Only the render_answer description changes by surface. Names and input schemas stay identical.
+fn tool_router_for(presentation: AnswerPresentation) -> ToolRouter<AppToolServer> {
+    let mut router = AppToolServer::tool_router();
+    if presentation == AnswerPresentation::Inline {
+        if let Some(route) = router.map.get_mut("render_answer") {
+            route.attr.description = Some(INLINE_RENDER_ANSWER_DESCRIPTION.into());
+        }
+    }
+    router
 }
 
 impl AppToolServer {
@@ -60,10 +99,13 @@ impl AppToolServer {
             .map_err(|_| "missing render socket".to_string())?;
         let token = std::env::var("PR_VISUALIZER_RENDER_TOKEN")
             .map_err(|_| "missing render token".to_string())?;
+        let presentation = std::env::var(ANSWER_PRESENTATION_ENV).ok();
+        let presentation = AnswerPresentation::from_helper_env(presentation.as_deref());
         Ok(Self {
             socket_path,
             token,
-            tool_router: Self::tool_router(),
+            presentation,
+            tool_router: tool_router_for(presentation),
         })
     }
 
@@ -185,14 +227,15 @@ impl AppToolServer {
             return Err("render_answer accepts at most 64 file references".into());
         }
         self.call("render_answer", &request)
-            .map(|_| "Answer rendered in PR Visualizer.".into())
+            .map(|_| self.presentation.render_result().into())
     }
 }
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for AppToolServer {
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions("Use app tools for this one PR session. Whenever an answer mentions a file or line the reviewer may need to open, you must call render_answer successfully before finishing, even for a short answer. Include every mentioned file in fileRefs, with its line when known, and use repo-relative Markdown links or inline paths. If rendering fails, correct the request and retry, then report any unresolved failure. Use the terminal for progress, questions, and answers without file references. Call render_answer only for the final response, then give a brief terminal confirmation. Call get_current_file first when the reviewer asks about 'this file', 'these lines' or 'here'.")
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_instructions(self.presentation.server_instructions())
     }
 }
 
@@ -217,11 +260,95 @@ mod tests {
     use super::*;
 
     #[test]
+    fn terminal_keeps_required_render_answer_wording_and_chat_makes_it_optional_and_inline() {
+        // Arrange
+        let terminal = AnswerPresentation::Window;
+        let chat = AnswerPresentation::Inline;
+
+        // Act
+        let terminal_instructions = terminal.server_instructions();
+        let chat_instructions = chat.server_instructions();
+        let terminal_result = terminal.render_result();
+        let chat_result = chat.render_result();
+
+        // Assert
+        assert!(terminal_instructions.contains("you must call render_answer successfully"));
+        assert!(terminal_instructions.contains("Use the terminal for progress"));
+        assert_eq!(terminal_result, "Answer rendered in PR Visualizer.");
+        assert!(chat_instructions.contains("Answer in the chat by default"));
+        assert!(chat_instructions.contains("render_answer is optional"));
+        assert!(chat_instructions.contains("shown inline in the chat, so do not repeat it"));
+        assert!(!chat_instructions.contains("terminal"));
+        let expected_chat_result =
+            "Answer shown inline in the chat. Do not repeat it in your reply.";
+        assert_eq!(chat_result, expected_chat_result);
+    }
+
+    #[tokio::test]
+    async fn chat_helper_advertises_inline_wording_with_the_same_tools_and_schemas() {
+        // Arrange
+        let server = AppToolServer {
+            socket_path: "/tmp/not-used.sock".into(),
+            token: "test-token".into(),
+            presentation: AnswerPresentation::Inline,
+            tool_router: tool_router_for(AnswerPresentation::Inline),
+        };
+        let terminal_tools = AppToolServer::tool_router().list_all();
+        let (server_transport, client_transport) = tokio::io::duplex(64 * 1024);
+        let server_task = tokio::spawn(async move {
+            server
+                .serve(server_transport)
+                .await
+                .expect("start MCP server transport")
+                .waiting()
+                .await
+        });
+        let client = ().serve(client_transport).await.expect("start MCP client transport");
+
+        // Act
+        let instructions = client
+            .peer_info()
+            .and_then(|info| info.instructions.clone());
+        let chat_tools = client
+            .peer()
+            .list_tools(Default::default())
+            .await
+            .expect("list MCP tools")
+            .tools;
+        client.cancel().await.expect("stop MCP client transport");
+        let _ = server_task.await;
+
+        // Assert
+        assert_eq!(instructions.as_deref(), Some(INLINE_INSTRUCTIONS));
+        let shape = |tools: &[rmcp::model::Tool]| {
+            let mut shape: Vec<(String, serde_json::Value)> = tools
+                .iter()
+                .map(|tool| {
+                    let schema = serde_json::Value::Object((*tool.input_schema).clone());
+                    (tool.name.to_string(), schema)
+                })
+                .collect();
+            shape.sort_by(|left, right| left.0.cmp(&right.0));
+            shape
+        };
+        assert_eq!(shape(&chat_tools), shape(&terminal_tools));
+        let render_answer = chat_tools
+            .iter()
+            .find(|tool| tool.name == "render_answer")
+            .expect("render_answer is listed");
+        assert_eq!(
+            render_answer.description.as_deref(),
+            Some(INLINE_RENDER_ANSWER_DESCRIPTION)
+        );
+    }
+
+    #[test]
     fn mcp_server_advertises_all_app_tools() {
         // Arrange
         let server = AppToolServer {
             socket_path: "/tmp/not-used.sock".into(),
             token: "test-token".into(),
+            presentation: AnswerPresentation::Window,
             tool_router: AppToolServer::tool_router(),
         };
 
@@ -286,6 +413,7 @@ mod tests {
         let server = AppToolServer {
             socket_path: socket_path.to_string_lossy().into_owned(),
             token,
+            presentation: AnswerPresentation::Window,
             tool_router: AppToolServer::tool_router(),
         };
         let (server_transport, client_transport) = tokio::io::duplex(64 * 1024);

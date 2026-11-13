@@ -1,4 +1,5 @@
 mod ai_broker;
+mod ai_chat;
 mod ai_snapshot;
 mod app_tool_mcp;
 mod codex_answer;
@@ -677,9 +678,10 @@ pub fn run() {
         .manage(ai_broker::CodexSafeProfileActiveRuns::default())
         .manage(ai_broker::CodexSafeProfileStartupRecovery::default())
         .manage(codex_terminal::CodexTerminalSessions::default())
+        .manage(ai_chat::AiChatSessions::default())
         .manage(codex_answer::CodexAnswerSessions::default())
-        // A browser reload discards the terminal listeners, so end any PTY owned by the prior
-        // document before the replacement UI starts listening.
+        // A browser reload discards the terminal and chat listeners, so end any child owned by
+        // the prior document before the replacement UI starts listening.
         .on_page_load(|webview, payload| {
             if payload.event() != tauri::webview::PageLoadEvent::Started
                 || webview.label() != "main"
@@ -691,6 +693,9 @@ pub fn run() {
                 webview.try_state::<codex_terminal::CodexTerminalSessions>()
             {
                 terminal_sessions.shutdown();
+            }
+            if let Some(chat_sessions) = webview.try_state::<ai_chat::AiChatSessions>() {
+                chat_sessions.shutdown();
             }
         });
 
@@ -724,6 +729,11 @@ pub fn run() {
             codex_terminal::codex_terminal_write,
             codex_terminal::codex_terminal_resize,
             codex_terminal::codex_terminal_stop,
+            ai_chat::ai_chat_start,
+            ai_chat::ai_chat_attach,
+            ai_chat::ai_chat_send,
+            ai_chat::ai_chat_interrupt,
+            ai_chat::ai_chat_stop,
             codex_answer::codex_terminal_update_context,
             codex_answer::codex_answer_window_state,
             codex_answer::codex_answer_window_open_file,
@@ -768,6 +778,9 @@ pub fn run() {
                 app_handle.try_state::<codex_terminal::CodexTerminalSessions>()
             {
                 terminal_sessions.shutdown();
+            }
+            if let Some(chat_sessions) = app_handle.try_state::<ai_chat::AiChatSessions>() {
+                chat_sessions.shutdown();
             }
             if let Some(answer_sessions) =
                 app_handle.try_state::<codex_answer::CodexAnswerSessions>()

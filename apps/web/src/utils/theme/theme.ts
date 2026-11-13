@@ -4,6 +4,12 @@
 // override that. So the whole switcher does one thing: set or clear one attribute on <html>.
 export type ThemePreference = "system" | "light" | "dark"
 
+// The attribute on <html> that tokens.css keys on. Absent means "system".
+export const THEME_ATTRIBUTE = "data-theme"
+
+// The OS preference tokens.css falls back to when THEME_ATTRIBUTE is absent.
+export const DARK_SCHEME_QUERY = "(prefers-color-scheme: dark)"
+
 export const THEME_PREFERENCES: readonly ThemePreference[] = ["system", "light", "dark"]
 
 export const DEFAULT_THEME_PREFERENCE: ThemePreference = "system"
@@ -43,8 +49,18 @@ export function applyPreference(
   root: HTMLElement = document.documentElement
 ): void {
   const attribute = attributeFor(preference)
-  if (attribute) root.setAttribute("data-theme", attribute)
-  else root.removeAttribute("data-theme")
+  if (attribute) root.setAttribute(THEME_ATTRIBUTE, attribute)
+  else root.removeAttribute(THEME_ATTRIBUTE)
+}
+
+// The light/dark mode the app is showing right now, resolved the same way tokens.css does:
+// an explicit attribute on <html> wins, otherwise the OS preference decides.
+export function resolvedThemeMode(root: HTMLElement = document.documentElement): "light" | "dark" {
+  const attribute = root.getAttribute(THEME_ATTRIBUTE)
+  if (attribute === "light" || attribute === "dark") return attribute
+
+  const prefersDark = window.matchMedia?.(DARK_SCHEME_QUERY).matches ?? false
+  return prefersDark ? "dark" : "light"
 }
 
 export function readStoredPreference(): ThemePreference {

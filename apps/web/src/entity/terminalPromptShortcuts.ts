@@ -69,9 +69,38 @@ const prDescriptionShortcut: TerminalPromptShortcut = {
   buildPrompt: buildPrDescriptionPrompt,
 }
 
-// Shortcuts are data: the terminal header renders one button per entry.
+// The chat draws a Diagram block from data the agent sends, the terminal cannot show one.
+function buildDiagramChangesPrompt({
+  prUrl,
+  title,
+  baseSha,
+  headSha,
+}: TerminalPromptShortcutContext): string {
+  return [
+    "Summarize what this PR changes in the system as one diagram first: the components it touches, marking what was added, changed and removed.",
+    "Draw the diagram in your chat reply, not through render_answer.",
+    "Then give at most five short bullets on what a reviewer should look at first, each with a clickable file location.",
+    `PR: ${prUrl}`,
+    `Title: ${title}`,
+    `Base commit: ${baseSha}`,
+    `Head commit: ${headSha}`,
+  ].join("\n")
+}
+
+const diagramChangesShortcut: TerminalPromptShortcut = {
+  id: "diagram-changes",
+  label: "Diagram changes",
+  buildPrompt: buildDiagramChangesPrompt,
+}
+
+// Shortcuts are data: each surface's header renders one button per entry.
 export const TERMINAL_PROMPT_SHORTCUTS: ReadonlyArray<TerminalPromptShortcut> = [
   prDescriptionShortcut,
+]
+
+export const CHAT_PROMPT_SHORTCUTS: ReadonlyArray<TerminalPromptShortcut> = [
+  ...TERMINAL_PROMPT_SHORTCUTS,
+  diagramChangesShortcut,
 ]
 
 export const customTerminalPromptShortcutSchema = z.object({

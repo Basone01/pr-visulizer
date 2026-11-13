@@ -1,0 +1,360 @@
+/* Chat diagrams. Colours come only from the app tokens (design/tokens.css), set through classes
+   because SVG presentation attributes cannot take var(). Light and dark follow the app theme. */
+
+.diagram {
+  /* An unchanged node's outline is what makes it a node, so it needs 3:1 (WCAG 1.4.11):
+     80% --muted on --panel is 3.27-3.49:1 light, 4.08-4.52:1 dark, against node and group fill. */
+  --node-outline: color-mix(in srgb, var(--muted) 80%, var(--panel));
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-family: -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Scales with the block down to 80% of the natural width (set inline), then scrolls here. */
+.canvas {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.scrollHint,
+.notice,
+.status {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.placeholder {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---------- SVG ---------- */
+
+.surface {
+  fill: var(--panel);
+}
+
+.groupZone {
+  fill: var(--bg);
+  stroke: var(--border);
+  stroke-width: 0.8;
+}
+
+.eyebrow {
+  fill: var(--muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+}
+
+.eyebrowMask {
+  fill: var(--bg);
+}
+
+.edge {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.arrowHead {
+  fill: var(--muted);
+}
+
+.labelMask {
+  fill: var(--panel);
+}
+
+.edgeLabel {
+  fill: var(--muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.nodeBox {
+  fill: var(--panel);
+  stroke: var(--node-outline);
+  stroke-width: 1;
+}
+
+.nodeDetail {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 0.8;
+}
+
+.nodeName {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.nodeTag,
+.nodeSublabel {
+  fill: var(--muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.nodeTag {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.nodeSublabel {
+  font-size: 10px;
+}
+
+.focusRing {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  opacity: 0;
+}
+
+.openable {
+  cursor: pointer;
+  outline: none;
+}
+
+.openable:focus-visible .focusRing {
+  opacity: 1;
+}
+
+.openable:hover .nodeBox {
+  fill: var(--accent-soft);
+}
+
+.badgeCircle {
+  stroke-width: 1;
+}
+
+.badgeGlyph {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.lifeline {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.messageLabel {
+  fill: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+}
+
+.legendRule {
+  stroke: var(--border);
+  stroke-width: 0.8;
+}
+
+.legendText {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+/* ---------- Change status: colour plus shape, never colour alone ---------- */
+
+.added .nodeBox,
+.added.edge,
+.added .legendSwatch {
+  stroke: var(--added);
+  stroke-width: 1.2;
+}
+
+.changed .nodeBox,
+.changed.edge,
+.changed .legendSwatch {
+  stroke: var(--modified);
+  stroke-width: 1.2;
+}
+
+.removed .nodeBox,
+.removed.edge,
+.removed .legendSwatch {
+  stroke: var(--deleted);
+  stroke-width: 1.2;
+  stroke-dasharray: 5 4;
+}
+
+.removed .nodeName,
+.removed.messageLabel {
+  fill: var(--muted);
+}
+
+.added .arrowHead {
+  fill: var(--added);
+}
+
+.changed .arrowHead {
+  fill: var(--modified);
+}
+
+.removed .arrowHead {
+  fill: var(--deleted);
+}
+
+.added .badgeCircle {
+  fill: var(--added-soft);
+  stroke: var(--added);
+}
+
+.added .badgeGlyph {
+  fill: var(--added);
+}
+
+.changed .badgeCircle {
+  fill: var(--modified-soft);
+  stroke: var(--modified);
+}
+
+.changed .badgeGlyph {
+  fill: var(--modified);
+}
+
+.removed .badgeCircle {
+  fill: var(--deleted-soft);
+  stroke: var(--deleted);
+}
+
+.removed .badgeGlyph {
+  fill: var(--deleted);
+}
+
+.legendSwatch {
+  fill: var(--panel);
+  stroke: var(--border);
+}
+
+/* A reply in a sequence is dotted whatever its status: its own pattern, so dashed (5 4) keeps
+   meaning "removed" and 3 3 keeps meaning "lifeline". */
+.reply.edge {
+  stroke-dasharray: 1 3;
+  stroke-linecap: round;
+}
+
+/* ---------- Ledger (the text alternative of the picture) ---------- */
+
+.ledger {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.ledgerHeading {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ledgerList {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.ledgerRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.ledgerStatus {
+  flex: none;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.ledgerStatus.added {
+  color: var(--added);
+}
+
+.ledgerStatus.changed {
+  color: var(--modified);
+}
+
+.ledgerStatus.removed {
+  color: var(--deleted);
+}
+
+.ledgerName {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ledgerNote {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.fileLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--accent);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.fileLink:hover {
+  background: var(--accent-soft);
+}
+
+.fileLink:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.relationList {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .diagram * {
+    transition: none !important;
+  }
+}

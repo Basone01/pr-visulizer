@@ -14,6 +14,8 @@ const LINK_PROTOCOLS = ["https:", "http:", "mailto:"]
 // Images are fetched by the webview itself — no click, no OS handoff — so only TLS is allowed.
 const IMAGE_PROTOCOLS = ["https:"]
 
+const HTTPS_ONLY = ["https:"]
+
 function protocolOf(url: string): string | null {
   try {
     return new URL(url).protocol
@@ -37,6 +39,19 @@ export function safeMarkdownLinkUrl(url: string): string {
   return allowUrl(url, LINK_PROTOCOLS)
 }
 
+// For text an agent wrote: a click may hand the OS only an https URL.
+// The URL is normalized, so what the reviewer is shown is exactly what a click opens.
+export function safeHttpsLinkUrl(url: string): string {
+  const allowed = allowUrl(url, HTTPS_ONLY)
+  return allowed === "" ? "" : new URL(allowed).href
+}
+
 export function safeMarkdownImageUrl(url: string): string {
   return allowUrl(url, IMAGE_PROTOCOLS)
+}
+
+// What a reviewer sees next to a link that leaves the app: the host it goes to.
+// Userinfo is not part of it, so https://src/a.ts@evil.example shows evil.example.
+export function linkTargetHost(url: string): string {
+  return new URL(url).host
 }

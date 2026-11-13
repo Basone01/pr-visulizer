@@ -60,13 +60,69 @@
 }
 
 .content {
+  /* Room the session surface keeps below the settings: the chat's short layout (header, a few
+     transcript lines, the one-line composer) needs about this. */
+  --ai-surface-min-height: 150px;
+  --ai-settings-row-height: 28px;
+
   display: flex;
   flex: 1;
   flex-direction: column;
   gap: 8px;
   min-height: 0;
-  overflow: hidden;
+  /* Scrolls, never clips: the open settings push the surface down, and both stay reachable. */
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 12px;
+}
+
+/* The settings collapse to one row that never shrinks, so it stays reachable at every panel
+   height. Open, they take their full height and .content scrolls. */
+.settings {
+  flex: 0 0 auto;
+}
+
+.settingsSummary {
+  position: sticky;
+  top: 0;
+  display: flex;
+  min-height: var(--ai-settings-row-height);
+  align-items: center;
+  padding: 2px 4px;
+  border-radius: 6px;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--panel);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* display: flex drops the native marker, so the open/closed cue is drawn here. */
+.settingsSummary::before {
+  margin-right: 6px;
+  color: var(--muted);
+  content: "▸";
+}
+
+.settings[open] > .settingsSummary::before {
+  content: "▾";
+}
+
+.settingsSummary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* In the shortest panel (220px) the row plus 150px does not fit, so the surface minimum gives
+   way first: it is capped at what is left under the closed row and the 8px gap. */
+.surfaceSlot {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: min(var(--ai-surface-min-height), calc(100% - var(--ai-settings-row-height) - 8px));
 }
 
 .title {
@@ -345,6 +401,48 @@
 
 .terminalHost :global(.xterm) {
   height: 100%;
+}
+
+.surfaceSwitch {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.surfaceLegend {
+  float: left;
+  margin-right: 6px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.surfaceOption {
+  display: inline-flex;
+  min-height: 28px;
+  gap: 4px;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--panel);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.surfaceOption:has(input:checked) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.surfaceOption:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .checkbox {

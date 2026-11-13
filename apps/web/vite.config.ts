@@ -20,6 +20,12 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // react-lang auto-mounts @openuidev/devtools in development, and that package imports its
+      // UI from cdn.jsdelivr.net at runtime. Remote JavaScript must never load into the Tauri
+      // webview, so the package is replaced by a stub that renders nothing.
+      "@openuidev/devtools": fileURLToPath(
+        new URL("./src/utils/openuiDevtoolsStub.ts", import.meta.url)
+      ),
     },
   },
   worker: {

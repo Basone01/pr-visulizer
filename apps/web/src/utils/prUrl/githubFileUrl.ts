@@ -15,8 +15,12 @@ async function fileDiffAnchor(path: string): Promise<string> {
   return `diff-${hex}`
 }
 
+export function githubPrUrl(target: PrTarget): string {
+  return `https://github.com/${target.owner}/${target.repo}/pull/${target.number}`
+}
+
 export async function githubPrFileUrl(target: PrTarget, path: string): Promise<string> {
   const anchor = await fileDiffAnchor(path)
 
-  return `https://github.com/${target.owner}/${target.repo}/pull/${target.number}/files#${anchor}`
+  return `${githubPrUrl(target)}/files#${anchor}`
 }

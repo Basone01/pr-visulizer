@@ -1,0 +1,1723 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chat surface for Claude (OpenUI)</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f7f8fa;
+        --surface: #ffffff;
+        --text: #20242c;
+        --muted: #626b79;
+        --line: #d9dee7;
+        --accent: #6456d9;
+        --code: #f0f2f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111318;
+          --surface: #191c23;
+          --text: #edf0f5;
+          --muted: #aab1bd;
+          --line: #353b47;
+          --accent: #a99eff;
+          --code: #232731;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.65 ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        width: min(980px, calc(100% - 32px));
+        margin: 32px auto;
+        padding: clamp(24px, 5vw, 64px);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.08);
+      }
+      h1,
+      h2,
+      h3 {
+        line-height: 1.22;
+        scroll-margin-top: 20px;
+      }
+      h1 {
+        margin-top: 0;
+        font-size: clamp(2rem, 5vw, 3.2rem);
+        letter-spacing: -0.04em;
+      }
+      h2 {
+        margin-top: 3rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--line);
+        font-size: 1.65rem;
+      }
+      h3 {
+        margin-top: 2rem;
+        font-size: 1.2rem;
+      }
+      p,
+      li {
+        max-width: 78ch;
+      }
+      p:first-of-type {
+        color: var(--muted);
+      }
+      li + li {
+        margin-top: 0.35rem;
+      }
+      code {
+        padding: 0.12rem 0.35rem;
+        background: var(--code);
+        border-radius: 5px;
+        font:
+          0.9em ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      pre {
+        overflow: auto;
+        padding: 18px;
+        background: var(--code);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+      pre code {
+        padding: 0;
+        background: transparent;
+      }
+      .table-wrap {
+        overflow-x: auto;
+        margin: 1rem 0 1.5rem;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+      }
+      th,
+      td {
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: var(--code);
+      }
+      hr {
+        margin: 2.5rem 0;
+        border: 0;
+        border-top: 1px solid var(--line);
+      }
+      strong {
+        color: var(--accent);
+      }
+      @media print {
+        body {
+          background: white;
+        }
+        main {
+          width: 100%;
+          margin: 0;
+          padding: 0;
+          border: 0;
+          box-shadow: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Chat surface for Claude (OpenUI)</h1>
+      <p>The desktop AI panel has a second surface beside the <a href="codex-terminal.html">embedded terminal</a>: a chat. The chat drives Claude Code headless and shows replies as markdown prose plus rich blocks written in <a href="https://github.com/thesysdev/openui">OpenUI Lang</a>. It is an experiment kept next to the terminal, not a replacement for it.</p>
+      <h2>What it is</h2>
+      <p>The panel has a Terminal | Chat switch. It defaults to Terminal. Chat is offered only when the provider is Claude. Codex has no chat and always shows the terminal.</p>
+      <p>The chat runs one long-lived <code>claude -p</code> process per session in the linked local repository. The process talks stream-json on stdin and stdout. A native Rust module pipes the lines between the process and the webview. The webview turns each line into transcript entries. An assistant reply is markdown prose, and it may contain fenced blocks tagged <code>openui-lang</code>. OpenUI's <code>Renderer</code> draws those blocks with a small code-review component library.</p>
+      <p>What stays unchanged:</p>
+      <ul>
+      <li>The terminal, its PTY path and xterm are not touched. It is still the default surface.</li>
+      <li>The graph, diff viewer, review queue and GitHub submission flow are unchanged.</li>
+      <li>The per-launch app MCP server (<code>pr_visualizer</code>) works as before, and the chat reuses the same session registry, keyed by the session ID. The terminal still pops its answer out in a window, as in the <a href="agent-answer-protocol.html">agent answer protocol</a>. In the chat, an answer shows inline (see below).</li>
+      <li>The older prompt-only chat panel and its broker are not used by this surface.</li>
+      </ul>
+      <p>The chat needs the desktop app, because the hosted web app cannot start local processes. In a browser the chat shows "The Claude chat is available in the desktop app."</p>
+      <h2>Interface</h2>
+      <ol>
+      <li>Provider, Model, Custom model ID, Surface and Custom shortcuts sit in one settings row, a native disclosure. Its summary names the current choice, for example "Claude · Haiku · Chat" (<code>describePanelSettings</code>). It is open until a provider is chosen and closed once one is saved. The open state is not persisted, and toggling it never restarts a session. The session surface keeps a 150 px minimum height, and open settings scroll inside themselves.</li>
+      <li>The Surface switch shows Terminal and Chat as two radio options. It appears only when the provider has more than one surface.</li>
+      <li>The choice is saved app-wide as <code>panelSurface</code> and defaults to <code>terminal</code>, so settings saved before the chat existed load unchanged. If Chat is saved and the reviewer picks Codex, the terminal shows and the saved choice is kept for when Claude is picked again.</li>
+      <li>Switching to Chat shows a Start button and starts nothing. The same Start gate as the terminal applies.</li>
+      <li>Switching surface ends the session of the surface that is left. Nothing relaunches on its own.</li>
+      </ol>
+      <p>After Start, the app does this:</p>
+      <ol>
+      <li>It loads the review UI prompt and passes it to the CLI as <code>--append-system-prompt</code>.</li>
+      <li>It starts the session and pushes the PR context to the native side.</li>
+      <li>It sends the PR briefing as the first user turn. The transcript shows only the notice "PR context sent".</li>
+      </ol>
+      <p>The briefing differs a little from the terminal one. It asks for Markdown answers and for every file location as a Markdown link such as <code>[src/app.ts:42](src/app.ts#L42)</code>. It tells the agent to try <code>sem diff</code> and fall back to <code>git diff</code>, because a <code>command -v sem</code> probe would need approval and show a denial.</p>
+      <h3>Parts of the chat</h3>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Part</th>
+      <th>Behavior</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Composer</td>
+      <td>Enter sends. Shift+Enter adds a new line. The Enter that confirms an IME candidate does not send. A repeated keydown never sends, so holding Enter on a follow-up button cannot send the prefilled text. The composer is disabled until the session runs.</td>
+      </tr>
+      <tr>
+      <td>Send and Interrupt</td>
+      <td>While a reply is running, Send becomes Interrupt. Interrupt ends the turn and keeps the session. The transcript shows "Interrupted."</td>
+      </tr>
+      <tr>
+      <td>Message size</td>
+      <td>A message over 256 KiB is kept in the composer with an error. It is not sent.</td>
+      </tr>
+      <tr>
+      <td>Rejected send</td>
+      <td>If the native side rejects a send, the text returns to the composer and the session stays alive.</td>
+      </tr>
+      <tr>
+      <td>Failed turn</td>
+      <td>The notice shows the CLI's reason as plain text, capped at 2,000 characters. A tool still running when the turn or the process ends reads Stopped.</td>
+      </tr>
+      <tr>
+      <td>Shortcuts</td>
+      <td>The same prompt shortcuts as the terminal. They are enabled only while the session runs. A shortcut adds its text after what the reviewer typed and never sends.</td>
+      </tr>
+      <tr>
+      <td>Tool rows</td>
+      <td>One row per tool call with the tool name, a one-line summary (the command, path or pattern) and a status: Running, Done, Failed, Denied or Stopped. The <code>mcp__&lt;server&gt;__</code> prefix is removed from MCP tool names.</td>
+      </tr>
+      <tr>
+      <td>Denial notice</td>
+      <td>A denied tool shows a Denied row and the notice "<code>&lt;tool&gt;</code> needed approval, and this chat cannot approve actions yet." The turn still ends normally.</td>
+      </tr>
+      <tr>
+      <td>File references</td>
+      <td>Only files of this PR are clickable, in prose, in answers and in <code>FileRef</code> buttons. A click opens that file in the main diff viewer, at the line when there is one. The reason is that the click jumps the diff, and the diff has only PR files (a link to another file used to empty the diff with no message). Any other path is plain text. A <code>FileRef</code> to such a path renders as plain text with its location still readable, for example "Other doc (docs/other.md:3)", and is not a button. <code>OpenUiBlock</code> takes a required <code>canOpenFile</code> prop, and the chat passes it from the same PR file list that prose and answers use. The block normalizes the path once (<code>normalizeFileRefPath</code>: trim, backslashes to <code>/</code>, leading <code>./</code> removed) and uses that value for the check and the click. If opening a PR file fails, an alert says "Couldn't open the file".</td>
+      </tr>
+      <tr>
+      <td>Follow-ups</td>
+      <td>A follow-up button in a block puts its text in the composer after what is already there. The reviewer decides whether to send.</td>
+      </tr>
+      <tr>
+      <td>Inline answer</td>
+      <td>An answer the agent sends through <code>render_answer</code> shows inline as a transcript entry. It has an author line ("Claude · answer"), the title, the markdown under the strict policy, and a "Referenced files" list. No window opens by itself.</td>
+      </tr>
+      <tr>
+      <td>Open answer</td>
+      <td>Shown after the agent calls <code>render_answer</code>. It opens the answer window on request. A mermaid diagram in an answer renders only there.</td>
+      </tr>
+      <tr>
+      <td>Header buttons</td>
+      <td>Start when idle, Stop while running, Restart after the session stopped or failed.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <h3>What ends a session</h3>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Event</th>
+      <th>Result</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Stop</td>
+      <td>The session ends and the chat reads "Stopped."</td>
+      </tr>
+      <tr>
+      <td>The process exits</td>
+      <td>The chat shows the reason (with up to 4 KiB of stderr) or "Claude exited (code)." and offers Restart. Tools still running show Stopped.</td>
+      </tr>
+      <tr>
+      <td>Provider or model change</td>
+      <td>The chat returns to the Start gate. It never launches a new session.</td>
+      </tr>
+      <tr>
+      <td>PR change (different PR, base or head)</td>
+      <td>The old session ends so another PR cannot inherit its context.</td>
+      </tr>
+      <tr>
+      <td>Leaving the Chat surface</td>
+      <td>The session ends.</td>
+      </tr>
+      <tr>
+      <td>App exit or page reload</td>
+      <td>The native side stops every chat process.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Selecting a different diff file does not restart the session. Collapsing the panel does not end it either, because collapsing is CSS only (<code>.collapsed .content { display: none }</code>) and the chat is mounted inside that same <code>.content</code>. The new context is pushed to the native side, coalesced to one update per 150 ms.</p>
+      <h3>AI pane width</h3>
+      <p>The AI pane has no maximum width (a request of 2026-11-13). It may be dragged over the review, and the change has three parts:</p>
+      <ol>
+      <li>The drag limit is the window width minus the 6 px handle (<code>clampCodexWidth</code> in <code>usePanelSizes.ts</code>), so the handle always stays on screen and the pane can be dragged back.</li>
+      <li>The review shell clips (<code>overflow-x: clip</code> in <code>AppShell.module.css</code>), and its minimum width is 0 (<code>data-pane-min-width={0}</code>), so a wide pane covers the review without sticky headers painting over the handle.</li>
+      <li>The graph and tray widths are fitted at render time (<code>fitSidePanesToWindow</code>) and are not stored fitted. A wide pane no longer overwrites the saved side widths, and they come back when the room does.</li>
+      </ol>
+      <p>Measured in the desktop app (run 3, 2026-11-13): the separator had <code>aria-valuemax</code> 1506 at <code>innerWidth</code> 1512. Shift+ArrowLeft stepped the pane 390 to 1430 in 40 px steps. At 1430 the shell was 76 px wide and clipped, hit tests on the handle and on the pane edge returned the right element, and the transcript had 0 px of sideways overflow. After Shift+ArrowRight back to 390, the graph, diff and tray widths were 220, 664 and 220 again, the same as before the drag. The test <code>lets_the_codex_pane_be_dragged_over_the_review_and_keeps_the_saved_side_pane_widths</code> in <code>AppShell.codexSafeProfile.test.tsx</code> guards it. There was no screenshot of this run, because the app window sat behind another window.</p>
+      <h2>How a reply is rendered</h2>
+      <p>The chat does not hand the whole reply to OpenUI. It splits the reply into segments itself, in <code>splitMessageSegments</code>.</p>
+      <p>Why: OpenUI's parser drops prose that sits outside fences, and it does not check the fence tag. In the spike an earlier ```python block was merged into the program. So the app finds the blocks and passes only the body of each one to the renderer.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Segment</th>
+      <th>How it is drawn</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Prose</td>
+      <td>The app's own <code>MarkdownContent</code> in <code>inline</code> variant with the <code>strict</code> URL policy (see Safety). Other fences such as <code>ts</code> or <code>mermaid</code> stay in the prose and show as ordinary code blocks. A <code>mermaid</code> fence is not rendered as a diagram in the chat.</td>
+      </tr>
+      <tr>
+      <td>A fence tagged exactly <code>openui-lang</code></td>
+      <td><code>OpenUiBlock</code>, lazy loaded. Only the fence body is passed.</td>
+      </tr>
+      <tr>
+      <td>An <code>openui-lang</code> fence still open while streaming</td>
+      <td>The block renders what has arrived.</td>
+      </tr>
+      <tr>
+      <td>A fence line that may still grow into an <code>openui-lang</code> opener, at the end of a streaming reply</td>
+      <td>Held back until its newline arrives, so it does not flash as an empty code block.</td>
+      </tr>
+      <tr>
+      <td>A fence nested inside another fence</td>
+      <td>Stays prose.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>If a block cannot be shown, the chat shows its source with the note "This block could not be shown." Reply text is read only from streamed <code>text_delta</code> events. The finished <code>assistant</code> line and <code>result.result</code> repeat the same text, so reading them too would print every reply twice.</p>
+      <h3>Layout</h3>
+      <p>The chat lives in a panel the reviewer drags between about 240 and 1000 px wide, or down to 220 px tall. The source of truth is the top comment of <code>AiChatSurface.module.css</code>.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Rule</th>
+      <th>How</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Container, not viewport</td>
+      <td>The chat section is a named size container, <code>ai-chat</code>. Adaptations are container queries on it, with no viewport media queries. No resize listener sets React state.</td>
+      </tr>
+      <tr>
+      <td>Two named breakpoints</td>
+      <td>Narrow, under 280 px wide: the decorative "Prompts" caption goes and the chips get the whole row. Short, under 300 px tall: the prompt strip and the composer compact so the transcript keeps the rest.</td>
+      </tr>
+      <tr>
+      <td>Wide content</td>
+      <td>Tables and code scroll inside their own box. <code>FileRef</code> buttons size to their content.</td>
+      </tr>
+      <tr>
+      <td>Text measure</td>
+      <td>Prose and user text are capped at <code>--prose-measure: 58ch</code>, about 75 characters on the widest line. It was measured in the desktop WKWebView on 2026-11-12, where 64ch gave about 84 characters.</td>
+      </tr>
+      <tr>
+      <td>Scroll position</td>
+      <td>A <code>ResizeObserver</code> on the transcript only writes <code>scrollTop</code>, so a drag causes no React render. It keeps the bottom pin, or the entry that was at the top of the view, across a resize. It is done by hand because WebKit has no CSS scroll anchoring.</td>
+      </tr>
+      <tr>
+      <td><code>content-visibility</code></td>
+      <td>Left out on purpose. It would replace off-screen heights with estimates and break the scroll anchor. This is a design note recorded here, not in the code.</td>
+      </tr>
+      <tr>
+      <td>Tables</td>
+      <td><code>SafeTable</code> (<code>reviewDataComponents.tsx</code>) uses OpenUI's plain <code>Table</code>. Text cells wrap with a 16ch minimum, and number cells stay on one line, right-aligned. <code>ScrollableTable</code> is not used, because it sets an inline <code>width: max-content</code> once it overflows, which unwraps every cell again.</td>
+      </tr>
+      <tr>
+      <td>Bar charts</td>
+      <td>Names that OpenUI's chart would cut get the app's own horizontal bars instead (see "Bar charts with long labels").</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <h3>The component set</h3>
+      <p>The library is OpenUI's stock library cut down to code review, plus the app's own <code>FileRef</code> and the diagram components. Every image and media component is removed.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Group</th>
+      <th>Components</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Layout</td>
+      <td><code>Stack</code> (the root), <code>Tabs</code>, <code>TabItem</code>, <code>Accordion</code>, <code>AccordionItem</code>, <code>Steps</code>, <code>StepsItem</code>, <code>Separator</code></td>
+      </tr>
+      <tr>
+      <td>Content</td>
+      <td><code>Card</code>, <code>CardHeader</code>, <code>TextContent</code>, <code>Callout</code>, <code>CodeBlock</code>, <code>FileRef</code></td>
+      </tr>
+      <tr>
+      <td>Tables</td>
+      <td><code>Table</code> (column oriented), <code>Col</code></td>
+      </tr>
+      <tr>
+      <td>Charts</td>
+      <td><code>BarChart</code> (vertical, or horizontal bars for long labels), <code>Series</code>, <code>PieChart</code></td>
+      </tr>
+      <tr>
+      <td>Lists and tags</td>
+      <td><code>ListBlock</code>, <code>ListItem</code>, <code>TagBlock</code>, <code>Tag</code>, <code>Icon</code></td>
+      </tr>
+      <tr>
+      <td>Buttons</td>
+      <td><code>Buttons</code>, <code>Button</code></td>
+      </tr>
+      <tr>
+      <td>Diagrams</td>
+      <td><code>Diagram</code>, <code>DiagramNode</code>, <code>DiagramEdge</code>, <code>DiagramGroup</code>, <code>SequenceDiagram</code>, <code>SequenceParticipant</code>, <code>SequenceMessage</code> (see "Diagrams in chat")</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p><code>TextContent</code>, <code>Callout</code>, <code>Steps</code>, <code>StepsItem</code>, <code>ListBlock</code>, <code>ListItem</code> and <code>Button</code> are replaced by safe versions in <code>reviewComponents.tsx</code>. They drop markdown images and route links through the https-only opener. <code>Callout</code> has no auto-dismiss, so a finding does not vanish. A <code>Button</code> or list item that opens a URL shows the target host in its label.</p>
+      <p><code>FileRef(path: string, line?: number, label?: string)</code> is a component the stock library does not have. It renders a button that opens the file in the diff viewer. A line that is not a positive integer is treated as no line. The agent is told to use <code>FileRef</code> for every file location inside a block.</p>
+      <p>The agent is taught this library by the review UI prompt (see the integration notes). The prompt tells it to write prose by default and to use a block only when a diagram, table, chart, steps list or grouped file list makes the answer clearer. Each block must be a complete program with its own <code>root = Stack(...)</code>.</p>
+      <h3>Bar charts with long labels</h3>
+      <p>OpenUI 0.18.6 cuts long x-axis labels at the end inside its own chart, and the app found no way to change that. In run 3, 4 of 6 file names ended in "…" at panel widths 320, 390 and 640 px, and the first label was cut hardest. The rule now is that <code>BarChart</code> keeps OpenUI's vertical chart only for names it shows whole. Anything else gets the app's own horizontal bars (<code>components/chart/HorizontalBarChart.tsx</code>), plain HTML and CSS, with the full name on its own line above each row.</p>
+      <p>The thresholds come from a measurement in the app's webview at a 240 px block:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Case</th>
+      <th>What was seen</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Labels up to 6 characters, up to 10 categories</td>
+      <td>Uncut</td>
+      </tr>
+      <tr>
+      <td>7 characters at 10 categories</td>
+      <td>The first label is cut</td>
+      </tr>
+      <tr>
+      <td>8 characters at 8 categories</td>
+      <td>The first label is cut</td>
+      </tr>
+      <tr>
+      <td>More than 10 categories</td>
+      <td>Some labels are left out entirely</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>So the horizontal form is used when the longest label is over 6 characters, or when there are more than 10 categories. Every value is printed and each value names its series, so colour is never the only cue. Both forms show a caption from <code>xLabel</code> and <code>yLabel</code>, written "&lt;yLabel&gt; by &lt;xLabel&gt;" when both are given, and the one that is given when only one is. What the horizontal form does not do: a <code>stacked</code> variant draws as grouped, because the variant is not passed on.</p>
+      <h2>Diagrams in chat</h2>
+      <p>The ask (2026-11-13): since a PR review is mostly about the system, the agent should show a diagram in the chat, summarizing what the PR changes, because visual information is easier to review. The visual reference was <a href="https://github.com/cathrynlavery/diagram-design">github.com/cathrynlavery/diagram-design</a>.</p>
+      <h3>The ruling: the agent sends data, the app draws</h3>
+      <p>The agent never writes SVG, HTML or coordinates. It describes nodes, edges, groups and what the PR did to each. The app lays out the diagram and draws it.</p>
+      <p>Agent-written SVG was rejected for these reasons:</p>
+      <ul>
+      <li>Agent-written markup is the same class of hole that got mermaid removed from the chat.</li>
+      <li>It cannot follow the app theme.</li>
+      <li>It cannot link to a PR file.</li>
+      <li>A small model such as <code>haiku</code> places coordinates badly.</li>
+      </ul>
+      <p>What was taken from the reference, and what was not:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Taken</th>
+      <th>Not taken</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Its visual language: a 4 px grid, borders and no shadows, rounded rectangles, orthogonal elbow edges, small uppercase mono labels, a legend strip at the bottom</td>
+      <td>Its hex colours, which are replaced by the app's design tokens</td>
+      </tr>
+      <tr>
+      <td>Its change vocabulary from the "architecture delta" type: added, removed and changed</td>
+      <td>Google Fonts, the app's own sans and mono stacks are used</td>
+      </tr>
+      <tr>
+      <td>The rule to delete before adding: few nodes, and above 8 nodes it is two diagrams</td>
+      <td>Hand-written SVG as the output format</td>
+      </tr>
+      <tr>
+      <td></td>
+      <td>Its Before, Changes and After layout in three panels at 960 px, because a chat pane is 280 to 1000 px</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>The reference draws three panels. The chat draws one merged topology, the union of before and after, with a status on each object and a text ledger under it. One layout keeps the mental map stable by construction.</p>
+      <h3>The seven components</h3>
+      <p>OpenUI Lang arguments are positional, and optional arguments come last. <code>?</code> marks an optional argument.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Component</th>
+      <th>Arguments</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><code>Diagram</code></td>
+      <td><code>title</code>, <code>nodes</code>, <code>edges</code>, <code>groups?</code></td>
+      </tr>
+      <tr>
+      <td><code>DiagramNode</code></td>
+      <td><code>id</code>, <code>label</code>, <code>change?</code>, <code>note?</code>, <code>path?</code>, <code>kind?</code></td>
+      </tr>
+      <tr>
+      <td><code>DiagramEdge</code></td>
+      <td><code>from</code>, <code>to</code>, <code>label?</code>, <code>change?</code></td>
+      </tr>
+      <tr>
+      <td><code>DiagramGroup</code></td>
+      <td><code>label</code>, <code>nodeIds</code></td>
+      </tr>
+      <tr>
+      <td><code>SequenceDiagram</code></td>
+      <td><code>title</code>, <code>participants</code>, <code>messages</code></td>
+      </tr>
+      <tr>
+      <td><code>SequenceParticipant</code></td>
+      <td><code>id</code>, <code>label</code>, <code>change?</code></td>
+      </tr>
+      <tr>
+      <td><code>SequenceMessage</code></td>
+      <td><code>from</code>, <code>to</code>, <code>label</code>, <code>change?</code>, <code>reply?</code></td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>What the arguments mean:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Argument</th>
+      <th>Meaning</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><code>change</code></td>
+      <td><code>added</code>, <code>removed</code>, <code>changed</code> or <code>unchanged</code> (the default). A rewired relationship is one removed edge plus one added edge.</td>
+      </tr>
+      <tr>
+      <td><code>note</code></td>
+      <td>What changed, in a few words. It is shown in the ledger, not in the node.</td>
+      </tr>
+      <tr>
+      <td><code>path</code></td>
+      <td>The repo-relative path of the PR file behind the node, as a string or as a <code>FileRef</code>. It opens only when the host can open it (a PR file), after the same path normalization as <code>FileRef</code>.</td>
+      </tr>
+      <tr>
+      <td><code>kind</code></td>
+      <td><code>component</code> (the default), <code>store</code> or <code>external</code>.</td>
+      </tr>
+      <tr>
+      <td><code>reply</code></td>
+      <td><code>true</code> draws the message as a return line.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>To skip a middle optional argument, the agent writes <code>null</code> (the prompt example does this for <code>DiagramNode</code>).</p>
+      <h3>How status is encoded</h3>
+      <p>Status is never colour alone. Each status has a badge, a stroke and a dash pattern, and kinds differ by shape.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Status or kind</th>
+      <th>Badge</th>
+      <th>Stroke</th>
+      <th>Dash</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>added</td>
+      <td><code>+</code></td>
+      <td><code>--added</code>, width 1.2</td>
+      <td>solid</td>
+      </tr>
+      <tr>
+      <td>changed</td>
+      <td><code>Δ</code></td>
+      <td><code>--modified</code>, width 1.2</td>
+      <td>solid</td>
+      </tr>
+      <tr>
+      <td>removed</td>
+      <td><code>−</code></td>
+      <td><code>--deleted</code>, width 1.2</td>
+      <td>dashed <code>5 4</code>, muted name</td>
+      </tr>
+      <tr>
+      <td>unchanged</td>
+      <td>none</td>
+      <td>the quiet default border</td>
+      <td>solid</td>
+      </tr>
+      <tr>
+      <td>a reply message</td>
+      <td>none of its own</td>
+      <td>its status stroke</td>
+      <td>dotted <code>1 3</code>, so dashed keeps meaning removed and <code>3 3</code> keeps meaning lifeline</td>
+      </tr>
+      <tr>
+      <td><code>store</code> kind</td>
+      <td></td>
+      <td></td>
+      <td>a rim line under the top edge, like a cylinder lid</td>
+      </tr>
+      <tr>
+      <td><code>external</code> kind</td>
+      <td></td>
+      <td></td>
+      <td>a double border with square corners</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Node outlines use <code>color-mix(in srgb, var(--muted) 80%, var(--panel))</code> (<code>--node-outline</code>). Computed contrast is 3.49:1 against the node fill and 3.27:1 against the group fill in the light theme, and 4.08:1 and 4.52:1 in the dark theme. Before, the outline used <code>--border</code>, which gave 1.36 to 1.73:1.</p>
+      <p>Colours come only from the app tokens (<code>--added</code>, <code>--modified</code>, <code>--deleted</code>, <code>--border</code>, <code>--accent</code> and the like), so light and dark follow the app theme with no second variant. A legend strip at the bottom of the SVG lists only the statuses that are present.</p>
+      <h3>The ledger</h3>
+      <p>Under the picture there is real HTML with the heading "Changes". It has one row per object whose change is not <code>unchanged</code>, nodes first, then edges as "A → B". A row has the status word (ADDED, REMOVED or CHANGED), the name, the note, and a file link when the path is openable. The ledger is also the text alternative of the picture, and it shows the full edge label.</p>
+      <h3>Layout and sizing</h3>
+      <ol>
+      <li>The flow layout runs in ELK, in a worker (<code>workers/runElkGraphInWorker.ts</code>), never on the main thread. Groups are compound nodes. Sequence diagrams use plain arithmetic and no ELK.</li>
+      <li>The direction follows the block's own inline size: top-to-bottom under 720 px and left-to-right from 720 px, with a band of 16 px each way so a drag across the line does not flip back and forth.</li>
+      <li>If left-to-right would have to scroll at this width, the top-to-bottom layout is shown instead.</li>
+      <li>There is one layout cache per diagram, keyed by direction. At most two layout runs happen however the width moves, and a ready layout is shown while the wanted one runs.</li>
+      <li>The SVG scales with CSS only. It shrinks with its block down to 80% of its natural width and never grows past 100%. Below 80% it scrolls sideways inside its own block, with the hint "Scroll sideways to see the whole diagram →". The transcript keeps 0 px of sideways overflow.</li>
+      <li>While the reply streams, nothing is measured or laid out. A placeholder of 240 px stands where the picture will be, and the layout runs once when the block is complete.</li>
+      <li>If the layout fails or does not answer in 5 seconds, a designed fallback shows the ledger and a plain list of relationships. It is never a blank box.</li>
+      </ol>
+      <p>Nodes are sized to their content, between 96 and 200 px wide, and a name wraps to at most 2 lines before it is cut with "…". The full text stays in an SVG <code>&lt;title&gt;</code>. Measured at the default pane (a 330 px block), in Chromium (Orca's embedded browser) and not in the WKWebView:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Diagram</th>
+      <th>Natural width</th>
+      <th>Scale</th>
+      <th>Scrolls?</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>A 6-node flow</td>
+      <td>410 px</td>
+      <td>0.80</td>
+      <td>no</td>
+      </tr>
+      <tr>
+      <td>A 3-participant sequence</td>
+      <td>399 px</td>
+      <td>0.83</td>
+      <td>no</td>
+      </tr>
+      <tr>
+      <td>A 4-participant sequence</td>
+      <td>563 px</td>
+      <td>below 0.80</td>
+      <td>yes, with the hint (its four header boxes alone are about 444 px)</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>These numbers come from the engineer's browser measurements, and I did not re-measure them.</p>
+      <p>Edge labels wrap between words and after "/" and "-", into lines about 60 px wide, never narrower than their longest piece. A changed edge's badge sits above its label, inside the label box, so ELK reserves room for it. The measured reason is width: the same flow was 376 px wide without edge labels, 497 px with one-line labels, and 410 px with wrapped labels. In the top-to-bottom layout width runs out and height is cheap, so the badge goes above and not beside.</p>
+      <h3>Limits and tolerance</h3>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Limit</th>
+      <th>Taught to the agent</th>
+      <th>Hard render cap</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Nodes in a <code>Diagram</code></td>
+      <td>8</td>
+      <td>16</td>
+      </tr>
+      <tr>
+      <td>Edges in a <code>Diagram</code></td>
+      <td>10</td>
+      <td>24</td>
+      </tr>
+      <tr>
+      <td>Participants in a <code>SequenceDiagram</code></td>
+      <td>5</td>
+      <td>8</td>
+      </tr>
+      <tr>
+      <td>Messages in a <code>SequenceDiagram</code></td>
+      <td>12</td>
+      <td>24</td>
+      </tr>
+      <tr>
+      <td>Edge label in the picture</td>
+      <td>14 characters</td>
+      <td>14 characters, the full label stays in the ledger and the fallback</td>
+      </tr>
+      <tr>
+      <td>Message label in the picture</td>
+      <td>not stated in the prompt</td>
+      <td>40 characters, the full text is in the title and the ledger</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Past a cap the diagram draws the first N and shows a visible line such as "Showing 16 of 23 components". Nothing is dropped silently.</p>
+      <p>Every agent string is cut to a hard character budget in the readers, before anything measures it, with bidi controls stripped:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>String</th>
+      <th>Budget (characters)</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><code>id</code></td>
+      <td>80</td>
+      </tr>
+      <tr>
+      <td><code>title</code></td>
+      <td>160</td>
+      </tr>
+      <tr>
+      <td><code>label</code></td>
+      <td>120</td>
+      </tr>
+      <tr>
+      <td><code>note</code></td>
+      <td>240</td>
+      </tr>
+      <tr>
+      <td><code>path</code></td>
+      <td>512</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>The tolerance rules, which the readers apply:</p>
+      <ul>
+      <li>An edge to an unknown id creates a plain node with that id as its label. Past the edge cap, no node is created for an endpoint named only by capped edges.</li>
+      <li>A duplicate id keeps the first node.</li>
+      <li>A group member that does not exist is ignored.</li>
+      <li>An unknown <code>change</code> or <code>kind</code> falls back to the default, and a capitalised <code>Added</code> still counts.</li>
+      <li>Layout ids are never taken from agent ids, so an id like <code>group-0</code> cannot hide a node.</li>
+      <li>The schemas are lenient on purpose. OpenUI drops a whole component when a required field is null or of the wrong type, before the readers can apply their rules.</li>
+      </ul>
+      <h3>Accessibility</h3>
+      <ul>
+      <li>The SVG is <code>role="img"</code> when no node can be opened. When a node can be opened, it is <code>role="group"</code> with the same <code>aria-labelledby</code>, and each openable node is a focusable button.</li>
+      <li>Both have a <code>&lt;title&gt;</code> and a generated <code>&lt;desc&gt;</code>, such as "6 components, 7 relationships. 1 added, 1 changed, 1 removed.", followed by every component or participant name in full.</li>
+      <li>An openable node is operable with Enter and Space and has an <code>aria-label</code> such as "Orders API, open src/api/orders.ts". A node whose path is not a PR file is not focusable.</li>
+      <li>Every id inside the SVG (title, desc, markers) is unique per instance.</li>
+      <li>A scrolling diagram is a focusable region labelled "Diagram, scrolls sideways".</li>
+      </ul>
+      <h3>Where the code lives</h3>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Folder or file</th>
+      <th>What is in it</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><code>apps/web/src/entity/diagram/</code></td>
+      <td>The diagram model, the readers with their caps and tolerance, the node and edge sizing, the ledger. Pure code, no React, no OpenUI.</td>
+      </tr>
+      <tr>
+      <td><code>apps/web/src/utils/diagram/</code></td>
+      <td>Generic geometry: text metrics, the ELK graph reading, orthogonal paths, sequence arithmetic, the layout direction rule.</td>
+      </tr>
+      <tr>
+      <td><code>apps/web/src/workers/runElkGraphInWorker.ts</code></td>
+      <td>The worker runner for ELK.</td>
+      </tr>
+      <tr>
+      <td><code>apps/web/src/components/diagram/</code></td>
+      <td><code>DiagramView</code>, <code>SequenceDiagramView</code>, the SVG parts, the layout hook and the CSS module. No OpenUI import.</td>
+      </tr>
+      <tr>
+      <td><code>apps/web/src/components/openui/reviewDiagramComponents.tsx</code></td>
+      <td>Only the <code>defineComponent</code> wrappers. They hand the parsed props to the views.</td>
+      </tr>
+      <tr>
+      <td><code>apps/web/src/components/openui/reviewLibrary.ts</code></td>
+      <td>The library registration, the component group and the prompt rules.</td>
+      </tr>
+      <tr>
+      <td><code>apps/web/src/components/chart/</code></td>
+      <td>The horizontal bar chart.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>The layout function is injected into the views, with the worker as the default, so tests run without a Worker.</p>
+      <h3>Where diagrams are drawn</h3>
+      <p>Diagram blocks are drawn only in the chat reply. Inside a <code>render_answer</code> answer, an <code>openui-lang</code> block shows as plain code. The chat prompt (<code>createChatInitialPrompt</code>) says so, and tells the agent that Mermaid is not rendered and that it should draw a <code>Diagram</code> or <code>SequenceDiagram</code> block instead.</p>
+      <p>The chat has one extra prompt shortcut, "Diagram changes" (<code>CHAT_PROMPT_SHORTCUTS</code>). It asks for one diagram of what the PR changes, marked as added, changed and removed, drawn in the chat reply and not through <code>render_answer</code>, then at most five short bullets with clickable file locations. The terminal does not get this shortcut. Like the others, it only fills the composer.</p>
+      <p>The prompt rule for summaries tells the agent to lead with one <code>Diagram</code>, to use components and not one node per file, and to give each changed node a note. The review UI prompt is limited to 14,000 characters by <code>reviewUiPrompt.test.ts</code> (it was 12,000 before the diagrams). Its size is 13,991 of 14,000 characters (main session, 2026-11-13), so there is almost no room left.</p>
+      <h3>Does a real agent draw a good diagram?</h3>
+      <p>The method (2026-11-13):</p>
+      <ul>
+      <li>The real Claude CLI (2.1.322) was run with the chat's exact argv, taken from <code>claude_chat_command</code> and <code>claude_safety_profile</code>, and with the chat's exact prompts, taken from the code (<code>buildReviewUiPrompt()</code>, <code>createChatInitialPrompt(...)</code> and the "Diagram changes" shortcut).</li>
+      <li>The PR was wisesight/analytics-suite #1424, in its linked checkout, which was left untouched (<code>git status --porcelain</code> was empty before and after).</li>
+      <li>A fresh process ran each time. Turn 1 was the initial prompt, and turn 2 was the diagram shortcut.</li>
+      <li>Each turn-2 reply was split with <code>splitMessageSegments</code>, and each fence was rendered through the real <code>OpenUiBlock</code>, with ELK in-process.</li>
+      <li>Statuses were checked against the base commit, with <code>git diff</code> and <code>git grep</code> at base.</li>
+      <li>The one difference from the app: <code>--mcp-config '{"mcpServers":{}}'</code>. The app's <code>pr_visualizer</code> server only exists in the running app, so <code>get_pr_context</code>, <code>get_current_file</code> and <code>render_answer</code> were not available and not exercised.</li>
+      </ul>
+      <p>Rounds in numbers (round 1 had 3 <code>haiku</code> runs and 1 <code>sonnet</code> run, rounds 2 and 3 had 4 <code>haiku</code> runs and 2 <code>sonnet</code> runs, and round 4 had 2 of each):</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Measure</th>
+      <th>Round 1</th>
+      <th>Round 2</th>
+      <th>Round 3</th>
+      <th>Round 4</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Runs with a diagram</td>
+      <td>3 of 4</td>
+      <td>6 of 6</td>
+      <td>6 of 6</td>
+      <td>4 of 4</td>
+      </tr>
+      <tr>
+      <td>Denied shell commands</td>
+      <td>3</td>
+      <td>0</td>
+      <td>0</td>
+      <td>1 (the run carried on)</td>
+      </tr>
+      <tr>
+      <td>Runs that gave up after a denial</td>
+      <td>1</td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+      </tr>
+      <tr>
+      <td>Wrong statuses in total (per diagram)</td>
+      <td>5 (1.7)</td>
+      <td>5 (0.8)</td>
+      <td>2 (0.3)</td>
+      <td>2 (0.5)</td>
+      </tr>
+      <tr>
+      <td>Wrong statuses that invent a change on untouched code</td>
+      <td>4</td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+      </tr>
+      <tr>
+      <td>The new handler call to <code>ToFilter</code> right, <code>haiku</code></td>
+      <td>1 of 2 drawn</td>
+      <td>2 of 4</td>
+      <td>4 of 4</td>
+      <td>2 of 2</td>
+      </tr>
+      <tr>
+      <td>The new handler call to <code>ToFilter</code> right, <code>sonnet</code></td>
+      <td>0 of 1</td>
+      <td>1 of 2</td>
+      <td>0 of 2</td>
+      <td>0 of 2</td>
+      </tr>
+      <tr>
+      <td>Test nodes</td>
+      <td>1</td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+      </tr>
+      <tr>
+      <td>Paths to files outside the PR</td>
+      <td>2</td>
+      <td>4</td>
+      <td>0</td>
+      <td>0</td>
+      </tr>
+      <tr>
+      <td>A PR node without a path</td>
+      <td>1</td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+      </tr>
+      <tr>
+      <td>A missing title or label</td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+      </tr>
+      <tr>
+      <td>Edge labels over 14 characters</td>
+      <td>0</td>
+      <td>1</td>
+      <td>3</td>
+      <td>1</td>
+      </tr>
+      <tr>
+      <td>Diagram before any prose</td>
+      <td>0 of 3</td>
+      <td>1 of 6</td>
+      <td>1 of 6</td>
+      <td>2 of 4</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Outcome of round 4, stated plainly:</p>
+      <ul>
+      <li>The last wording change did not fix the one remaining slip. <code>sonnet</code> still marks the handler's new call to <code>ToFilter</code> as <code>changed</code> in 2 of 2 runs, which is 0 of 4 across rounds 3 and 4. It should be <code>added</code>, because the base handler has no such call, while the function itself has existed since base.</li>
+      <li><code>haiku</code> made 0 status errors across its last 6 runs.</li>
+      <li>Nothing regressed after the sentence "Always give the title and every label" was cut from the prompt. Every diagram has a title, and every node and edge has a label.</li>
+      <li>There was one new denied command in round 4 (<code>git grep -n -A12 … | head -80</code>). The model carried on and still drew a correct diagram.</li>
+      <li>Prompt tuning stopped here by decision.</li>
+      </ul>
+      <p>What went wrong in each round, the sentence that caused it, and the rule that replaced it:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Round</th>
+      <th>Mistake</th>
+      <th>Cause in the prompt</th>
+      <th>Replacement</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>1</td>
+      <td>One run drew no diagram. A command such as <code>git rev-parse … &amp;&amp; … &amp;&amp; git diff</code> was denied, the denial text said not to retry anything that needs approval, and the run stopped reading the diff.</td>
+      <td>Turn 1 said "fall back to git diff when sem is missing or fails", which invited <code>sem diff || git diff</code> in a subshell.</td>
+      <td>Turn 1 now says to run <code>git diff</code> only as a separate second command, never joined with <code>||</code>, and names the denied forms (see "Shell commands in the chat").</td>
+      </tr>
+      <tr>
+      <td>1</td>
+      <td>Changes invented on code the PR did not touch (an "Action storage" node and its edge marked changed, a test node marked added).</td>
+      <td>"Set change on every node and edge the PR touched" never defined <code>changed</code>, and said nothing about tests.</td>
+      <td>Node change is defined by the diff, and tests are never nodes.</td>
+      </tr>
+      <tr>
+      <td>1</td>
+      <td>Paths to files outside the PR, and a PR node with no path.</td>
+      <td>The <code>DiagramNode</code> signature only said <code>path?: string</code>.</td>
+      <td>A path only for files in the PR's diff, on every node that lives in one.</td>
+      </tr>
+      <tr>
+      <td>2</td>
+      <td>5 of 6 diagrams had the <code>ToFilter</code> relation wrong. Four marked the existing mapping <code>added</code>, one marked the new handler call <code>changed</code>, one <code>unchanged</code>.</td>
+      <td>"The edge to it carries the status" did not say which status.</td>
+      <td>Edge change is defined (added, removed, changed). Paths are limited to files listed by <code>git diff --stat</code>.</td>
+      </tr>
+      <tr>
+      <td>3</td>
+      <td>Both <code>sonnet</code> runs marked the handler's new <code>ToFilter</code> call <code>changed</code>, because the function already existed at base.</td>
+      <td>"A call or dependency that did not exist before this PR" read as "the function did not exist".</td>
+      <td>"added = this PR makes the source call or depend on the target where it did not before, even if the target already existed".</td>
+      </tr>
+      <tr>
+      <td>4</td>
+      <td>The same <code>sonnet</code> slip, 2 of 2 runs.</td>
+      <td>Unchanged by the new wording. <code>sonnet</code> keeps reading the label <code>ToFilter</code>, an existing function, as an existing call.</td>
+      <td>None. Tuning stopped.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>The final rule text is the summary rule in <code>REVIEW_RULES</code> (<code>reviewLibrary.ts</code>):</p>
+      <pre><code>For what a PR changes, a summary or an overview, lead with ONE Diagram of the parts of the system the PR touches, then explain in prose. Nodes are components (modules, services, stores, screens, jobs), not functions, not one node per file, never tests. Node change: added = new in this PR, removed = deleted by it, changed = this PR edits its own code. A neighbour that only receives new data or a new call stays unchanged. Edge change: added = this PR makes the source call or depend on the target where it did not before, even if the target already existed. removed = this PR deletes that call. changed = this PR edits the call site itself (different arguments or data there). An untouched call that only carries a payload with more fields stays unchanged. Give each changed node a note. Set path only to a file in this PR's diff (git diff --stat), on every node whose code is in one, never to any other file, even one in the repository. Keep an untouched neighbour only if needed to read the change. At most 8 nodes and 10 edges (more is two diagrams), edge labels at most 14 characters.</code></pre>
+      <p>The honest limits:</p>
+      <ul>
+      <li>The samples are small: 4 to 6 runs per round, on one PR.</li>
+      <li>Only <code>haiku</code> and <code>sonnet</code> were run.</li>
+      <li>The app's MCP tools were absent. Whether a diagram ever goes into <code>render_answer</code> is untested.</li>
+      <li>Over-long edge labels and "diagram first" were not fixed. The app cuts long edge labels, so that part is cosmetic.</li>
+      <li>A residual error remains (see Known limits).</li>
+      <li>These runs show that the diagrams parse and draw, and that the statuses were mostly right. They are not a proof for other PRs.</li>
+      </ul>
+      <h3>Review</h3>
+      <p>Two adversarial review rounds ran over the diagram code.</p>
+      <p>Round 1 gave 12 confirmed findings, which are 8 distinct problems:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Problem</th>
+      <th>Severity</th>
+      <th>Fix</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Long labels were measured before they were cut, so a long unbroken word froze the main thread (a 4,000-character word took about 9 to 10 s)</td>
+      <td>high</td>
+      <td>Every agent string has a character budget in the readers, and the wrap is linear</td>
+      </tr>
+      <tr>
+      <td>An agent node id such as <code>group-0</code> collided with an internal group id, so the node was not drawn and the group zone moved (reported three times)</td>
+      <td>medium</td>
+      <td>Layout ids are never taken from agent ids</td>
+      </tr>
+      <tr>
+      <td>OpenUI's strict schemas dropped a whole node, message or diagram on a typo, such as a null label or <code>Added</code></td>
+      <td>medium</td>
+      <td>The schemas are lenient and the readers apply the tolerance</td>
+      </tr>
+      <tr>
+      <td>The top-to-bottom layout cache was thrown away on every resize back to wide, so ELK ran again each time (reported three times)</td>
+      <td>medium</td>
+      <td>One cache per diagram keyed by direction, at most two runs</td>
+      </tr>
+      <tr>
+      <td>The prompt asked for <code>FileRef</code> for every file, but <code>DiagramNode.path</code> took only a string, so the file link was dropped</td>
+      <td>medium</td>
+      <td><code>path</code> accepts a string or a <code>FileRef</code>, and the prompt rule names the plain string for <code>DiagramNode</code></td>
+      </tr>
+      <tr>
+      <td>Sequence message labels had no length cap, so the SVG width grew without bound</td>
+      <td>low</td>
+      <td>The picture cuts a message label to 40 characters, with the full text in the title and the ledger</td>
+      </tr>
+      <tr>
+      <td>Edges past the edge cap still created implicit nodes, drawn as disconnected boxes</td>
+      <td>low</td>
+      <td>No node is created for an endpoint named only past the cap</td>
+      </tr>
+      <tr>
+      <td>A diagram with zero nodes showed an empty SVG</td>
+      <td>low</td>
+      <td>A designed empty state</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Five rulings changed the contract at the same time: the SVG is <code>role="group"</code> when a node can be opened, a reply message has its own dash pattern, the <code>&lt;desc&gt;</code> lists names in full, an edge label keeps its full text outside the picture, and every agent string has a budget.</p>
+      <p>Round 2 checked the fixes. 11 of them held, and some tests could not fail on their own fix. Round 2 is closed: all its items are fixed, and each has a test that goes red when that fix alone is undone.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Item</th>
+      <th>Fix</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>A diagram that was still streaming said "This diagram has no components to draw."</td>
+      <td>The empty state shows only when the reply is complete (<code>isEmpty = !streaming &amp;&amp; …</code>)</td>
+      </tr>
+      <tr>
+      <td>The prompt printed optional markers on <code>title</code> and the labels, but OpenUI treats them as required by position, so skipping the title dropped the whole diagram</td>
+      <td>The signatures print as exact and required, while the runtime stays forgiving. <code>tagSchemaId</code> from lang-core changes only what the prompt prints, and <code>.catch</code> supplies the default</td>
+      </tr>
+      <tr>
+      <td><code>nodes</code>, <code>edges</code>, <code>participants</code> and <code>messages</code> were required lists</td>
+      <td>A list prop accepts a missing list or a single item</td>
+      </tr>
+      <tr>
+      <td>Values were lost silently: a numeric label, a boolean id, a string <code>reply</code>, a group written with node references</td>
+      <td>These values are kept. Any number, string or boolean is text to the diagram</td>
+      </tr>
+      <tr>
+      <td>A <code>FileRef</code> line was dropped when <code>FileRef</code> was used as a node path</td>
+      <td>The path is carried through</td>
+      </tr>
+      <tr>
+      <td>The group eyebrow overflowed its zone and the viewBox</td>
+      <td>The eyebrow is fitted with its letter spacing</td>
+      </tr>
+      <tr>
+      <td>Invisible padding ate the whole character budget, because the cut came before the strip</td>
+      <td>Leading padding is skipped first, so it cannot use the budget</td>
+      </tr>
+      <tr>
+      <td>Three tests could not fail on their own: the string budget, the id collision, and "an abort is not a failure"</td>
+      <td>Each now fails when its fix alone is undone</td>
+      </tr>
+      <tr>
+      <td>A misspelled component, such as <code>Diagramm</code>, vanished silently</td>
+      <td>The block shows the note "Part of this block could not be shown: Diagramm is not a known component."</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <h3>Not verified yet (diagrams)</h3>
+      <ul>
+      <li>The desktop WKWebView. Diagrams were checked only in Chromium and jsdom so far.</li>
+      <li><code>role="group"</code> with inner buttons in WebKit. It is untested there.</li>
+      <li>Label placement for every graph shape.</li>
+      <li>Whether a diagram ever goes into <code>render_answer</code>, because the app's MCP tools were absent from the agent runs.</li>
+      <li>A real agent on other PRs. The runs covered one PR with small samples.</li>
+      </ul>
+      <h2>Safety</h2>
+      <p>The agent here reads untrusted pull requests, so the chat starts Claude with an allowlist posture. All flags below were observed on Claude Code 2.1.322 on 2026-11-12.</p>
+      <h3>Claude flags</h3>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Flag</th>
+      <th>Why</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><code>-p</code>, <code>--input-format stream-json</code>, <code>--output-format stream-json</code></td>
+      <td>One headless, long-lived process that speaks stream-json both ways.</td>
+      </tr>
+      <tr>
+      <td><code>--verbose</code></td>
+      <td>Required with stream-json output. Without it the CLI exits 1.</td>
+      </tr>
+      <tr>
+      <td><code>--include-partial-messages</code></td>
+      <td>Streams the reply as <code>text_delta</code> events.</td>
+      </tr>
+      <tr>
+      <td><code>--setting-sources ""</code></td>
+      <td>Loads neither user nor project settings. With <code>user</code>, the reviewer's own allow list ran <code>touch</code> without a prompt and their hooks fired. With <code>project</code>, the repository under review could ship hooks with no trust dialog. Login still works.</td>
+      </tr>
+      <tr>
+      <td><code>--strict-mcp-config</code> and <code>--mcp-config &lt;inline JSON&gt;</code></td>
+      <td>Only the app's own <code>pr_visualizer</code> MCP server, the same inline JSON as the terminal.</td>
+      </tr>
+      <tr>
+      <td><code>--allowedTools mcp__pr_visualizer "Bash(sem diff *)"</code></td>
+      <td>The app tools and <code>sem diff</code> run without a prompt. <code>sem diff</code> is read-only. No git rule is allowed on purpose, because a wildcard like <code>git diff *</code> would also allow <code>git diff --output=&lt;file&gt;</code>.</td>
+      </tr>
+      <tr>
+      <td><code>--disallowedTools Edit Write NotebookEdit</code></td>
+      <td>Removes the editing tools.</td>
+      </tr>
+      <tr>
+      <td><code>--permission-mode manual</code></td>
+      <td>Prompt on first use. It is explicit because newer CLIs start in <code>auto</code> mode.</td>
+      </tr>
+      <tr>
+      <td><code>--permission-prompts none</code></td>
+      <td>There is no approval UI in this cut, so anything that needs approval is denied.</td>
+      </tr>
+      <tr>
+      <td><code>--tools Bash,Read,Grep,Glob</code></td>
+      <td>An allowlist of built-in tools. It leaves the app's MCP tools alone. The CLI accepts an unknown name in <code>--tools</code> without an error, so the proof is the <code>init.tools</code> list, which the ignored real-CLI test asserts. See the before and after below.</td>
+      </tr>
+      <tr>
+      <td><code>--disable-slash-commands</code></td>
+      <td>Took slash commands from 55 to 0 and skills from 19 to 0.</td>
+      </tr>
+      <tr>
+      <td><code>--model &lt;m&gt;</code></td>
+      <td>Only when the reviewer picked a model.</td>
+      </tr>
+      <tr>
+      <td><code>--append-system-prompt &lt;text&gt;</code></td>
+      <td>Only when not empty. It carries the review UI prompt.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Environment change</th>
+      <th>Why</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Remove <code>CLAUDE_CODE_CHILD_SESSION</code>, <code>CLAUDECODE</code>, <code>CLAUDE_CODE_ENTRYPOINT</code></td>
+      <td>An app started from inside a Claude Code session still gets an independent session.</td>
+      </tr>
+      <tr>
+      <td>Remove <code>CLAUDE_CODE_PLUGIN_DIRS</code> (chat only)</td>
+      <td>A plugin directory in the environment loads plugins and their hooks, and <code>--setting-sources ""</code> does not cover it. The terminal keeps the reviewer's own setup.</td>
+      </tr>
+      <tr>
+      <td>Set <code>PR_VISUALIZER_RENDER_SOCKET</code> and <code>PR_VISUALIZER_RENDER_TOKEN</code></td>
+      <td>Lets the MCP helper reach this session's answer window.</td>
+      </tr>
+      <tr>
+      <td>Working directory is the linked repository root</td>
+      <td>The agent reads the PR checkout.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>The process runs in its own process group, so stop can end the whole group.</p>
+      <h3>What the agent can and cannot do</h3>
+      <ul>
+      <li>Read-only <code>git</code> (<code>git diff</code>, <code>git show</code>, <code>git log</code>) and <code>sem diff</code> run.</li>
+      <li>Anything that needs approval is denied. In the live check, <code>touch</code> was denied and the file was not created.</li>
+      <li>The chat shows each denial and cannot approve it. There is no approval UI yet.</li>
+      <li>The agent cannot edit files, because the editing tools are removed.</li>
+      <li>The tool allowlist is <code>Bash</code>, <code>Read</code>, <code>Grep</code>, <code>Glob</code>, plus the six app MCP tools of <code>pr_visualizer</code>.</li>
+      </ul>
+      <p>Before and after the allowlist, from the live <code>init</code> line (2026-11-12):</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th></th>
+      <th>Before</th>
+      <th>After</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Built-in tools</td>
+      <td>21, including <code>Task</code>, <code>Workflow</code>, <code>SendMessage</code>, <code>RemoteTrigger</code>, <code>CronCreate</code>, <code>PushNotification</code>, <code>Skill</code> and <code>WebSearch</code></td>
+      <td><code>Bash</code>, <code>Glob</code>, <code>Grep</code>, <code>Read</code></td>
+      </tr>
+      <tr>
+      <td>App MCP tools</td>
+      <td>not recorded</td>
+      <td>the 6 <code>mcp__pr_visualizer__*</code> tools, and <code>mcp_servers</code> shows <code>pr_visualizer</code> as <code>connected</code></td>
+      </tr>
+      <tr>
+      <td>Slash commands</td>
+      <td>55</td>
+      <td>0</td>
+      </tr>
+      <tr>
+      <td>Skills</td>
+      <td>19</td>
+      <td>0</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Shell commands in the chat, observed with the chat's flags on 2026-11-13 (<code>chain-probe/observed.txt</code>, a throwaway repo):</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Command form</th>
+      <th>Result</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><code>git diff HEAD~1 --stat</code></td>
+      <td>allowed</td>
+      </tr>
+      <tr>
+      <td><code>git diff HEAD~1 --stat | head -5</code></td>
+      <td>allowed</td>
+      </tr>
+      <tr>
+      <td><code>git log --oneline -1 &amp;&amp; git diff HEAD~1 --stat</code></td>
+      <td>allowed</td>
+      </tr>
+      <tr>
+      <td><code>git diff HEAD~1 --stat || git status</code></td>
+      <td>allowed</td>
+      </tr>
+      <tr>
+      <td><code>git log --oneline -1</code> then <code>git diff HEAD~1 --stat</code>, joined by a semicolon</td>
+      <td>allowed</td>
+      </tr>
+      <tr>
+      <td><code>git diff HEAD~1 --stat 2&gt;&amp;1</code></td>
+      <td>allowed</td>
+      </tr>
+      <tr>
+      <td><code>git diff HEAD~1 -- . ':(exclude)c.txt'</code></td>
+      <td>allowed</td>
+      </tr>
+      <tr>
+      <td><code>(git diff HEAD~1 --stat)</code>, a subshell</td>
+      <td>denied</td>
+      </tr>
+      <tr>
+      <td><code>(git diff HEAD~1 --stat || git status) | head -5</code></td>
+      <td>denied</td>
+      </tr>
+      <tr>
+      <td><code>git rev-parse --verify -q HEAD</code>, alone or joined with <code>&amp;&amp;</code></td>
+      <td>denied</td>
+      </tr>
+      <tr>
+      <td><code>git diff -U2 HEAD~1 -- . ':(exclude)*.json'</code>, and the same with <code>| head -50</code></td>
+      <td>denied</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>So <code>&amp;&amp;</code>, <code>||</code> and a semicolon between read-only commands were not denied. The denied forms were a subshell, <code>git rev-parse</code> and <code>git diff -U&lt;n&gt;</code>. Two lines in <code>createChatInitialPrompt</code> came from this:</p>
+      <ul>
+      <li>"Prefer sem diff … for a semantic, entity-level view of the change. Only if that command fails, run git diff as a separate second command, never joined to it with ||."</li>
+      <li>"Some shell commands are denied in this chat without asking: subshells in parentheses, git rev-parse, and git diff with -U&lt;n&gt;. A denial applies to that one command only, so run a simpler read-only command such as git diff, git diff --stat, git show or git grep, and carry on."</li>
+      </ul>
+      <p>The code comment next to the second line says <code>&amp;&amp;</code>, <code>||</code>, a semicolon, pipes and <code>2&gt;&amp;1</code> between read-only commands are allowed.</p>
+      <h3>What model text cannot do in the webview</h3>
+      <p>The agent may be steered by the PR it reads, so its text gets less trust than the app's own text.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>It cannot</th>
+      <th>How</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Make the webview load a remote URL</td>
+      <td>Prose uses the <code>strict</code> policy: no image loads (an image shows its alt text), and raw HTML images do not load either. Mermaid does not run in the chat at all (see below). In blocks, <code>&lt;img&gt;</code> is removed from markdown, no component loads a URL, and <code>Renderer</code> gets no <code>toolProvider</code> or <code>queryLoader</code>, so <code>Query</code> and <code>Mutation</code> cannot fetch.</td>
+      </tr>
+      <tr>
+      <td>Open a non-https link</td>
+      <td>Prose links open only when they are https. A link with any other scheme shows as plain text. In blocks, one function, <code>actionLinkUrl</code>, decides the single https URL an action may open. A non-https <code>@OpenUrl</code> opens nothing.</td>
+      </tr>
+      <tr>
+      <td>Act without a click</td>
+      <td>A link or an <code>@OpenUrl</code> button needs a click. A click arms exactly the URL the control shows, and the block opens an <code>open_url</code> event only when its URL equals the armed one, so one click opens at most that one URL. A follow-up button only fills the composer. A shortcut only fills the composer. Nothing the model writes sends a message.</td>
+      </tr>
+      <tr>
+      <td>Run its own HTML</td>
+      <td>Inline HTML in prose is stripped, the <code>MarkdownContent</code> default.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Why mermaid does not run in the chat: mermaid parses YAML and runs its own layout. A review showed three ways a diagram could make the webview fetch a URL past a text filter: a quoted or escaped <code>img</code> key in shape data, front-matter <code>config</code> with <code>fontFamily</code> or <code>themeCSS</code>, and <code>-webkit-image-set</code> in CSS. So the chat does not run it. The answer window still renders mermaid as before. The chat prompt (<code>createChatInitialPrompt</code>) tells the agent to use an <code>openui-lang</code> block or plain text for structure.</p>
+      <p>In a block, the control shows the host of the URL it would open, in its own direction-isolated <code>&lt;bdi dir="ltr"&gt;</code> element, with the full URL as the title. Bidi control characters are stripped from model-written labels and link text, so a label cannot reorder the host. Prose links under the <code>strict</code> policy follow the same rule, from shared helpers in <code>utils/</code>. An https link shows its text with bidi controls stripped, then its host in its own <code>&lt;bdi dir="ltr"&gt;</code> element, with the full URL as the title, and the click opens exactly that normalized URL. The default policy is unchanged. A list item with an action renders it as a real, keyboard-operable button, disabled while the block is still streaming, like <code>Button</code>.</p>
+      <p>OpenUI's DevTools would also load remote JavaScript in development, and the Vite alias blocks that (see the integration notes).</p>
+      <h3>Containment per block</h3>
+      <p>Each <code>OpenUiBlock</code> renders inside its own React root (<code>ContainedRoot</code>). OpenUI re-renders its last good children after an error. If a child throws from an effect, this loops until React aborts with "Maximum update depth exceeded", and no error boundary catches that. In a root of its own, the loop is counted in <code>onCaughtError</code>. What counts is catches since the host last rendered new children, with no timer. A loop catches over and over with no new children in between, while a healthy block starts its count again at every update. After 10 such catches the block swaps to its source fallback, so a broken block cannot take the chat down. Once tripped, the block stays on its fallback, and the fallback keeps showing the latest source.</p>
+      <h2>Native protocol</h2>
+      <p>All commands take one argument <code>{ request: { ... } }</code> in camelCase and return <code>Result&lt;_, String&gt;</code>. The code is in <code>apps/desktop/src-tauri/src/ai_chat.rs</code>. The safety profile shared with the terminal is <code>claude_safety_profile</code> in <code>codex_terminal.rs</code>.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Command or event</th>
+      <th>Payload</th>
+      <th>Notes</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><code>ai_chat_start</code></td>
+      <td><code>{sessionId, provider, repositoryPath, model, systemPromptAppend, context}</code></td>
+      <td>Returns <code>{sessionId}</code>. <code>provider: "codex"</code> is rejected with "the chat supports only Claude, use the terminal for Codex". <code>systemPromptAppend</code> is at most 64 KiB with no NUL. The session ID is 1 to 128 characters of letters, digits, hyphen and underscore.</td>
+      </tr>
+      <tr>
+      <td><code>ai_chat_attach</code></td>
+      <td><code>{sessionId}</code></td>
+      <td>Flushes lines buffered before attach, then streams live.</td>
+      </tr>
+      <tr>
+      <td><code>ai_chat_send</code></td>
+      <td><code>{sessionId, text}</code></td>
+      <td><code>text</code> is 1 byte to 256 KiB. Rust builds the stdin line. The webview never writes raw stdin.</td>
+      </tr>
+      <tr>
+      <td><code>ai_chat_interrupt</code></td>
+      <td><code>{sessionId}</code></td>
+      <td>Rust writes a <code>control_request</code> with subtype <code>interrupt</code>. It never sends SIGINT.</td>
+      </tr>
+      <tr>
+      <td><code>ai_chat_stop</code></td>
+      <td><code>{sessionId}</code></td>
+      <td>See stop order below.</td>
+      </tr>
+      <tr>
+      <td><code>ai-chat://line</code> (event)</td>
+      <td><code>{sessionId, sequence, line}</code></td>
+      <td>One stdout line, unparsed.</td>
+      </tr>
+      <tr>
+      <td><code>ai-chat://exit</code> (event)</td>
+      <td><code>{sessionId, code, error}</code></td>
+      <td><code>error</code> is null for a clean exit or a requested stop. Otherwise it carries the reason and a stderr tail of at most 4 KiB.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>The context update reuses <code>codex_terminal_update_context</code> unchanged.</p>
+      <p>An answer session has a presentation, <code>AnswerPresentation</code>, either window or inline (<code>codex_answer.rs</code>). The terminal uses window and the chat uses inline. The <code>--render-mcp</code> helper learns it from the environment variable <code>PR_VISUALIZER_ANSWER_PRESENTATION</code>, which is passed only for inline, so the terminal's helper environment is unchanged. For the chat, the MCP instructions, the <code>render_answer</code> description and its result text say the answer is shown inline and must not be repeated in the reply (<code>app_tool_mcp.rs</code>). In the chat, <code>render_answer</code> is optional, and answering in the reply is the default. An inline answer is stored and announced as an update, and no window opens. Events are emitted app-wide and the web side filters them by <code>sessionId</code>.</p>
+      <p>Why Rust builds the stdin lines:</p>
+      <ul>
+      <li>Claude exits on a malformed stdin line (observed: exit 1), so a line is never built by string concatenation.</li>
+      <li>SIGINT ends the whole process (observed), while the stdin interrupt keeps the session.</li>
+      </ul>
+      <p>Rust is a bounded line pipe. It frames stdout into lines and forwards them without reading them.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Limit</th>
+      <th>Value</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>One stdout line</td>
+      <td>4 MiB. A longer line fails the pipe, stops the child and is reported once. It is never cut or spliced.</td>
+      </tr>
+      <tr>
+      <td>Output before the chat attaches</td>
+      <td>8 MiB. Past that, the child is stopped and the failure is reported at attach.</td>
+      </tr>
+      <tr>
+      <td>User message</td>
+      <td>256 KiB</td>
+      </tr>
+      <tr>
+      <td>System prompt append</td>
+      <td>64 KiB</td>
+      </tr>
+      <tr>
+      <td>Stderr tail</td>
+      <td>4 KiB</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Empty lines are skipped and invalid UTF-8 is converted lossily. Send, interrupt and stop run off the main thread, and a per-session mutex keeps each stdin write whole.</p>
+      <p>Stop order, signal first:</p>
+      <ol>
+      <li>Set the stop flag, then send TERM to the process group.</li>
+      <li>Wait 250 ms, then send KILL to what is left, and wait up to 1 s more.</li>
+      <li>Close stdin without waiting on its lock.</li>
+      </ol>
+      <p>The order matters. A send blocked on a full stdin pipe holds the stdin lock, and only ending the child releases it. Waiting for the lock first would hang stop and shutdown. The exit watcher also ends the process group after Claude exits, so descendants cannot keep the pipes open and the exit event always arrives. The session is removed and its answer socket revoked before the exit event is emitted, so a UI that restarts on exit can reuse the session ID.</p>
+      <p>On Windows, the stop path calls <code>kill</code> on the child. That path is not verified (see below).</p>
+      <h2>OpenUI integration notes</h2>
+      <p>Only <code>apps/web/src/components/openui/</code> imports <code>@openuidev/*</code>. The rest of the app imports the wrapper (<code>OpenUiBlock</code>, <code>buildReviewUiPrompt</code>) and never the library. The one other mention is the DevTools stub below.</p>
+      <ul>
+      <li><strong>Lazy loading.</strong> Building the review prompt imports the component library, so the large lazy chunk (<code>reviewLibrary-*.js</code>) loads when the chat starts, not at the first block. Only <code>OpenUiBlock</code> (loaded with <code>React.lazy</code>) and its stylesheet load at the first block. Everything stays outside the eager entry chunk.</li>
+      <li><strong>Measured size</strong> (final production <code>vite build</code> with the repo config, minify off, 2026-11-12, after the last changes). The eager entry chunk <code>index-*.js</code> is 2,919,622 B raw and has 0 occurrences of <code>@openuidev</code>, <code>createLibrary</code> and <code>jsdelivr</code>. The lazy files are listed below. No file in the build output contains <code>jsdelivr</code>.</li>
+      </ul>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Lazy file (production build)</th>
+      <th>Raw</th>
+      <th>Gzip</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><code>reviewLibrary-*.js</code> (shared by the block and the prompt)</td>
+      <td>3,155,991 B</td>
+      <td>680,616 B</td>
+      </tr>
+      <tr>
+      <td><code>OpenUiBlock-*.css</code></td>
+      <td>365,441 B</td>
+      <td>39,466 B</td>
+      </tr>
+      <tr>
+      <td><code>OpenUiBlock-*.js</code></td>
+      <td>7,721 B</td>
+      <td>2,515 B</td>
+      </tr>
+      <tr>
+      <td><code>reviewUiPrompt-*.js</code></td>
+      <td>583 B</td>
+      <td>not recorded</td>
+      </tr>
+      <tr>
+      <td><code>reviewLibrary-*.css</code></td>
+      <td>2,733 B</td>
+      <td>1,183 B</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <ul>
+      <li><strong>Packages</strong> in <code>apps/web/package.json</code>: <code>@openuidev/react-lang</code> 1.1.0, <code>@openuidev/react-ui</code> 0.18.6, <code>@openuidev/react-headless</code> 0.18.6 and <code>zustand</code> 4.5.5. Only <code>react-lang</code> and <code>react-ui</code> are imported in <code>src</code>. <code>react-headless</code> and <code>zustand</code> are declared explicitly because <code>react-ui</code> needs them as peer dependencies, and nothing in <code>src</code> imports them directly. pnpm reports an unmet peer: <code>use-sync-external-store@1.2.2</code> (pulled in by zustand 4.5.5) wants React 18 or older, and the app has React 19.2.7.</li>
+      <li><strong>Imports.</strong> The library is imported from the <code>@openuidev/react-ui</code> root and not from the lighter <code>@openuidev/react-ui/genui-lib</code> subpath. The subpath bundles its own copy of the theme context, so its components would not see the app's scoped <code>ThemeProvider</code>.</li>
+      <li><strong>Theme.</strong> <code>ThemeProvider</code> is scoped to the block container with <code>cssSelector</code>, and <code>APP_TOKEN_THEME</code> maps OpenUI theme keys to the app's design tokens. The stylesheet <code>@openuidev/react-ui/styles/index.css</code> is 363,218 B (38,549 B gzip) and its only unprefixed selectors are the <code>.text-content</code> family, which the app does not use.</li>
+      <li><strong>DevTools alias.</strong> In development, <code>react-lang</code> auto-mounts <code>@openuidev/devtools</code>, which imports its UI from <code>cdn.jsdelivr.net</code> at run time. Remote JavaScript must never load into the Tauri webview. <code>vite.config.ts</code> aliases the package to <code>src/utils/openuiDevtoolsStub.ts</code>, a component that renders nothing. Observed: without the alias the dev pre-bundle contains the jsdelivr URL, with it no dep file does. An empty <code>div[data-openui-devtools-auto-mount]</code> is still added to the page in development.</li>
+      <li>**pnpm <code>allowBuilds</code>.** <code>pnpm-workspace.yaml</code> has <code>'@openuidev/lang-core': false</code>. Its postinstall only sends install telemetry, so it stays off. Without an explicit entry, pnpm fails every install with <code>ERR_PNPM_IGNORED_BUILDS</code>, and <code>pnpm --filter</code> commands fail with it.</li>
+      <li><strong>Prompt size budget.</strong> The prompt is sent with every chat session. <code>reviewUiPrompt.test.ts</code> fails if it reaches 12,000 characters. The final prompt is 10,551 characters (from the test run), under that budget. In the spike, the full stock prompt was 37,073 characters. <code>reviewLibrary.ts</code> builds its own component groups and preamble, because the stock notes and examples still mention removed components such as <code>Form</code>, <code>Modal</code> and <code>LineChart</code>.</li>
+      <li><strong>Tests under jsdom.</strong> Table and charts need <code>ResizeObserver</code>, <code>matchMedia</code> and canvas stubs, or OpenUI's element boundary loops. They live in <code>apps/web/src/test/openuiJsdomPolyfills.ts</code>, imported only by the tests that render OpenUI.</li>
+      </ul>
+      <h2>How it is verified</h2>
+      <p>Web tests run with <code>pnpm --filter @pr-visulizer/web test</code>. They assert the promises the chat makes.</p>
+      <p>Results of 2026-11-13, verified by the main session after the diagram work:</p>
+      <ul>
+      <li>Web typecheck is clean.</li>
+      <li>Web tests: 936 passed and 2 failed, in 144 files. Both failures are in <code>src/hooks/useDiffViewSettings.test.ts</code> (<code>window.localStorage</code> is undefined under Node 26) and are unrelated to this change.</li>
+      <li>Production build: the eager entry chunk has 0 matches for <code>@openuidev</code>, <code>createLibrary</code>, <code>DiagramLayoutContext</code>, <code>TEXT_BUDGETS</code>, <code>HorizontalBarChart</code> and <code>tagSchemaId</code>. The lazy <code>reviewLibrary</code> chunk is 3,236 kB raw and 699 kB gzip.</li>
+      <li>The review UI prompt is 13,991 of 14,000 characters.</li>
+      <li><code>cargo test</code> was not re-run since 2026-11-12, because no Rust change has been made since.</li>
+      </ul>
+      <p>Results of 2026-11-12, run by the main session before the diagram work:</p>
+      <ul>
+      <li>Web tests: 846 passed and 2 failed (the same two). Prettier was clean on all 51 touched web files.</li>
+      <li><code>cargo fmt --check</code> was clean.</li>
+      <li><code>cargo test</code>: 119 passed and 2 ignored. The two ignored tests need the real Claude and Codex CLIs.</li>
+      <li>The ignored real-CLI test passed three times on the <code>haiku</code> model.</li>
+      <li>Three review rounds were run over the chat change, with 29, then 10, then 6 confirmed findings. All were fixed, and the last round had none rated high.</li>
+      <li>The build sizes in the table of the integration notes were measured then, and they do not include the diagram code. The 2026-11-13 chunk figures above replace them.</li>
+      </ul>
+      <ul>
+      <li><strong>Wire format against captured fixtures.</strong> <code>claudeStreamEvents.test.ts</code> runs real captured stdout lines (<code>text-turn</code>, <code>tool-turn</code>, <code>denied-turn</code> and a four-turn capture with a denial and an interrupt) through the parser. It checks that text shows once, tool rows go Running to Done, a denial shows one notice, an interrupted turn ends as interrupted and the next turn still answers.</li>
+      <li><strong>Splitting.</strong> <code>messageSegments.test.ts</code> covers prose and fences in order, other languages kept as prose, the exact tag only, an open fence while streaming, and CRLF.</li>
+      <li><strong>The surface.</strong> <code>AiChatSurface.test.tsx</code> covers the Start gate, Enter and Shift+Enter, IME Enter, Interrupt, shortcuts that prefill and never send, follow-ups that land in the composer, the file jump, PR and model change, Stop reading "Stopped.", Restart, the denial row and notice, a block that fails to load, and the strict policy (no image, https-only links, mermaid stays a code block). <code>AiReviewPanel.chat.test.tsx</code> covers the switch: Chat shows Start and never starts a session, and going back to Terminal stops a running chat.</li>
+      <li><strong>Blocks.</strong> <code>OpenUiBlock.test.tsx</code>, <code>OpenUiBlock.containment.test.tsx</code> and <code>blockActions.test.ts</code> cover rendering, partial blocks, <code>FileRef</code>, follow-ups, https-only links, one URL per click, dropped images and the effect-throw containment.</li>
+      <li><strong>Native.</strong> Rust unit tests cover framing, limits and the pipe. <code>cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml ai_chat</code> runs them.</li>
+      </ul>
+      <p>The real-CLI test is ignored by default because it needs the installed Claude CLI, a logged-in user and network. Run it with:</p>
+      <pre><code>cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml real_claude -- --ignored --nocapture</code></pre>
+      <p>It starts a real chat with <code>haiku</code> through <code>start_chat</code>, runs four turns, then stops the chat:</p>
+      <ol>
+      <li>A plain answer streams text and carries the appended system prompt.</li>
+      <li>A shell write (<code>touch</code>) is denied and the file is not created.</li>
+      <li>An interrupted turn ends as <code>error_during_execution</code>.</li>
+      <li>The next turn still answers, so the session survived.</li>
+      <li>After Stop, the exit event has no error and no process of the chat is left.</li>
+      </ol>
+      <p>It also checks the <code>init</code> line: only the allowlisted built-in tools and <code>pr_visualizer</code> tools, no slash commands, no skills, and only built-in plugins. If <code>target/debug/pr-visualizer</code> is built, it also checks that the MCP server is <code>connected</code> with its tools listed. Set <code>AI_CHAT_CAPTURE_PATH</code> to write the raw stdout lines of the run to a file.</p>
+      <h3>Real desktop runs</h3>
+      <p>The chat was run in the desktop WKWebView on 2026-11-12, on PR wisesight/analytics-suite #1424 with the <code>haiku</code> model. These are observations from scripted runs by the main session. The scripts are not part of the repository.</p>
+      <p>Run 1 had 16 checks, and 14 passed:</p>
+      <ul>
+      <li>Start reached running in 2.4 s, and the first text came in 10 s.</li>
+      <li>A real OpenUI table with <code>FileRef</code> buttons rendered and followed the theme.</li>
+      <li>A <code>FileRef</code> click jumped the diff.</li>
+      <li>A shortcut appended to typed text without sending.</li>
+      <li>Interrupt ended the turn, and the session kept answering.</li>
+      <li>A <code>touch</code> was denied. The row read Denied, the notice appeared once, and no file was created.</li>
+      <li>The agent listed exactly Bash, Glob, Grep, Read and the six <code>mcp__pr_visualizer__*</code> tools.</li>
+      <li><code>get_current_file</code> named the open file.</li>
+      <li>A link showed its host, no <code>&lt;img&gt;</code> existed, mermaid stayed code, and nothing was fetched from outside localhost.</li>
+      <li>Enter sent, and a repeated Enter did not.</li>
+      <li>There were no chat console errors.</li>
+      <li>The two failures were one layout bug. A message with an OpenUI table was 814 px wide and scrolled the transcript sideways by 468 px at the default 390 px panel.</li>
+      </ul>
+      <p>Run 2, after the responsive pass and inline answers:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Check</th>
+      <th>Result</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Sideways overflow of the transcript</td>
+      <td>0 px at 240, 280, 320, 390, 480, 640, 800 and 1000 px (baseline before the fix: 618, 578, 538, 468, 378, 218, 58 and 0 px)</td>
+      </tr>
+      <tr>
+      <td>Controls outside the chat</td>
+      <td>None at any width</td>
+      </tr>
+      <tr>
+      <td>Chart refit after a resize</td>
+      <td>About two frames</td>
+      </tr>
+      <tr>
+      <td>Bottom pin</td>
+      <td>Held at every width</td>
+      </tr>
+      <tr>
+      <td>A paragraph in the middle of a long message</td>
+      <td>Moved 0 px across 390, 640, 280 and 390 px</td>
+      </tr>
+      <tr>
+      <td>A 24-step drag with a table and a chart on screen</td>
+      <td>No frame over 34 ms, longest 19 ms</td>
+      </tr>
+      <tr>
+      <td><code>CSS.supports</code> in the page</td>
+      <td>True for <code>container-type: size</code>, <code>1cqb</code>, <code>fit-content</code> and <code>:has()</code></td>
+      </tr>
+      <tr>
+      <td>Inline answer</td>
+      <td>Showed with no window, Open answer worked on request, and a path outside the PR was plain text</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Run 3 did run, on 2026-11-13, on the same PR with <code>haiku</code> in the dark theme. The window stayed at <code>innerWidth</code> 1512 and <code>innerHeight</code> 916 the whole run, and the screen did not lock. Two earlier tries on 2026-11-12 had not run, because the Mac screen locked and a locked screen suspends the WKWebView. Nine of 10 chat turns were mine, and a hot reload restarted the chat once and re-sent the PR context.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>#</th>
+      <th>Check</th>
+      <th>Verdict</th>
+      <th>Measured</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>1</td>
+      <td>Settings row</td>
+      <td>PASS</td>
+      <td>Closed by default, one 28 px summary row, "Claude · Haiku · Terminal", then "Claude · Haiku · Chat". The surface slot top moved from 274 px to 88 px. Open, the row is 210 px. Sideways overflow was 0 at panel widths 240, 320, 390 and 640. Switching the surface inside the row mounted the chat. Opening and closing it during a running chat kept the same section and transcript.</td>
+      </tr>
+      <tr>
+      <td>2</td>
+      <td>Tables in WebKit</td>
+      <td>PASS</td>
+      <td>At 240, 320 and 390 px a 4-column table was 498 px wide and scrolled inside its block (177 to 327 px). At 640 px it was 577 px and fit. Transcript overflow was 0 everywhere. Cells wrapped, none were clipped, and the minimum cell width was 124.6 px (16ch). Rows are about 11 lines tall at 240 to 390 px, which is readable but long. The number-column path was not exercised, because the agent sent strings.</td>
+      </tr>
+      <tr>
+      <td>3</td>
+      <td>Chart labels</td>
+      <td>FAIL</td>
+      <td>4 of 6 long labels ended in "…" at 320, 390 and 640 px. One label was outside the chart at 390 px.</td>
+      </tr>
+      <tr>
+      <td>4</td>
+      <td>Inline answer</td>
+      <td>PASS</td>
+      <td>Entry "Claude · answer", heading, and "Referenced files" with two buttons. Only one app was connected (no window opened). Open answer opened a second webview on request.</td>
+      </tr>
+      <tr>
+      <td>5</td>
+      <td>Prose cap</td>
+      <td>PASS</td>
+      <td>The widest paragraph was 455 px at 800 and 1000 px panels, about 76 characters (58ch).</td>
+      </tr>
+      <tr>
+      <td>6</td>
+      <td>Short panel in the stacked layout</td>
+      <td>NOT RUN</td>
+      <td>The window never went to 1100 px or less. A side-layout substitute found the settings bug below.</td>
+      </tr>
+      <tr>
+      <td>7</td>
+      <td>Stacked layout</td>
+      <td>NOT RUN</td>
+      <td><code>innerWidth</code> stayed 1512 for 3 minutes of polling.</td>
+      </tr>
+      <tr>
+      <td>8</td>
+      <td>Regression</td>
+      <td>PASS</td>
+      <td>Prose and tool turns, a Bash turn, a denied write (Denied row, one notice, no file), interrupt (then "ok" in 2.6 s), a <code>FileRef</code> to a PR file moved the diff, a <code>FileRef</code> to another file was plain text and a click changed nothing, Stop left no process, 0 requests outside localhost.</td>
+      </tr>
+      <tr>
+      <td>9</td>
+      <td>Wide AI pane</td>
+      <td>PASS</td>
+      <td>See "AI pane width".</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>The run found two problems, and both have been fixed since:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Found</th>
+      <th>Fix</th>
+      <th>How the fix was checked</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Chart labels truncated</td>
+      <td>Horizontal bars for long labels (see "Bar charts with long labels")</td>
+      <td>The thresholds were measured in the app's webview at a 240 px block. I found no re-run of check 3 after the fix in the sources.</td>
+      </tr>
+      <tr>
+      <td>In a 220 px tall panel the settings <code>&lt;details&gt;</code> shrank to 0 px, so the summary row was gone and the settings could not be opened</td>
+      <td>The settings row no longer shrinks (<code>flex: 0 0 auto</code>), and the surface minimum gives way first in the shortest panel</td>
+      <td>Measured in Chrome at panel heights 220, 260, 300 and 420 px. <strong>Not yet measured in the WKWebView.</strong></td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Two other items were reported and not resolved. Pane widths changed by themselves at about 02:13 and all three review panes ended collapsed, and the run could not tell whether that was a user drag or the old stored-fit behaviour, which is fixed now. A hot reload restarts a running chat in development, and it re-sends the PR context.</p>
+      <h3>Not verified yet</h3>
+      <ul>
+      <li>The Windows build was not compiled. The Windows stop path (<code>kill</code>) was not compiled or run.</li>
+      <li>The stacked layout (window 1100 px or narrower), and the short panel inside it. The window stayed at 1512 px in run 3.</li>
+      <li>The settings row fix for a 220 px panel, in the WKWebView. It was measured in Chrome only.</li>
+      <li>Whether an https link really opens on click was not exercised in the app.</li>
+      <li>Diagrams, the horizontal bar chart and the settings row fix in the desktop WKWebView (see "Not verified yet (diagrams)"), and <code>role="group"</code> with inner buttons in WebKit.</li>
+      <li>The app's MCP tools together with diagrams, for example whether a diagram ever goes into <code>render_answer</code>.</li>
+      <li>Run 3 had no screenshots, so check 3 (chart labels) and check 9 (wide pane) rest on measured numbers only.</li>
+      </ul>
+      <h2>Known limits and follow-ups</h2>
+      <ul>
+      <li>No approval UI. Anything that needs approval is denied. A follow-up can use <code>--permission-prompt-tool</code>, whose wire shape was observed in a spike.</li>
+      <li>Claude only. Codex stays on the terminal.</li>
+      <li>No rendered mermaid diagrams in the chat. Open answer shows the report in the window, where mermaid renders. A sandboxed renderer is the possible follow-up. Diagrams in the chat come from the <code>Diagram</code> and <code>SequenceDiagram</code> components instead.</li>
+      <li>Diagrams are drawn only in the chat reply, not inside <code>render_answer</code>.</li>
+      <li>The horizontal bar chart draws a <code>stacked</code> variant as grouped.</li>
+      <li>A new call to an existing function can be drawn as <code>changed</code> (amber, Δ) where it should be <code>added</code> (green, +). <code>sonnet</code> did this in 2 of 2 runs of round 4. The arrow is still marked as touched by the PR, so the reviewer is pointed at the right place with the wrong shade.</li>
+      <li>The layout is guarded by a scripted sweep in the real app, not by unit tests, because the test environment does no layout.</li>
+      <li>The lifecycle logic (start gate, provider and model reset, PR change, debounced context, "Stopped.") is written twice, in <code>CodexTerminal.tsx</code> and in <code>useAiChatSession.ts</code>. A change to one belongs in both until a shared hook exists.</li>
+      <li>Built-in plugins and agents still show in the CLI session. After the hardening, <code>init.plugins</code> lists 4 built-in plugins (agents-md, telemetry, privacy, plugin-authoring) and <code>init.agents</code> names 6 agents (claude, Explore, general-purpose, Plan, statusline-setup, web-fetch), observed in the live <code>init</code> line of the real-CLI test on 2026-11-12. <code>--setting-sources ""</code> and the removed plugin directory variable do not remove them. The <code>Task</code> tool is not on the allowlist, so nothing should be able to start those agents, but that was not tested.</li>
+      </ul>
+      <h2>Implementation references</h2>
+      <p>The Claude Code flags and the stream-json wire format were observed on Claude Code 2.1.322 on 2026-11-12. The captures are the fixtures under <code>apps/web/src/service/aiChat/__fixtures__/claude</code>.</p>
+      <p>OpenUI is at <a href="https://github.com/thesysdev/openui">github.com/thesysdev/openui</a>. The OpenUI package facts above were observed on <code>@openuidev/react-lang</code> 1.1.0 and <code>@openuidev/react-ui</code> 0.18.6 on 2026-11-12.</p>
+      <p>The flag choices for the terminal are in <a href="codex-terminal.html">the terminal doc</a>, and the app MCP tools are in the <a href="agent-answer-protocol.html">agent answer protocol</a>.</p>
+    </main>
+  </body>
+</html>

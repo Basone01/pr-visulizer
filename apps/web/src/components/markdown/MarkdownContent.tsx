@@ -5,7 +5,13 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize"
 import remarkGfm from "remark-gfm"
 
 import { openExternalUrl } from "@/utils/externalLink/openExternal"
-import { safeMarkdownImageUrl, safeMarkdownLinkUrl } from "@/utils/markdown/markdownUrl"
+import {
+  linkTargetHost,
+  safeHttpsLinkUrl,
+  safeMarkdownImageUrl,
+  safeMarkdownLinkUrl,
+} from "@/utils/markdown/markdownUrl"
+import { stripBidiControls } from "@/utils/text/bidiControls"
 
 import styles from "./MarkdownContent.module.css"
 import { MermaidDiagram } from "./MermaidDiagram"
@@ -42,7 +48,13 @@ type MarkdownContentProps = {
   variant?: "page" | "inline"
   fileReferences?: ReadonlyArray<MarkdownFileReference>
   onOpenFile?: (reference: MarkdownFileReference) => void
+  // "default" — the policy every PR preview has always had. "strict" — for text an agent wrote,
+  // which a PR can steer: no image loads, a mermaid fence stays a code block, and a link opens
+  // only when it is https. Both modes still need a click to open a link.
+  urlPolicy?: MarkdownUrlPolicy
 }
+
+type MarkdownUrlPolicy = "default" | "strict"
 
 export type MarkdownFileReference = {
   path: string
@@ -128,6 +140,28 @@ type MarkdownAstNode = {
   value?: string
   url?: string
   children?: MarkdownAstNode[]
+}
+
+// Under "strict" the text of every link loses its bidi controls, which could otherwise make the
+// label read differently from what it is. Nested text (**bold**, `code`) is included.
+function createLinkBidiPlugin(urlPolicy: MarkdownUrlPolicy) {
+  if (urlPolicy !== "strict") return () => () => {}
+
+  function stripText(node: MarkdownAstNode): void {
+    if (node.value !== undefined) node.value = stripBidiControls(node.value)
+    node.children?.forEach(stripText)
+  }
+
+  function findLinks(node: MarkdownAstNode): void {
+    if (node.type === "link") {
+      node.children?.forEach(stripText)
+      return
+    }
+
+    node.children?.forEach(findLinks)
+  }
+
+  return () => findLinks
 }
 
 function createFileMentionPlugin(references: ReadonlyArray<MarkdownFileReference>) {
@@ -278,8 +312,10 @@ function mermaidFenceSource(pre: MarkdownHastNode): string | null {
 
 function createComponents(
   references: ReadonlyArray<MarkdownFileReference>,
+  urlPolicy: MarkdownUrlPolicy,
   onOpenFile?: (reference: MarkdownFileReference) => void
 ) {
+  const isStrict = urlPolicy === "strict"
   const allowedPaths = new Set(references.map((reference) => reference.path))
 
   function MarkdownLink({ href, children }: LinkProps): ReactElement {
@@ -292,7 +328,7 @@ function createComponents(
       )
     }
 
-    const url = href ? safeMarkdownLinkUrl(href) : ""
+    const url = href ? linkUrlFor(href, urlPolicy) : ""
 
     // A rejected URL loses its anchor entirely rather than becoming a dead link — the reviewer
     // still reads the text, and nothing looks clickable that isn't.
@@ -306,6 +342,8 @@ function createComponents(
       <a
         className={styles.link}
         href={url}
+        // A webview has no status bar, so under "strict" the full target is the title.
+        title={isStrict ? url : undefined}
         // The href stays on the element for hover/copy-link, but the click never follows it: in the
         // Tauri shell a real navigation would replace the app itself.
         onClick={(event) => {
@@ -314,12 +352,22 @@ function createComponents(
         }}
       >
         {children}
+        {/* Link text an agent wrote can look like a file reference, so the host is always shown,
+            isolated so nothing before it can reorder it. */}
+        {isStrict && (
+          <>
+            {" "}
+            <bdi dir="ltr" className={styles.linkTarget}>
+              ({linkTargetHost(url)})
+            </bdi>
+          </>
+        )}
       </a>
     )
   }
 
   function MarkdownImage({ src, alt }: ImageProps): ReactElement {
-    const url = src ? safeMarkdownImageUrl(src) : ""
+    const url = src ? imageUrlFor(src, urlPolicy) : ""
 
     // A relative path (`./docs/diagram.png`) is the common case and it CANNOT work: the app serves
     // no repo assets, so emitting the img would fire a request at the SPA's own origin and paint a
@@ -332,7 +380,9 @@ function createComponents(
   // Overridden at `pre`, not `code`: a diagram must replace the whole fenced block, not render
   // inside a monospace <pre>.
   function MarkdownPre({ node, children }: PreProps): ReactElement {
-    const mermaidSource = node ? mermaidFenceSource(node) : null
+    // Under "strict" mermaid never runs: it parses YAML and lays out on its own, so a diagram can
+    // make the webview fetch a URL, and no text screen can prove otherwise. The fence stays code.
+    const mermaidSource = node && !isStrict ? mermaidFenceSource(node) : null
     if (mermaidSource !== null) return <MermaidDiagram source={mermaidSource} />
 
     return <pre>{children}</pre>
@@ -345,32 +395,43 @@ function createComponents(
   }
 }
 
+// An image the webview would fetch on its own is never allowed under "strict".
+function imageUrlFor(url: string, urlPolicy: MarkdownUrlPolicy): string {
+  return urlPolicy === "strict" ? "" : safeMarkdownImageUrl(url)
+}
+
+function linkUrlFor(url: string, urlPolicy: MarkdownUrlPolicy): string {
+  return urlPolicy === "strict" ? safeHttpsLinkUrl(url) : safeMarkdownLinkUrl(url)
+}
+
 export function MarkdownContent({
   source,
   html = "strip",
   variant = "page",
   fileReferences = [],
   onOpenFile,
+  urlPolicy = "default",
 }: MarkdownContentProps): ReactElement {
   const className =
     variant === "inline" ? `${styles.markdownPreview} ${styles.inline}` : styles.markdownPreview
 
-  const components = createComponents(fileReferences, onOpenFile)
+  const components = createComponents(fileReferences, urlPolicy, onOpenFile)
   const fileMentionPlugin = createFileMentionPlugin(fileReferences)
+  const linkBidiPlugin = createLinkBidiPlugin(urlPolicy)
   const isHtmlSanitized = html === "sanitized"
 
   return (
     <div className={className}>
       <ReactMarkdown
         skipHtml={!isHtmlSanitized}
-        remarkPlugins={[remarkGfm, fileMentionPlugin]}
+        remarkPlugins={[remarkGfm, fileMentionPlugin, linkBidiPlugin]}
         rehypePlugins={isHtmlSanitized ? [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA]] : []}
         // Belt to the components' braces: the policy runs on every url attribute react-markdown
         // knows about (src, href, srcSet, …), so an element we did NOT override still gets it.
         urlTransform={(url, _key, node) => {
           if (referenceForHref(url, fileReferences)) return url
 
-          return node.tagName === "img" ? safeMarkdownImageUrl(url) : safeMarkdownLinkUrl(url)
+          return node.tagName === "img" ? imageUrlFor(url, urlPolicy) : linkUrlFor(url, urlPolicy)
         }}
         components={components}
       >

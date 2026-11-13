@@ -59,7 +59,7 @@ The terminal header shows an Open answer button once a session has an answer, an
 
 ## Lifecycle
 
-The app registers the MCP tools only for the Codex process it launches.
+The app registers the MCP tools only for the Codex or Claude Code process it launches.
 It does not edit the user's global Codex configuration.
 The user's existing CLI configuration and MCP tools remain available.
 The six internal app tools are approved for this launch, without a consent prompt or a global settings change.

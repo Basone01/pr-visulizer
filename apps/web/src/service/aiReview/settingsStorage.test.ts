@@ -53,6 +53,7 @@ describe("AI review settings storage", () => {
       codexModelDefaultApplied: true,
       claudeModelDefaultApplied: true,
       terminalProvider: null,
+      panelSurface: "terminal",
     })
   })
 
@@ -85,6 +86,7 @@ describe("AI review settings storage", () => {
       codexModelDefaultApplied: true,
       claudeModelDefaultApplied: true,
       terminalProvider: null,
+      panelSurface: "terminal",
     })
   })
 
@@ -260,5 +262,43 @@ describe("AI review settings storage", () => {
 
     // Assert
     expect(reloadedSettings.providers.claude.selectedModel).toBeNull()
+  })
+  it("loads_settings_saved_before_the_chat_existed_with_the_terminal_surface", async () => {
+    // Arrange
+    const store = createMemoryKeyValueStore()
+    const storage = createAiReviewSettingsStorage(store)
+    const settingsSavedBeforeChat = {
+      defaultProvider: null,
+      defaultProfile: "balanced",
+      providers: {
+        claude: { selectedModel: "opus", successfulModelIds: [] },
+        codex: { selectedModel: "gpt-5.6-sol", successfulModelIds: [] },
+      },
+      codexModelDefaultApplied: true,
+      claudeModelDefaultApplied: true,
+      terminalProvider: "claude",
+    }
+    await store.set("ai-review:settings", JSON.stringify(settingsSavedBeforeChat))
+
+    // Act
+    const settings = await storage.load()
+
+    // Assert
+    const expected = { ...settingsSavedBeforeChat, panelSurface: "terminal" }
+    expect(settings).toEqual(expected)
+  })
+
+  it("remembers_the_saved_panel_surface", async () => {
+    // Arrange
+    const store = createMemoryKeyValueStore()
+    const storage = createAiReviewSettingsStorage(store)
+    const panelSurface = "chat"
+
+    // Act
+    await storage.savePanelSurface(panelSurface)
+    const reloadedSettings = await createAiReviewSettingsStorage(store).load()
+
+    // Assert
+    expect(reloadedSettings.panelSurface).toBe(panelSurface)
   })
 })

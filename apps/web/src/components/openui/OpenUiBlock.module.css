@@ -1,0 +1,80 @@
+/* The element that holds the block's own React root (ContainedRoot). It sits in the message's
+   grid, so it must be allowed to be narrower than the block's widest content. */
+.host {
+  min-width: 0;
+}
+
+/* The block container. ThemeProvider scopes the `--openui-*` variables to this class. */
+.block {
+  color: var(--text);
+  min-width: 0;
+}
+
+/* Content-width leaks in OpenUI's own components, fixed here so wide content scrolls or wraps
+   inside its block at any panel width. No breakpoint: these hold at every width.
+   Steps has a fixed 280px minimum, wider than the block in a narrow panel. */
+.block :global(.openui-steps-container) {
+  min-width: 0;
+}
+
+/* Stack renders an inline-styled flex box. In a row, a flex item may not shrink below its
+   content (min-width: auto), so a card holding a table would widen the row. Matched on the
+   style attribute because Stack has no class. */
+.block :global(div[style*="flex-direction: row"] > *) {
+  min-width: 0;
+}
+
+/* WCAG 2.2 SC 2.5.8: every interactive target at least 24x24 CSS px. */
+.block :global(:where(button, [role="button"], [role="tab"], a[href])) {
+  min-height: 24px;
+  min-width: 24px;
+}
+
+/* A visible focus ring on every control, whatever OpenUI's own styles do. */
+.block :global(:where(button, [role="button"], [role="tab"], a[href], [tabindex]):focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .block :global(*),
+  .block :global(*::before),
+  .block :global(*::after) {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.fallback {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--code-bg);
+}
+
+.fallbackNote {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.fallbackCode {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 240px;
+  overflow: auto;
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.droppedNote {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}

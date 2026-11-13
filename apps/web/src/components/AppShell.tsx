@@ -419,16 +419,6 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
     : !collapse.collapsed.graph
       ? "graph"
       : "tray"
-  const graphReservedWidth =
-    collapse.collapsed.graph || fillerPane === "graph" ? 34 : panels.sizes.graph
-  const trayReservedWidth =
-    collapse.collapsed.tray || fillerPane === "tray" ? 34 : panels.sizes.tray
-  const minimumShellWidth =
-    graphReservedWidth +
-    (collapse.collapsed.diff ? 34 : MIN_CENTER_PANE) +
-    trayReservedWidth +
-    (!collapse.collapsed.graph && !collapse.collapsed.diff ? 6 : 0) +
-    (!collapse.collapsed.tray && !collapse.collapsed.diff ? 6 : 0)
 
   return (
     <div className={styles.root}>
@@ -481,7 +471,8 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
         <div
           className={styles.shell}
           data-shell
-          data-pane-min-width={minimumShellWidth}
+          // 0 on purpose: the Codex pane has no maximum width, it may be dragged over the review.
+          data-pane-min-width={0}
           data-pane-min-height={MIN_CENTER_PANE}
           style={
             {

@@ -5,6 +5,8 @@ The reviewer picks the provider first, Codex or Claude Code, then presses Start,
 It replaces the custom chat interface and its per-message diff packaging.
 Codex can also open a separate formatted-answer window through the [agent answer protocol](agent-answer-protocol.md).
 The graph, diff viewer, review queue, and GitHub submission flow are unchanged.
+For Claude, the panel now also offers a chat surface beside the terminal, described in [Chat surface for Claude (OpenUI)](openui-chat.md).
+The terminal remains the default surface and works as described here.
 
 ## Context
 
@@ -28,6 +30,11 @@ For Codex, Luna remains the default model.
 For Claude, Haiku is preselected as the fastest alias, and the reviewer can switch to any alias (`fable`, `opus`, `sonnet`, `haiku`) or the CLI default.
 The suggestions are family aliases so the app never pins a version.
 Switching the provider or the model ends the current terminal session and returns to the Start button, it never launches a new one.
+Provider, Model, Custom model ID, Surface (Claude only) and Custom shortcuts sit in one settings row, a native disclosure.
+Its summary names the current choice, for example "Claude · Haiku · Chat".
+The row is open until a provider is chosen and closed once one is saved.
+The open state is not saved, and opening or closing the row never restarts a session.
+The session surface keeps a 150 px minimum height, and open settings scroll inside themselves.
 
 The terminal header also offers prompt shortcuts.
 A shortcut only prefills the CLI's input box, the reviewer edits it and presses Enter.

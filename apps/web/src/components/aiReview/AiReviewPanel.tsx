@@ -1,17 +1,22 @@
 import type { AiReviewTarget } from "@pr-visulizer/shared"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useId, useMemo, useState } from "react"
 
 import type { KeyValueStore } from "@/utils/storage/keyValueStore"
 
 import {
+  AI_PANEL_SURFACE_LABELS,
+  type AiPanelSurface,
   type AiReviewSettings,
   DEFAULT_AI_REVIEW_SETTINGS,
   type SelectableAiProviderId,
   TERMINAL_PROVIDERS,
   TERMINAL_PROVIDER_ORDER,
+  describePanelSettings,
+  resolvePanelSurface,
   selectableAiProviderIdSchema,
 } from "@/entity/aiReviewSettings"
 import {
+  CHAT_PROMPT_SHORTCUTS,
   type CustomTerminalPromptShortcut,
   NO_FILE_SELECTED_TEXT,
   TERMINAL_PROMPT_SHORTCUTS,
@@ -31,6 +36,7 @@ import {
 
 import { findRepoLink, loadRepoLinks } from "@/tauri/repoLinks"
 
+import { AiChatSurface } from "./AiChatSurface"
 import styles from "./AiReviewPanel.module.css"
 import { CodexTerminal } from "./CodexTerminal"
 import { CustomShortcutsEditor } from "./CustomShortcutsEditor"
@@ -52,13 +58,16 @@ type AiReviewPanelProps = {
   onTerminalSessionEnded: (sessionId: string) => void
 }
 
-export function createInitialPrompt(input: {
+type InitialPromptInput = {
   target: AiReviewTarget
   title: string
   baseSha: string
   headSha: string
   currentFilePath: string | null
-}): string {
+}
+
+// The PR facts and the safety line both surfaces send as their first prompt.
+function describePullRequest(input: InitialPromptInput): string[] {
   const prUrl = `https://github.com/${input.target.owner}/${input.target.repo}/pull/${input.target.number}`
   const selectedFile = input.currentFilePath ?? NO_FILE_SELECTED_TEXT
 
@@ -72,9 +81,34 @@ export function createInitialPrompt(input: {
     "The current checkout may not be the PR head. Do not change branches, checkout commits, edit files, or run destructive commands.",
     `Inspect the PR with git diff ${input.baseSha}...${input.headSha} and git show ${input.headSha}:<path> as needed.`,
     'The get_current_file tool shows the file and lines the reviewer is looking at right now. Call it when the reviewer says "this file" or "these lines".',
+  ]
+}
+
+export function createInitialPrompt(input: InitialPromptInput): string {
+  return [
+    ...describePullRequest(input),
     `If the sem CLI is installed (check with command -v sem), prefer sem diff -v --from ${input.baseSha} --to ${input.headSha} for a semantic, entity-level view of the change, and fall back to git diff when it is missing.`,
     "Whenever an answer mentions a file or line the reviewer may need to open, you must call render_answer successfully before finishing, even for a short answer. Include every mentioned file in fileRefs, with its line when known. Use repo-relative Markdown links or inline paths so the references are clickable. If rendering fails, correct the request and retry, then report any unresolved failure instead of claiming the preview is ready.",
     "Use the terminal for progress, questions, and answers without file references. For longer explanations, summaries, or review results, also prefer render_answer with a title and Markdown. After rendering, keep the terminal reply to a brief confirmation that the answer is in the preview window.",
+    "Start by briefly confirming the PR context, then wait for the reviewer’s question.",
+  ].join("\n")
+}
+
+// The chat cannot approve a tool call, so the sem check is "try it" instead of a
+// command -v probe that would need approval and show the reviewer a denial.
+export function createChatInitialPrompt(input: InitialPromptInput): string {
+  return [
+    ...describePullRequest(input),
+    `Prefer sem diff -v --from ${input.baseSha} --to ${input.headSha} for a semantic, entity-level view of the change. Only if that command fails, run git diff as a separate second command, never joined to it with ||.`,
+    // Observed with the chat's own flags (2026-11-13): these are denied without asking, while
+    // &&, ||, ;, pipes and 2>&1 between read-only commands are allowed.
+    "Some shell commands are denied in this chat without asking: subshells in parentheses, git rev-parse, and git diff with -U<n>. A denial applies to that one command only, so run a simpler read-only command such as git diff, git diff --stat, git show or git grep, and carry on.",
+    "Answer in this chat, in Markdown.",
+    "Mermaid diagrams are not rendered in this chat, so draw a diagram with an openui-lang Diagram or SequenceDiagram block.",
+    "Make every location in a file of this PR clickable: write it as a Markdown link to the repo-relative path, with the line when known, such as [src/app.ts:42](src/app.ts#L42).",
+    "Only files of this PR are clickable in this chat. Write any other path as plain text.",
+    "Single line breaks are not shown in this chat. Use a Markdown list, or a blank line between paragraphs.",
+    "render_answer is optional in this chat. A rendered answer is shown inline in the chat, so do not repeat its content in your reply. openui-lang blocks, diagrams included, are drawn only in your chat reply and show as plain code inside a rendered answer, so put anything with a block in the reply.",
     "Start by briefly confirming the PR context, then wait for the reviewer’s question.",
   ].join("\n")
 }
@@ -97,6 +131,9 @@ export function AiReviewPanel({
   const [customModel, setCustomModel] = useState("")
   const [usingCustomModel, setUsingCustomModel] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  // Open until the saved settings name a provider, then one closed row. Not persisted, and never
+  // closed for the reviewer: picking a provider in the open row leaves it open.
+  const [settingsOpen, setSettingsOpen] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -114,6 +151,7 @@ export function AiReviewPanel({
 
         setRepositoryPath(findRepoLink(links, target)?.path ?? null)
         setSettings(loadedSettings)
+        setSettingsOpen(loadedSettings.terminalProvider === null)
         setCustomShortcuts(loadedShortcuts)
         if (loadedSettings.terminalProvider !== null) {
           showModelControls(loadedSettings, loadedSettings.terminalProvider)
@@ -137,6 +175,10 @@ export function AiReviewPanel({
     () => createInitialPrompt({ target, title, baseSha, headSha, currentFilePath }),
     [baseSha, currentFilePath, headSha, target, title]
   )
+  const chatInitialPrompt = useMemo(
+    () => createChatInitialPrompt({ target, title, baseSha, headSha, currentFilePath }),
+    [baseSha, currentFilePath, headSha, target, title]
+  )
   // Memoized so the terminal only pushes a context update when something in it really changed.
   const terminalContext = useMemo<CodexTerminalContext>(
     () => ({
@@ -151,14 +193,22 @@ export function AiReviewPanel({
     }),
     [baseSha, currentFilePath, headSha, review, target, title]
   )
-  const promptShortcuts = useMemo(
-    () => [...TERMINAL_PROMPT_SHORTCUTS, ...customShortcuts.map(toPromptShortcut)],
-    [customShortcuts]
-  )
   const terminalIdentity = `${target.owner}/${target.repo}#${target.number}:${baseSha}:${headSha}`
   const provider = settings.terminalProvider
   const terminalLabel =
     provider === null ? UNCHOSEN_TERMINAL_LABEL : TERMINAL_PROVIDERS[provider].label
+  const surface =
+    provider === null ? "terminal" : resolvePanelSurface(provider, settings.panelSurface)
+  const surfaceFieldName = useId()
+  // Built-in shortcuts depend on the surface (only the chat can draw a diagram block),
+  // the reviewer's custom shortcuts go on both.
+  const promptShortcuts = useMemo(
+    () => [
+      ...(surface === "chat" ? CHAT_PROMPT_SHORTCUTS : TERMINAL_PROMPT_SHORTCUTS),
+      ...customShortcuts.map(toPromptShortcut),
+    ],
+    [customShortcuts, surface]
+  )
 
   // A saved model outside the provider's suggestions can only have come from the custom field,
   // so it reopens there.
@@ -193,6 +243,12 @@ export function AiReviewPanel({
     showModelControls(settings, nextProvider)
     persist({ ...settings, terminalProvider: nextProvider }, (settingsStorage) =>
       settingsStorage.saveTerminalProvider(nextProvider)
+    )
+  }
+
+  function saveSurface(nextSurface: AiPanelSurface): void {
+    persist({ ...settings, panelSurface: nextSurface }, (settingsStorage) =>
+      settingsStorage.savePanelSurface(nextSurface)
     )
   }
 
@@ -250,81 +306,113 @@ export function AiReviewPanel({
       </button>
 
       <div className={styles.content}>
-        <label className={styles.field}>
-          Provider
-          <select
-            className={styles.select}
-            value={provider ?? UNCHOSEN_PROVIDER_VALUE}
-            onChange={(event) => {
-              const nextProvider = selectableAiProviderIdSchema.parse(event.target.value)
-              saveProvider(nextProvider)
-            }}
-          >
-            {provider === null && (
-              <option value={UNCHOSEN_PROVIDER_VALUE} disabled>
-                Choose a provider…
-              </option>
-            )}
-            {TERMINAL_PROVIDER_ORDER.map((providerId) => (
-              <option key={providerId} value={providerId}>
-                {TERMINAL_PROVIDERS[providerId].label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {/* Model suggestions depend on the provider, so the control waits for that choice. */}
-        {provider !== null && (
-          <>
+        {/* The surface stays outside this disclosure, so opening or closing it never remounts,
+            restarts or stops a session. */}
+        <details
+          className={styles.settings}
+          open={settingsOpen}
+          onToggle={(event) => setSettingsOpen(event.currentTarget.open)}
+        >
+          <summary className={styles.settingsSummary}>
+            {describePanelSettings(settings, surface)}
+          </summary>
+          <div>
             <label className={styles.field}>
-              Model
+              Provider
               <select
                 className={styles.select}
-                value={
-                  usingCustomModel
-                    ? "__custom__"
-                    : (settings.providers[provider].selectedModel ?? "__cli_default__")
-                }
+                value={provider ?? UNCHOSEN_PROVIDER_VALUE}
                 onChange={(event) => {
-                  const nextValue = event.target.value
-                  if (nextValue === "__custom__") {
-                    setUsingCustomModel(true)
-                    return
-                  }
-
-                  setUsingCustomModel(false)
-                  saveModel(provider, nextValue === "__cli_default__" ? null : nextValue)
+                  const nextProvider = selectableAiProviderIdSchema.parse(event.target.value)
+                  saveProvider(nextProvider)
                 }}
               >
-                <option value="__cli_default__">CLI default</option>
-                {TERMINAL_PROVIDERS[provider].modelSuggestions.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.label}
+                {provider === null && (
+                  <option value={UNCHOSEN_PROVIDER_VALUE} disabled>
+                    Choose a provider…
+                  </option>
+                )}
+                {TERMINAL_PROVIDER_ORDER.map((providerId) => (
+                  <option key={providerId} value={providerId}>
+                    {TERMINAL_PROVIDERS[providerId].label}
                   </option>
                 ))}
-                <option value="__custom__">Custom model ID…</option>
               </select>
             </label>
-            {usingCustomModel && (
-              <label className={styles.field}>
-                Custom model ID
-                <input
-                  className={styles.input}
-                  value={customModel}
-                  onChange={(event) => setCustomModel(event.target.value)}
-                  onBlur={() => saveCustomModel(provider)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") event.currentTarget.blur()
-                  }}
+            {/* Model suggestions depend on the provider, so the control waits for that choice. */}
+            {provider !== null && (
+              <>
+                <label className={styles.field}>
+                  Model
+                  <select
+                    className={styles.select}
+                    value={
+                      usingCustomModel
+                        ? "__custom__"
+                        : (settings.providers[provider].selectedModel ?? "__cli_default__")
+                    }
+                    onChange={(event) => {
+                      const nextValue = event.target.value
+                      if (nextValue === "__custom__") {
+                        setUsingCustomModel(true)
+                        return
+                      }
+
+                      setUsingCustomModel(false)
+                      saveModel(provider, nextValue === "__cli_default__" ? null : nextValue)
+                    }}
+                  >
+                    <option value="__cli_default__">CLI default</option>
+                    {TERMINAL_PROVIDERS[provider].modelSuggestions.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ))}
+                    <option value="__custom__">Custom model ID…</option>
+                  </select>
+                </label>
+                {/* Offered only when the provider has more than one surface (Claude). */}
+                {TERMINAL_PROVIDERS[provider].surfaces.length > 1 && (
+                  <fieldset className={styles.surfaceSwitch}>
+                    <legend className={styles.surfaceLegend}>Surface</legend>
+                    {TERMINAL_PROVIDERS[provider].surfaces.map((surfaceOption) => (
+                      <label key={surfaceOption} className={styles.surfaceOption}>
+                        <input
+                          type="radio"
+                          name={surfaceFieldName}
+                          value={surfaceOption}
+                          checked={surface === surfaceOption}
+                          onChange={() => saveSurface(surfaceOption)}
+                        />
+                        {AI_PANEL_SURFACE_LABELS[surfaceOption]}
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+                {usingCustomModel && (
+                  <label className={styles.field}>
+                    Custom model ID
+                    <input
+                      className={styles.input}
+                      value={customModel}
+                      onChange={(event) => setCustomModel(event.target.value)}
+                      onBlur={() => saveCustomModel(provider)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur()
+                      }}
+                    />
+                  </label>
+                )}
+                <CustomShortcutsEditor
+                  shortcuts={customShortcuts}
+                  onAdd={addShortcut}
+                  onRemove={removeShortcut}
                 />
-              </label>
+              </>
             )}
-            <CustomShortcutsEditor
-              shortcuts={customShortcuts}
-              onAdd={addShortcut}
-              onRemove={removeShortcut}
-            />
-          </>
-        )}
+          </div>
+        </details>
+        {/* Outside the row, so a failed save is seen even after the row is closed. */}
         {saveError && (
           <p className={styles.error} role="alert">
             Couldn&apos;t save the terminal settings: {saveError}
@@ -341,17 +429,35 @@ export function AiReviewPanel({
             Choose a provider, then press Start.
           </p>
         ) : (
-          <CodexTerminal
-            provider={provider}
-            shortcuts={promptShortcuts}
-            repositoryPath={repositoryPath}
-            initialPrompt={initialPrompt}
-            model={settings.providers[provider].selectedModel}
-            terminalIdentity={terminalIdentity}
-            onSessionStarted={onTerminalSessionStarted}
-            onSessionEnded={onTerminalSessionEnded}
-            context={terminalContext}
-          />
+          // The slot keeps the surface a usable height, the open settings above it yield first.
+          <div className={styles.surfaceSlot}>
+            {surface === "chat" ? (
+              // Switching surface unmounts the other one, which ends its session. Nothing relaunches.
+              <AiChatSurface
+                provider={provider}
+                shortcuts={promptShortcuts}
+                repositoryPath={repositoryPath}
+                initialPrompt={chatInitialPrompt}
+                model={settings.providers[provider].selectedModel}
+                terminalIdentity={terminalIdentity}
+                onSessionStarted={onTerminalSessionStarted}
+                onSessionEnded={onTerminalSessionEnded}
+                context={terminalContext}
+              />
+            ) : (
+              <CodexTerminal
+                provider={provider}
+                shortcuts={promptShortcuts}
+                repositoryPath={repositoryPath}
+                initialPrompt={initialPrompt}
+                model={settings.providers[provider].selectedModel}
+                terminalIdentity={terminalIdentity}
+                onSessionStarted={onTerminalSessionStarted}
+                onSessionEnded={onTerminalSessionEnded}
+                context={terminalContext}
+              />
+            )}
+          </div>
         )}
       </div>
     </aside>

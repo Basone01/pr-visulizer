@@ -11,7 +11,12 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use tauri::{Emitter, Runtime};
 
-use crate::codex_answer::{CodexAnswerContext, CodexAnswerSessions};
+use crate::codex_answer::{
+    AnswerPresentation, CodexAnswerContext, CodexAnswerSessions, ANSWER_PRESENTATION_ENV,
+};
+
+// The terminal pops each rendered answer out into its own window.
+const TERMINAL_ANSWER_PRESENTATION: AnswerPresentation = AnswerPresentation::Window;
 
 const MAX_SESSION_ID_LENGTH: usize = 128;
 const MAX_MODEL_LENGTH: usize = 128;
@@ -242,6 +247,12 @@ fn stop_terminal_process(
             .map_err(|error| format!("could not stop terminal: {error}"));
     };
 
+    stop_process_group(process_group)
+}
+
+// TERM first so the CLI can flush, then KILL whatever is left in the group after a short grace.
+#[cfg(unix)]
+pub(crate) fn stop_process_group(process_group: i32) -> Result<(), String> {
     signal_terminal_process_group(process_group, libc::SIGTERM)?;
     if wait_for_terminal_process_group_exit(process_group, std::time::Duration::from_millis(250))? {
         return Ok(());
@@ -267,29 +278,28 @@ fn stop_terminal_process(
         .map_err(|error| format!("could not stop terminal: {error}"))
 }
 
-fn validated_session_id(session_id: &str) -> Result<&str, String> {
+pub(crate) fn validated_session_id(session_id: &str) -> Result<&str, String> {
     if session_id.is_empty() || session_id.len() > MAX_SESSION_ID_LENGTH {
-        return Err("terminal session ID must be 1-128 characters".into());
+        return Err("session ID must be 1-128 characters".into());
     }
     if !session_id
         .bytes()
         .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
     {
         return Err(
-            "terminal session ID may contain only letters, numbers, hyphens, and underscores"
-                .into(),
+            "session ID may contain only letters, numbers, hyphens, and underscores".into(),
         );
     }
 
     Ok(session_id)
 }
 
-fn validated_model(model: Option<String>) -> Result<Option<String>, String> {
+pub(crate) fn validated_model(model: Option<String>) -> Result<Option<String>, String> {
     let Some(model) = model else {
         return Ok(None);
     };
     if model.is_empty() || model.len() > MAX_MODEL_LENGTH || model.contains('\0') {
-        return Err("terminal model must be a non-empty string up to 128 characters".into());
+        return Err("model must be a non-empty string up to 128 characters".into());
     }
 
     Ok(Some(model))
@@ -308,7 +318,7 @@ fn validated_terminal_size(rows: u16, cols: u16) -> Result<PtySize, String> {
     })
 }
 
-fn linked_repository_root(path: &str) -> Result<PathBuf, String> {
+pub(crate) fn linked_repository_root(path: &str) -> Result<PathBuf, String> {
     let requested = Path::new(path)
         .canonicalize()
         .map_err(|error| format!("linked repository is not accessible: {error}"))?;
@@ -372,8 +382,77 @@ fn codex_command(
     command
 }
 
+// The Claude safety arguments and env changes have one home, shared by the terminal and the chat
+// surface, so the two Claude launches cannot drift apart.
+pub(crate) struct ClaudeSafetyProfile {
+    pub(crate) args: Vec<String>,
+    pub(crate) set_env: Vec<(&'static str, String)>,
+    pub(crate) removed_env: &'static [&'static str],
+}
+
+// When the desktop app itself was launched from inside a Claude Code session (dev),
+// the child would inherit the nested-session markers and run with transcript saving off.
+const CLAUDE_NESTED_SESSION_ENV: &[&str] = &[
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDECODE",
+    "CLAUDE_CODE_ENTRYPOINT",
+];
+
 // Claude has no read-only OS sandbox flag like Codex's. The posture is: editing tools removed,
-// every other mutation goes through the CLI's own interactive permission prompt.
+// every other mutation goes through the CLI's own permission handling.
+pub(crate) fn claude_safety_profile(
+    helper_executable: &Path,
+    render_socket: &str,
+    render_token: &str,
+    presentation: AnswerPresentation,
+) -> ClaudeSafetyProfile {
+    let mut helper_env = serde_json::json!({
+        "PR_VISUALIZER_RENDER_SOCKET": render_socket,
+        "PR_VISUALIZER_RENDER_TOKEN": render_token,
+    });
+    if let Some(value) = presentation.helper_env_value() {
+        helper_env[ANSWER_PRESENTATION_ENV] = value.into();
+    }
+    let mcp_config = serde_json::json!({
+        "mcpServers": {
+            "pr_visualizer": {
+                "type": "stdio",
+                "command": helper_executable.to_string_lossy(),
+                "args": ["--render-mcp"],
+                "env": helper_env,
+            },
+        },
+    });
+    let args = vec![
+        "--mcp-config".to_string(),
+        mcp_config.to_string(),
+        // Server-wide allow rule, so the app's own MCP tools never interrupt the session,
+        // matching Codex's `default_tools_approval_mode = "approve"`. `sem diff` is pre-approved
+        // because every flag it has only changes output format or filtering (checked 2026-10-14).
+        // No git rule is pre-approved: `git diff --output` / `--ext-diff` could write files or
+        // run programs.
+        "--allowedTools".to_string(),
+        "mcp__pr_visualizer".to_string(),
+        "Bash(sem diff *)".to_string(),
+        "--disallowedTools".to_string(),
+        "Edit".to_string(),
+        "Write".to_string(),
+        "NotebookEdit".to_string(),
+        // Newer CLIs start sessions in `auto` mode, so prompt-on-first-use must be explicit.
+        "--permission-mode".to_string(),
+        "manual".to_string(),
+    ];
+
+    ClaudeSafetyProfile {
+        args,
+        set_env: vec![
+            ("PR_VISUALIZER_RENDER_SOCKET", render_socket.to_string()),
+            ("PR_VISUALIZER_RENDER_TOKEN", render_token.to_string()),
+        ],
+        removed_env: CLAUDE_NESTED_SESSION_ENV,
+    }
+}
+
 fn claude_command(
     repository_root: &Path,
     model: Option<&str>,
@@ -381,39 +460,16 @@ fn claude_command(
     render_socket: &str,
     render_token: &str,
 ) -> CommandBuilder {
-    let mut command = CommandBuilder::new("claude");
     let executable = std::env::current_exe()
         .expect("desktop executable path must be available to launch the MCP helper");
-    let mcp_config = serde_json::json!({
-        "mcpServers": {
-            "pr_visualizer": {
-                "type": "stdio",
-                "command": executable.to_string_lossy(),
-                "args": ["--render-mcp"],
-                "env": {
-                    "PR_VISUALIZER_RENDER_SOCKET": render_socket,
-                    "PR_VISUALIZER_RENDER_TOKEN": render_token,
-                },
-            },
-        },
-    });
-    command.arg("--mcp-config");
-    command.arg(mcp_config.to_string());
-    // Server-wide allow rule, so the app's own MCP tools never interrupt the session,
-    // matching Codex's `default_tools_approval_mode = "approve"`. `sem diff` is pre-approved
-    // because every flag it has only changes output format or filtering (checked 2026-10-14).
-    // No git rule is pre-approved: `git diff --output` / `--ext-diff` could write files or run
-    // programs.
-    command.arg("--allowedTools");
-    command.arg("mcp__pr_visualizer");
-    command.arg("Bash(sem diff *)");
-    command.arg("--disallowedTools");
-    command.arg("Edit");
-    command.arg("Write");
-    command.arg("NotebookEdit");
-    // Newer CLIs start interactive sessions in `auto` mode, so prompt-on-first-use must be explicit.
-    command.arg("--permission-mode");
-    command.arg("manual");
+    let profile = claude_safety_profile(
+        &executable,
+        render_socket,
+        render_token,
+        TERMINAL_ANSWER_PRESENTATION,
+    );
+    let mut command = CommandBuilder::new("claude");
+    command.args(&profile.args);
     if let Some(model) = model {
         command.arg("--model");
         command.arg(model);
@@ -423,13 +479,12 @@ fn claude_command(
     // Keep the transcript in the terminal's scrollback instead of an alternate screen.
     // Claude has no CLI flag for this, the env var forces the classic renderer.
     command.env("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN", "1");
-    // When the desktop app itself was launched from inside a Claude Code session (dev),
-    // the child would inherit the nested-session markers and run with transcript saving off.
-    command.env_remove("CLAUDE_CODE_CHILD_SESSION");
-    command.env_remove("CLAUDECODE");
-    command.env_remove("CLAUDE_CODE_ENTRYPOINT");
-    command.env("PR_VISUALIZER_RENDER_SOCKET", render_socket);
-    command.env("PR_VISUALIZER_RENDER_TOKEN", render_token);
+    for name in profile.removed_env {
+        command.env_remove(name);
+    }
+    for (name, value) in &profile.set_env {
+        command.env(name, value);
+    }
     command
 }
 
@@ -667,14 +722,18 @@ pub fn codex_terminal_start<R: Runtime>(
     let sessions = sessions.inner().clone();
     sessions.reserve(&session_id)?;
     let answer_sessions = answer_sessions.inner().clone();
-    let (render_socket, render_token) =
-        match answer_sessions.start(app.clone(), &session_id, request.context) {
-            Ok(connection) => connection,
-            Err(error) => {
-                sessions.remove(&session_id);
-                return Err(error);
-            }
-        };
+    let (render_socket, render_token) = match answer_sessions.start(
+        app.clone(),
+        &session_id,
+        request.context,
+        TERMINAL_ANSWER_PRESENTATION,
+    ) {
+        Ok(connection) => connection,
+        Err(error) => {
+            sessions.remove(&session_id);
+            return Err(error);
+        }
+    };
     let build_command = match provider {
         TerminalProvider::Codex => codex_command,
         TerminalProvider::Claude => claude_command,
@@ -964,6 +1023,82 @@ mod tests {
     }
 
     #[test]
+    fn claude_terminal_argv_is_exactly_the_safety_profile_plus_model_and_prompt() {
+        // Arrange
+        let repository_root = Path::new("/tmp/linked-repository");
+        let model = Some("opus");
+        let initial_prompt = "Review https://github.com/acme/widgets/pull/42";
+        let render_socket = "/tmp/answer.sock";
+        let render_token = "token";
+
+        // Act
+        let command = claude_command(
+            repository_root,
+            model,
+            initial_prompt,
+            render_socket,
+            render_token,
+        );
+        let mut argv: Vec<String> = command
+            .get_argv()
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let mcp_config: serde_json::Value =
+            serde_json::from_str(&argv[2]).expect("--mcp-config is JSON");
+        argv[2] = "<mcp-config>".into();
+
+        // Assert
+        let expected_argv = vec![
+            "claude",
+            "--mcp-config",
+            "<mcp-config>",
+            "--allowedTools",
+            "mcp__pr_visualizer",
+            "Bash(sem diff *)",
+            "--disallowedTools",
+            "Edit",
+            "Write",
+            "NotebookEdit",
+            "--permission-mode",
+            "manual",
+            "--model",
+            "opus",
+            initial_prompt,
+        ];
+        assert_eq!(argv, expected_argv);
+        let app_server = &mcp_config["mcpServers"]["pr_visualizer"];
+        let expected_server_shape = (
+            serde_json::json!("stdio"),
+            serde_json::json!(["--render-mcp"]),
+            serde_json::json!({
+                "PR_VISUALIZER_RENDER_SOCKET": render_socket,
+                "PR_VISUALIZER_RENDER_TOKEN": render_token,
+            }),
+        );
+        assert_eq!(
+            (
+                app_server["type"].clone(),
+                app_server["args"].clone(),
+                app_server["env"].clone()
+            ),
+            expected_server_shape
+        );
+    }
+
+    #[test]
+    fn terminal_answers_open_in_their_own_window() {
+        // Arrange
+        let expected = AnswerPresentation::Window;
+
+        // Act
+        let presentation = TERMINAL_ANSWER_PRESENTATION;
+
+        // Assert
+        assert_eq!(presentation, expected);
+    }
+
+    #[test]
     fn claude_command_keeps_cli_default_model() {
         // Arrange
         let repository_root = Path::new("/tmp/linked-repository");
@@ -984,6 +1119,37 @@ mod tests {
         assert!(
             !rendered.contains("--model"),
             "CLI-default model must omit --model: {rendered}"
+        );
+    }
+
+    #[test]
+    fn claude_terminal_keeps_default_tools_commands_and_inherited_plugin_dirs() {
+        // Arrange
+        let repository_root = Path::new("/tmp/linked-repository");
+        let initial_prompt = "Review https://github.com/acme/widgets/pull/42";
+        let inherited_plugin_dirs = std::env::var_os("CLAUDE_CODE_PLUGIN_DIRS");
+
+        // Act
+        let command = claude_command(
+            repository_root,
+            None,
+            initial_prompt,
+            "/tmp/answer.sock",
+            "token",
+        );
+        let rendered = format!("{command:?}");
+
+        // Assert
+        for chat_only_flag in ["--tools", "--disable-slash-commands"] {
+            assert!(
+                !rendered.contains(chat_only_flag),
+                "the terminal must not get the chat-only {chat_only_flag:?}: {rendered}"
+            );
+        }
+        assert_eq!(
+            command.get_env("CLAUDE_CODE_PLUGIN_DIRS"),
+            inherited_plugin_dirs.as_deref(),
+            "the terminal must keep the inherited plugin directories"
         );
     }
 

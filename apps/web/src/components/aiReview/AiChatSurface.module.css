@@ -1,0 +1,521 @@
+/* The chat lives in the AI panel, which the reviewer resizes by dragging: about 240 to 1000px
+   wide beside the diff, or down to 220px tall under it. Every row wraps or truncates instead of
+   growing sideways. Colors come from the app tokens only.
+
+   Sizing contract, defined here and only here. The panel's size has nothing to do with the
+   window, so every adaptation is a query on the `ai-chat` container, never a viewport query.
+   Most of the layout is intrinsic (wrap, truncate, minmax(0, 1fr)) and needs no breakpoint.
+   Named breakpoints, picked from the content:
+   - narrow, inline-size < 280px: "Prompts" plus one chip no longer fits beside a second chip,
+     so the decorative caption goes and the chips get the whole row.
+   - short, block-size < 300px: the fixed rows (header, prompt strip, composer) take about 130px,
+     over 40% of the height, so the strip and the composer compact and the transcript keeps
+     the rest.
+   OpenUI blocks need no breakpoint of their own. Their fixes are intrinsic (OpenUiBlock.module.css),
+   and a block could still query `ai-chat`: a container query crosses into the block's own React
+   root, since the block's DOM sits inside this section. */
+
+.chatSection {
+  /* The prose measure for both the reviewer's and the assistant's text. Measured in the desktop
+     WKWebView on 2026-11-12: 64ch was 502px, about 84 characters of chat prose at 5.98px per
+     average character. 58ch gives about 75 characters on the widest line. */
+  --prose-measure: 58ch;
+
+  /* size, not inline-size: the short layout queries the height too. Safe because the section's
+     height comes from its flex parent, never from its content. */
+  container: ai-chat / size;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.header {
+  display: flex;
+  /* A control that does not fit beside the status wraps to a second row instead of clipping. */
+  flex-wrap: wrap;
+  min-height: 36px;
+  gap: 4px 8px;
+  align-items: center;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.title {
+  /* The status keeps at least a few words before the controls wrap below it. */
+  flex: 1 1 8ch;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.action {
+  min-height: 28px;
+  min-width: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  color: var(--text);
+  background: var(--panel);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Prompt chips get their own strip so adding shortcuts never reflows the session controls.
+   The chips wrap rather than scroll: a hidden overflow had no visible sign, and clipped a chip. */
+.shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.shortcutsCaption {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* Lays its chips out as the strip's own items. The short layout makes it a real row. */
+.chipRow {
+  display: contents;
+}
+
+/* After .action so the compact sizing wins at equal specificity.
+   A chip shrinks, and wraps its label, only when it alone is wider than the strip. */
+.chip {
+  min-height: 24px;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 2px 6px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+
+.message,
+.fileError {
+  margin: 0;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.message[role="alert"],
+.fileError {
+  color: var(--deleted);
+  background: var(--deleted-soft);
+}
+
+.transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* The scroll keeper owns the position on a resize. Off, so Chrome's anchoring cannot add a
+     second correction that WebKit would not make. */
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  padding: 8px;
+}
+
+.emptyState {
+  margin: 0;
+  padding: 16px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.entries {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.author {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.userMessage,
+.assistantMessage {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.userMessage {
+  background: var(--accent-soft);
+}
+
+.assistantMessage {
+  background: var(--panel);
+}
+
+.userText {
+  /* The same measure as the assistant's prose (see .prose). */
+  max-inline-size: var(--prose-measure);
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.messageBody {
+  display: grid;
+  /* minmax(0, ...), not the implicit auto column: an auto column grows to the min-content
+     width of a block's table and pushed the whole transcript sideways. Now wide content
+     scrolls inside its own box (a table container, a pre). */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A readable line length for prose on a wide panel. Only text is capped, never a box that
+   holds a code block or a table, so those may still use the full width, even inside a list.
+   The column stays start-aligned: the author label, tool rows and blocks all start at the left
+   edge, and a centered column would move that edge under the pointer during a drag.
+   The measure itself is --prose-measure on .chatSection, with how it was derived. */
+.prose :where(p, h1, h2, h3, h4, h5, h6, li:not(:has(pre, table))) {
+  max-inline-size: var(--prose-measure);
+}
+
+/* The prose's overflow-wrap: anywhere lets an auto table shrink every column to one letter,
+   so it never scrolls. break-word keeps whole words, and the table scrolls inside its box. */
+.prose :where(th, td) {
+  overflow-wrap: break-word;
+}
+
+.blockLoading,
+.blockError {
+  margin: 0;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.blockError {
+  color: var(--deleted);
+}
+
+.blockError p {
+  margin: 0 0 6px;
+}
+
+.blockSource {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  color: var(--text);
+  background: var(--code-bg);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+.toolRow[data-status="stopped"] .toolStatus {
+  color: var(--muted);
+}
+
+.toolRow {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  padding: 4px 8px;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.toolName {
+  /* Shrinks only after the summary is gone (max 60%), so the status always stays visible. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolSummary {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolStatus {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.toolRow[data-status="running"] {
+  border-left-color: var(--accent);
+}
+
+.toolRow[data-status="running"] .toolStatus {
+  color: var(--accent);
+}
+
+.toolRow[data-status="done"] .toolStatus {
+  color: var(--added);
+}
+
+.toolRow[data-status="failed"],
+.toolRow[data-status="denied"] {
+  border-left-color: var(--deleted);
+}
+
+.toolRow[data-status="failed"] .toolStatus,
+.toolRow[data-status="denied"] .toolStatus {
+  color: var(--deleted);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .toolRow[data-status="running"] .toolStatus {
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.notice {
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--bg);
+  font-size: 11px;
+  /* A failure notice can carry the CLI's own long text, often with unbroken tokens. */
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.notice[data-tone="warning"] {
+  color: var(--modified);
+  background: var(--modified-soft);
+}
+
+.composer {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.composerInput {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  max-height: 160px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  color: var(--text);
+  background: var(--panel);
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.composerInput:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.sendButton {
+  flex-shrink: 0;
+  min-height: 32px;
+  min-width: 24px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: var(--panel);
+  background: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sendButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.action:focus-visible,
+.sendButton:focus-visible,
+.composerInput:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Inset, because the section clips anything drawn outside the transcript. */
+.transcript:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* An answer the agent rendered through render_answer, shown inline. */
+.answerTitle {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.answerFiles {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 11px;
+  list-style: none;
+}
+
+.answerFileButton {
+  min-height: 24px;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+}
+
+.answerFileButton:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@container ai-chat (inline-size < 280px) {
+  .shortcutsCaption {
+    display: none;
+  }
+}
+
+/* The transcript keeps the height: the strip becomes one scrolling row, the composer one line.
+   The header keeps its size, so the content under the divider being dragged does not move.
+   The composer shrinks once at the threshold, at the bottom edge, and the scroll keeper
+   (AiChatSurface.tsx) holds the reading position across it. */
+@container ai-chat (block-size < 300px) {
+  .shortcuts {
+    /* A scroll container may shrink to 0 in the column, so it would collapse before the
+       transcript. It keeps its one row, and scrolls only sideways. */
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* The row carries the end padding: a sticky box stops at the scroll padding, and the fade
+       must reach the strip's edge. */
+    padding-right: 0;
+    scrollbar-width: thin;
+  }
+
+  .chipRow {
+    display: flex;
+    flex-shrink: 0;
+    gap: 6px;
+    align-items: center;
+    padding-right: 8px;
+  }
+
+  /* macOS hides overlay scrollbars at rest, so a fade at the end edge shows that more chips
+     follow. Sticky, it covers the edge only while a chip lies past it. At the end of the row,
+     or with no overflow, it sits after the last chip over the strip's own background.
+     It lives on the row, not the strip: a sticky box cannot leave its containing block,
+     and only the row is as wide as the chips. */
+  .chipRow::after {
+    content: "";
+    position: sticky;
+    right: 0;
+    flex: 0 0 24px;
+    align-self: stretch;
+    /* Cancels the row's gap, so the fade adds only its own width to the row. */
+    margin-left: -6px;
+    background: linear-gradient(to right, transparent, var(--bg));
+    pointer-events: none;
+  }
+
+  .shortcutsCaption {
+    display: none;
+  }
+
+  .chip {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .message,
+  .fileError {
+    padding-block: 4px;
+  }
+
+  .transcript {
+    padding-block: 4px;
+  }
+
+  .composer {
+    padding-block: 4px;
+  }
+
+  .composerInput {
+    height: 28px;
+    min-height: 28px;
+    /* A textarea the reviewer drags taller must leave the transcript half of the chat. */
+    max-height: 50cqb;
+    padding-block: 4px;
+  }
+
+  .sendButton {
+    min-height: 28px;
+  }
+}
