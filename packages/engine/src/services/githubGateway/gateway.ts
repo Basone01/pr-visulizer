@@ -2,6 +2,7 @@ import type {
   ChangedFile,
   DraftComment,
   FileHistory,
+  FileOmission,
   PrCommit,
   PrCommitList,
   PrMeta,
@@ -9,6 +10,7 @@ import type {
   RangeDiff,
   RangeDiffFile,
   ReviewComment,
+  SkippedFile,
 } from "@pr-visulizer/shared"
 
 import type { SessionUser } from "../../entities/index.js"
@@ -35,6 +37,12 @@ export type RepoRef = {
 // files GitHub omits a diff for (binary, too large, pure rename).
 export type GatewayChangedFile = ChangedFile & {
   patch: string | null
+  // Set when the reader found the file generated. The engine lists it in
+  // AnalysisResult.skipped and never ranks it.
+  skip?: SkippedFile
+  // Parts of the file the reader could not read (its diff, its content). The file is still
+  // analysed and ranked; the engine passes these through to AnalysisResult.omitted.
+  omissions?: FileOmission[]
 }
 
 export type PullRequestData = {

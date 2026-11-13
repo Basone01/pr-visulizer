@@ -1,3 +1,9 @@
+import {
+  DEPENDENCY_DIRECTORIES,
+  GENERATED_DIRECTORIES,
+  GENERATED_FILE_SUFFIXES,
+} from "@pr-visulizer/shared"
+
 import type {
   AiRepositoryContextPolicy,
   IsolatedSnapshotRequest,
@@ -7,8 +13,6 @@ import type {
   RepositoryFileCandidate,
 } from "@/entity/aiReviewPolicy"
 
-const DEPENDENCY_DIRECTORIES = new Set([".git", "bower_components", "node_modules", "vendor"])
-const GENERATED_DIRECTORIES = new Set([".generated", "__generated__", "build", "dist", "generated"])
 const CREDENTIAL_FILE_NAMES = new Set([
   ".npmrc",
   "credentials",
@@ -19,7 +23,6 @@ const CREDENTIAL_FILE_NAMES = new Set([
   "id_rsa",
 ])
 const CREDENTIAL_FILE_EXTENSIONS = [".key", ".keystore", ".p12", ".pem", ".pfx"]
-const GENERATED_FILE_SUFFIXES = [".map", ".min.js", ".min.css", ".pb.go"]
 
 function normalizeRepositoryPath(path: string): string | null {
   const normalized = path.replaceAll("\\", "/").replace(/^\.\//, "")

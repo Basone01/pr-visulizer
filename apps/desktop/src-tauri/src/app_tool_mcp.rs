@@ -254,7 +254,9 @@ impl AppToolServer {
 
 #[tool_router]
 impl AppToolServer {
-    #[tool(description = "Get the pull request context for this terminal session.")]
+    #[tool(
+        description = "Get the pull request context for this terminal session. Generated files are marked skipped and need no reading, a file whose diff is omitted is still reviewed in bounded pieces."
+    )]
     fn get_pr_context(&self) -> Result<String, String> {
         self.call("get_pr_context", serde_json::json!({}))
             .map(|value| value.to_string())
@@ -269,7 +271,7 @@ impl AppToolServer {
     }
 
     #[tool(
-        description = "List every file in the pull request in the reviewer's queue order, with its status, whether the reviewer marked it reviewed, and which one the app suggests next."
+        description = "List every file in the pull request in the reviewer's queue order, with its status, whether the reviewer marked it reviewed, and which one the app suggests next. Generated files are marked skipped and need no reading, a file whose diff is omitted is still reviewed in bounded pieces."
     )]
     fn list_pr_files(&self) -> Result<String, String> {
         self.call("list_pr_files", serde_json::json!({}))

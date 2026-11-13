@@ -71,7 +71,8 @@ export function PeekPopup({
   // (patch authoritative inside hunks, head text filling the gaps, head numbering preserved),
   // the same transform the full-file toggle renders with.
   const definitionLines = useMemo(() => {
-    const parsed = patchQuery.data ? parseUnifiedDiff(patchQuery.data) : null
+    const patch = patchQuery.data?.kind === "patch" ? patchQuery.data.patch : null
+    const parsed = patch ? parseUnifiedDiff(patch) : null
     const view = headText === null ? parsed : buildFullFileView(headText, parsed ?? NO_PATCH)
     if (!view) return []
 

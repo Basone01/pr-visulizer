@@ -3,9 +3,10 @@ import { queryOptions, skipToken } from "@tanstack/react-query"
 
 import type { Engine, PrTarget, RepoRef } from "@/entity/pr"
 import { prKey, repoKey } from "@/entity/pr"
-import { isNeedsRepoSourceError } from "@/entity/repoSource"
 
 import { getPrClient } from "./clientFactory"
+import { type GeneratedPatchPolicy, type KnownFileFacts, readFilePatch } from "./filePatch"
+import { shouldRetryQuery } from "./queryRetry"
 
 // Shared query definitions (docs/architecture.md §9). One queryOptions factory per
 // resource so prefetch and read never drift on key or fetcher — the type flows from
@@ -39,9 +40,9 @@ export function analysisQueryOptions(target: PrTarget, engine: Engine) {
     staleTime: Infinity,
     // 202-then-poll: keep polling while the engine runs, stop once ready (§9).
     refetchInterval: (query) => (query.state.data?.status === "analyzing" ? 1500 : false),
-    // "No repo source yet" is a PROMPT, not a transient failure — retrying can't fix it
-    // until the user links or clones, so don't burn retries before showing the prompt.
-    retry: (failureCount, error) => !isNeedsRepoSourceError(error) && failureCount < 3,
+    // A deterministic failure ("no repo source yet" is a prompt, a schema failure repeats) is
+    // shown at once: a retry would only re-run the whole deep pipeline for the same answer.
+    retry: shouldRetryQuery,
   })
 }
 
@@ -82,14 +83,36 @@ export function viewerQueryOptions() {
   })
 }
 
-export function patchQueryOptions(target: PrTarget, path: string) {
+export type PatchQueryOptions = {
+  // "show" on a generated file is the pane's "Show diff anyway". "skip" by default, so a
+  // generated file is not read.
+  generated?: GeneratedPatchPolicy
+  // The analysis's facts for this file, once it has landed.
+  known?: KnownFileFacts
+}
+
+export function patchQueryOptions(
+  target: PrTarget,
+  path: string,
+  { generated = "skip", known = null }: PatchQueryOptions = {}
+) {
   return queryOptions({
-    queryKey: [...prScopeKey(target), "patch", path] as const,
-    queryFn: () => getPrClient().getPatch(target, path),
+    queryKey: [...prScopeKey(target), "patch", path, generated, knownFactsKey(known)] as const,
+    queryFn: () => readFilePatch(getPrClient(), { target, path, generated, known }),
     // A file's patch is immutable per headSha — never stale within a session.
     staleTime: Infinity,
+    retry: shouldRetryQuery,
     enabled: path.length > 0,
   })
+}
+
+// Only facts that change the answer go in the key: a plain file read before the analysis
+// landed keeps its cached patch once the analysis says it is plain.
+function knownFactsKey(known: KnownFileFacts): string {
+  if (known?.skip) return "generated"
+  if (known?.diffOmission) return `omitted:${known.diffOmission.reason}`
+
+  return "read"
 }
 
 // The PR's commits, behind the diff pane's range picker (§10). The list is immutable per

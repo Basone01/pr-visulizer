@@ -93,6 +93,21 @@ export function toRevisionPinnedPatchError(error: unknown): RevisionPinnedPatchE
   return new RevisionPinnedPatchError(reason, message)
 }
 
+// Whether a reader refused a patch on bytes (the native cap, or the HTTP route's bound). Same
+// answer every time for the same file, so it is an omission to show, never a failure to retry.
+export function isPatchByteLimitRefusal(error: unknown): boolean {
+  return toRevisionPinnedPatchError(error).reason === "patch-byte-limit"
+}
+
+// No reader has a diff for this file (GitHub omits one for a binary or a pure rename). The same
+// request gives the same answer, so it is not retried on its own, but the pane offers Retry.
+export class NoPatchAvailableError extends Error {
+  constructor(path: string) {
+    super(`no diff available for ${path}`)
+    this.name = "NoPatchAvailableError"
+  }
+}
+
 export interface PrClient {
   // The instant-open payload (docs/architecture.md §9): PR meta + changed-file list, with no
   // analysis. http → the meta route; fixture + tauri → the gateway direct. The shell renders

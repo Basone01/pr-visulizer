@@ -1,4 +1,4 @@
-import type { DraftComment, QueueMode } from "@pr-visulizer/shared"
+import type { DraftComment, OmissionReason, QueueMode, SkipReason } from "@pr-visulizer/shared"
 
 import type { TrayRow } from "@/entity/viewModels"
 
@@ -19,6 +19,11 @@ export type ReviewFile = {
   status: TrayRow["status"]
   reviewed: boolean
   suggestedNext: boolean
+  // "generated" for build output or vendored code, which the agent need not read, or null.
+  skipReason: SkipReason | null
+  // Why the file's diff cannot be printed whole, or null. The file still needs review: the
+  // agent reads it in bounded pieces.
+  diffOmitted: OmissionReason | null
 }
 
 export type ReviewDraft = LineRange & {
@@ -37,7 +42,9 @@ export type ReviewSnapshot = {
 
 export type ReviewSnapshotInput = {
   // The rows the review tray shows, already in the chosen queue order.
-  trayRows: ReadonlyArray<Pick<TrayRow, "path" | "status" | "reviewed">>
+  trayRows: ReadonlyArray<
+    Pick<TrayRow, "path" | "status" | "reviewed" | "skipReason" | "diffOmitted">
+  >
   drafts: ReadonlyArray<DraftComment>
   nextFilePath: string | null
   queueMode: QueueMode
@@ -51,6 +58,8 @@ export function buildReviewSnapshot(input: ReviewSnapshotInput): ReviewSnapshot 
     status: row.status,
     reviewed: row.reviewed,
     suggestedNext: row.path === input.nextFilePath,
+    skipReason: row.skipReason,
+    diffOmitted: row.diffOmitted,
   }))
   const drafts = input.drafts.map((draft) => ({
     path: draft.path,

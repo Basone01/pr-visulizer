@@ -273,3 +273,18 @@
 .syncDot {
   color: var(--modified);
 }
+
+/* A skipped file's status cell (generated, too large): quiet, like the readiness value. */
+.skipReason {
+  color: var(--muted);
+  font-size: 10px;
+  font-style: italic;
+  white-space: nowrap;
+}
+
+/* Generated files are listed but need no review, so the header says how many sit outside the count. */
+.generatedCount {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}

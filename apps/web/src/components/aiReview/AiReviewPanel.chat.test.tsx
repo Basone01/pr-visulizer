@@ -79,6 +79,8 @@ function renderPanel(storage: KeyValueStore) {
       baseSha="base-sha"
       headSha="head-sha"
       currentFilePath="src/app.ts"
+      changedFiles={[]}
+      analysisReady
       review={null}
       onTerminalSessionStarted={() => {}}
       onTerminalSessionEnded={() => {}}

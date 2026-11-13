@@ -132,7 +132,16 @@ describe("startCodexTerminal", () => {
     const review: ReviewSnapshot = {
       queueMode: "foundations",
       selection: { path: "src/app.ts", startLine: 10, endLine: 14 },
-      files: [{ path: "src/app.ts", status: "modified", reviewed: false, suggestedNext: true }],
+      files: [
+        {
+          path: "src/app.ts",
+          status: "modified",
+          reviewed: false,
+          suggestedNext: true,
+          skipReason: null,
+          diffOmitted: null,
+        },
+      ],
       drafts: [
         { path: "src/app.ts", side: "RIGHT", startLine: 12, endLine: 12, body: "nit: rename" },
       ],

@@ -110,7 +110,16 @@ const CONTEXT: AiSessionContext = {
 const REVIEW: ReviewSnapshot = {
   queueMode: "foundations",
   selection: null,
-  files: [{ path: "src/app.ts", status: "modified", reviewed: false, suggestedNext: false }],
+  files: [
+    {
+      path: "src/app.ts",
+      status: "modified",
+      reviewed: false,
+      suggestedNext: false,
+      skipReason: null,
+      diffOmitted: null,
+    },
+  ],
   drafts: [],
 }
 
@@ -700,7 +709,16 @@ describe("AiChatSurface", () => {
     const review: ReviewSnapshot = {
       queueMode: "foundations",
       selection: null,
-      files: [{ path: "src/app.ts", status: "modified", reviewed: false, suggestedNext: false }],
+      files: [
+        {
+          path: "src/app.ts",
+          status: "modified",
+          reviewed: false,
+          suggestedNext: false,
+          skipReason: null,
+          diffOmitted: null,
+        },
+      ],
       drafts: [],
     }
     const props = surfaceProps({ context: { ...CONTEXT, review } })

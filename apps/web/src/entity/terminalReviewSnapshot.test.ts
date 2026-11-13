@@ -1,14 +1,30 @@
-import type { DraftComment } from "@pr-visulizer/shared"
+import type { AnalysisResult, ChangedFile, DraftComment } from "@pr-visulizer/shared"
 import { describe, expect, it } from "vitest"
+
+import { derivePrView } from "@/utils/graph/deriveView"
+
+import { pr42Analysis } from "@/service/fixture/pr42"
 
 import { type ReviewSnapshotInput, buildReviewSnapshot } from "./terminalReviewSnapshot"
 
 function snapshotInput(overrides: Partial<ReviewSnapshotInput> = {}): ReviewSnapshotInput {
   return {
     trayRows: [
-      { path: "src/core.ts", status: "modified", reviewed: true },
-      { path: "src/api.ts", status: "added", reviewed: false },
-      { path: "src/old.ts", status: "deleted", reviewed: false },
+      {
+        path: "src/core.ts",
+        status: "modified",
+        reviewed: true,
+        skipReason: null,
+        diffOmitted: null,
+      },
+      { path: "src/api.ts", status: "added", reviewed: false, skipReason: null, diffOmitted: null },
+      {
+        path: "src/old.ts",
+        status: "deleted",
+        reviewed: false,
+        skipReason: null,
+        diffOmitted: null,
+      },
     ],
     drafts: [],
     nextFilePath: null,
@@ -32,9 +48,30 @@ describe("buildReviewSnapshot", () => {
     const expected = {
       queueMode,
       files: [
-        { path: "src/core.ts", status: "modified", reviewed: true, suggestedNext: false },
-        { path: "src/api.ts", status: "added", reviewed: false, suggestedNext: false },
-        { path: "src/old.ts", status: "deleted", reviewed: false, suggestedNext: false },
+        {
+          path: "src/core.ts",
+          status: "modified",
+          reviewed: true,
+          suggestedNext: false,
+          skipReason: null,
+          diffOmitted: null,
+        },
+        {
+          path: "src/api.ts",
+          status: "added",
+          reviewed: false,
+          suggestedNext: false,
+          skipReason: null,
+          diffOmitted: null,
+        },
+        {
+          path: "src/old.ts",
+          status: "deleted",
+          reviewed: false,
+          suggestedNext: false,
+          skipReason: null,
+          diffOmitted: null,
+        },
       ],
     }
     expect(snapshot).toMatchObject(expected)
@@ -124,5 +161,56 @@ describe("buildReviewSnapshot", () => {
     expect(openFileSnapshot.selection).toEqual(openFileSelection)
     expect(staleSnapshot.selection).toBeNull()
     expect(noSelectionSnapshot.selection).toBeNull()
+  })
+
+  it("once the analysis lands, names each generated and diff-omitted file with its fact, and null for the others", () => {
+    // Arrange
+    const generatedPath = "assets/build/css/summary_css.css.map"
+    const routerPath = "src/server/router.ts"
+    const extraFiles: ChangedFile[] = [
+      { path: generatedPath, status: "modified", additions: 1, deletions: 1, language: null },
+      {
+        path: routerPath,
+        status: "modified",
+        additions: 4000,
+        deletions: 3900,
+        language: "typescript",
+      },
+    ]
+    const analysis: AnalysisResult = {
+      ...pr42Analysis,
+      files: [...pr42Analysis.files, ...extraFiles],
+      ranking: [
+        ...pr42Analysis.ranking,
+        {
+          path: routerPath,
+          topoLevel: 0,
+          fanIn: 0,
+          churn: 7900,
+          order: pr42Analysis.ranking.length + 1,
+        },
+      ],
+      skipped: [{ path: generatedPath, reason: "generated" }],
+      omitted: [{ path: routerPath, part: "diff", reason: "too-large", limitBytes: 131072 }],
+    }
+    const view = derivePrView(analysis, [])
+
+    // Act
+    const snapshot = buildReviewSnapshot(snapshotInput({ trayRows: view.trayRows }))
+
+    // Assert
+    const factsByPath = new Map(
+      snapshot.files.map((file) => [file.path, [file.skipReason, file.diffOmitted]])
+    )
+    const expected = {
+      generated: ["generated", null],
+      router: [null, "too-large"],
+      plain: [null, null],
+    }
+    expect({
+      generated: factsByPath.get(generatedPath),
+      router: factsByPath.get(routerPath),
+      plain: factsByPath.get(pr42Analysis.files[0]!.path),
+    }).toEqual(expected)
   })
 })

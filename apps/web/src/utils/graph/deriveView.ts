@@ -1,14 +1,20 @@
 import {
   type AnalysisResult,
+  type ChangedFile,
+  type ChangedFileFacts,
   type ChangedSymbol,
   type DraftComment,
+  type FileOmission,
   type PrOverview,
   type QueueMode,
   type RankedFile,
-  type RankingInput,
-  rankFiles,
+  type ReviewOrderInput,
+  type SkippedFile,
+  isGeneratedByName,
+  rankReviewFiles,
   rankingPolicyForQueueMode,
   readiness,
+  splitSkippedFiles,
   suggestNext,
   suggestNextInOrder,
   toDependencyGraph,
@@ -52,7 +58,7 @@ function orderedRanksForMode(analysis: AnalysisResult, mode: QueueMode): RankedF
   if (mode !== "branch") return [...analysis.ranking].sort((a, b) => a.order - b.order)
 
   const blastByPath = new Map(analysis.ranking.map((ranked) => [ranked.path, ranked.blastRadius]))
-  const input: RankingInput = {
+  const input: ReviewOrderInput = {
     files: analysis.files.map((file) => {
       const churn = file.additions + file.deletions
       const blastRadius = blastByPath.get(file.path)
@@ -62,9 +68,33 @@ function orderedRanksForMode(analysis: AnalysisResult, mode: QueueMode): RankedF
         : { path: file.path, churn }
     }),
     edges: analysis.edges.map((edge) => ({ from: edge.from, to: edge.to })),
+    skipped: analysis.skipped ?? [],
   }
 
-  return rankFiles(input, rankingPolicyForQueueMode("branch"))
+  return rankReviewFiles(input, rankingPolicyForQueueMode("branch")).ranked
+}
+
+function skippedRow(
+  skip: SkippedFile,
+  fileByPath: Map<string, ChangedFile>,
+  reviewed: Set<string>,
+  draftCounts: Map<string, number>
+): TrayRow {
+  const file = fileByPath.get(skip.path)!
+
+  return {
+    path: skip.path,
+    order: null,
+    skipReason: skip.reason,
+    diffOmitted: null,
+    status: file.status,
+    churn: file.additions + file.deletions,
+    reviewed: reviewed.has(skip.path),
+    readiness: null,
+    isNext: false,
+    blastRadius: null,
+    draftCount: draftCounts.get(skip.path) ?? 0,
+  }
 }
 
 function draftCountByPath(drafts: DraftComment[]): Map<string, number> {
@@ -89,7 +119,15 @@ export function derivePrView(
   // The ranking graph (changed files only, file-level edges) drives the live math. `readiness`
   // is a per-file fact ("do I have full context for this one?"), so it is queue-mode-independent
   // and every row shows it.
-  const graph = toDependencyGraph(analysis.files, analysis.edges)
+  // Skipped files are not reviewed for context, so they never count toward readiness either.
+  const { reviewable, skipped } = splitSkippedFiles(analysis.files, analysis.skipped ?? [])
+  const diffOmissionByPath = new Map(
+    (analysis.omitted ?? [])
+      .filter((omission) => omission.part === "diff")
+      .map((omission) => [omission.path, omission])
+  )
+  const reviewablePaths = reviewable.map((file) => file.path)
+  const graph = toDependencyGraph(reviewable, analysis.edges)
   const readinessByPath = readiness(graph, reviewed)
 
   const fileByPath = new Map(analysis.files.map((file) => [file.path, file]))
@@ -112,12 +150,14 @@ export function derivePrView(
         )
       : suggestNext(graph, reviewed)
 
-  const trayRows: TrayRow[] = orderedRanks.map((ranked) => {
+  const rankedRows: TrayRow[] = orderedRanks.map((ranked) => {
     const file = fileByPath.get(ranked.path)!
 
     return {
       path: ranked.path,
       order: ranked.order,
+      skipReason: null,
+      diffOmitted: diffOmissionByPath.get(ranked.path)?.reason ?? null,
       status: file.status,
       churn: file.additions + file.deletions,
       reviewed: reviewed.has(ranked.path),
@@ -127,6 +167,9 @@ export function derivePrView(
       draftCount: draftCounts.get(ranked.path) ?? 0,
     }
   })
+  // Skipped files stay in the queue, after every ranked file, with their reason and no rank.
+  const skippedRows = skipped.map((skip) => skippedRow(skip, fileByPath, reviewed, draftCounts))
+  const trayRows = [...rankedRows, ...skippedRows]
 
   const fileNodes: FileNodeVM[] = orderedRanks.map((ranked) => {
     const file = fileByPath.get(ranked.path)!
@@ -160,9 +203,11 @@ export function derivePrView(
     fileNodes,
     ghostNodes,
     suggestedPath,
-    reviewedCount: analysis.files.filter((file) => reviewed.has(file.path)).length,
-    totalCount: analysis.files.length,
-    allReviewed: analysis.files.every((file) => reviewed.has(file.path)),
+    reviewedCount: reviewablePaths.filter((path) => reviewed.has(path)).length,
+    totalCount: reviewablePaths.length,
+    allReviewed: reviewablePaths.every((path) => reviewed.has(path)),
+    generatedCount: skipped.length,
+    factsByPath: factsByPathOf(analysis, skipped, diffOmissionByPath),
   }
 }
 
@@ -178,9 +223,17 @@ export function deriveOverview(
   const reviewed = new Set(reviewedFiles)
   const draftCounts = draftCountByPath(drafts)
 
+  const reviewablePaths = overview.files
+    .map((file) => file.path)
+    .filter((path) => !isGeneratedByName(path))
+
   const trayRows: TrayRow[] = overview.files.map((file, index) => ({
     path: file.path,
     order: index + 1, // file-list order until the ranking replaces it
+    // The path rule is known before the analysis; "too-large" only once a patch was read.
+    // Only the name rule is known before the analysis; shape and omissions come with it.
+    skipReason: isGeneratedByName(file.path) ? "generated" : null,
+    diffOmitted: null,
     status: file.status,
     churn: file.additions + file.deletions,
     reviewed: reviewed.has(file.path),
@@ -195,9 +248,30 @@ export function deriveOverview(
     fileNodes: [],
     ghostNodes: [],
     suggestedPath: null,
-    reviewedCount: overview.files.filter((file) => reviewed.has(file.path)).length,
-    totalCount: overview.files.length,
-    allReviewed:
-      overview.files.length > 0 && overview.files.every((file) => reviewed.has(file.path)),
+    reviewedCount: reviewablePaths.filter((path) => reviewed.has(path)).length,
+    totalCount: reviewablePaths.length,
+    allReviewed: reviewablePaths.length > 0 && reviewablePaths.every((path) => reviewed.has(path)),
+    generatedCount: overview.files.length - reviewablePaths.length,
+    factsByPath: null,
   }
+}
+
+// The analysis's two facts for every changed file, for the diff pane to read instead of
+// deciding again.
+function factsByPathOf(
+  analysis: AnalysisResult,
+  skipped: SkippedFile[],
+  diffOmissionByPath: Map<string, FileOmission>
+): Map<string, ChangedFileFacts> {
+  const skipByPath = new Map(skipped.map((skip) => [skip.path, skip]))
+
+  return new Map(
+    analysis.files.map((file) => [
+      file.path,
+      {
+        skip: skipByPath.get(file.path) ?? null,
+        diffOmission: diffOmissionByPath.get(file.path) ?? null,
+      },
+    ])
+  )
 }

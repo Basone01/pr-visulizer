@@ -9,7 +9,8 @@ import {
   type RankingPolicy,
   type SymbolOccurrence,
   analysisResultSchema,
-  rankFiles,
+  changedFileFactsOf,
+  rankReviewFiles,
   resolveRankingPolicy,
 } from "@pr-visulizer/shared"
 
@@ -395,7 +396,9 @@ export async function analyzeDeepFromSources(input: DeepSourcesInput): Promise<A
   // Ranking: changed files only (unchanged semantics, §8.3), with blastRadius attached
   // as the deep-only risk badge (0 when nothing unchanged depends on the file).
   report?.({ step: "ranking" })
-  const ranking = rankFiles(
+  // A generated file stays in `files` but is never ranked. A file with an omitted part is.
+  const { skipped: generatedFiles, omitted } = changedFileFactsOf(files)
+  const { ranked: ranking, skipped } = rankReviewFiles(
     {
       files: files.map((file): RankingFileInput => ({
         path: file.path,
@@ -403,6 +406,7 @@ export async function analyzeDeepFromSources(input: DeepSourcesInput): Promise<A
         blastRadius: blastRadius.get(file.path) ?? 0,
       })),
       edges: fileLayer.depEdges,
+      skipped: generatedFiles,
     },
     policy
   )
@@ -423,6 +427,9 @@ export async function analyzeDeepFromSources(input: DeepSourcesInput): Promise<A
     ranking,
     ghosts,
     occurrences: symbolLayer.occurrences,
+    // Only when present, so a result with neither is byte-identical to before.
+    ...(skipped.length > 0 ? { skipped } : {}),
+    ...(omitted.length > 0 ? { omitted } : {}),
   })
 
   // Hand the AST result out BEFORE the precise phase. If the phase hangs — or the whole worker

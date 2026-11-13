@@ -1,6 +1,8 @@
-import { type ReactNode, useMemo } from "react"
+import { type ReactNode, useMemo, useState } from "react"
 
+import { copyText } from "@/utils/clipboard/copyText"
 import { type CharRange, splitByRanges } from "@/utils/diff/intraLineDiff"
+import { shownPartOfLine } from "@/utils/diff/longLine"
 import type { LineTokenizer, SyntaxToken } from "@/utils/highlight/highlighter"
 
 import type { SymbolAnchor } from "@/entity/anchor"
@@ -49,7 +51,14 @@ export function CodeContent({
 }) {
   // Tokenizing is a grammar run per line; a re-render for any other reason (selection, flash,
   // a draft pill) must not pay for it again.
-  const tokens = useMemo(() => (tokenizer ? tokenizer(text) : null), [tokenizer, text])
+  // A very long line is cut first, so neither the grammar run nor the layout sees all of it.
+  // A line too long to highlight is plain text. The reader can still ask for all of it.
+  const shown = useMemo(() => shownPartOfLine(text), [text])
+  const [fullLineShown, setFullLineShown] = useState(false)
+  const tokens = useMemo(
+    () => (tokenizer && shown.highlight ? tokenizer(shown.text) : null),
+    [tokenizer, shown.text, shown.highlight]
+  )
 
   // Emphasis is painted INSIDE the token (and inside an anchor), never around it: the segment
   // spans carry only a background, so the token's syntax color and the anchor's underline and
@@ -70,8 +79,40 @@ export function CodeContent({
     )
   }
 
-  // Until shiki loads, show plain text — highlighting never blocks the diff.
-  if (!tokens) return <span className={styles.content}>{emphasize(text, 0)}</span>
+  // The whole line on request, as plain text: no highlighting and no emphasis, so even a
+  // 100 KB line costs one text node.
+  if (fullLineShown) return <span className={styles.content}>{text}</span>
+
+  const hiddenNote =
+    shown.hiddenChars > 0 ? (
+      <span className={styles.hiddenChars}>
+        … {shown.hiddenChars.toLocaleString("en-US")} more characters not shown
+        <button
+          type="button"
+          className={styles.hiddenCharsButton}
+          onClick={() => setFullLineShown(true)}
+        >
+          Show full line
+        </button>
+        <button
+          type="button"
+          className={styles.hiddenCharsButton}
+          onClick={() => void copyText(text)}
+        >
+          Copy line
+        </button>
+      </span>
+    ) : null
+
+  // Until shiki loads, or for a line too long to highlight, show plain text.
+  if (!tokens) {
+    return (
+      <span className={styles.content}>
+        {emphasize(shown.text, 0)}
+        {hiddenNote}
+      </span>
+    )
+  }
 
   return (
     <span className={styles.content}>
@@ -102,6 +143,7 @@ export function CodeContent({
           </span>
         )
       })}
+      {hiddenNote}
     </span>
   )
 }

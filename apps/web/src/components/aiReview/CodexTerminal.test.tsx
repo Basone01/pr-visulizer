@@ -443,7 +443,16 @@ describe("CodexTerminal", () => {
     const review: ReviewSnapshot = {
       queueMode: "foundations",
       selection: { path: "src/app.ts", startLine: 10, endLine: 11 },
-      files: [{ path: "src/app.ts", status: "modified", reviewed: false, suggestedNext: true }],
+      files: [
+        {
+          path: "src/app.ts",
+          status: "modified",
+          reviewed: false,
+          suggestedNext: true,
+          skipReason: null,
+          diffOmitted: null,
+        },
+      ],
       drafts: [],
     }
     const contextWithReview: CodexTerminalContext = { ...baseContext, review }

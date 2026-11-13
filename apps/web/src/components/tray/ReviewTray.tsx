@@ -116,6 +116,11 @@ export function ReviewTray({
         <span className={`${styles.count} mono`}>
           {view.reviewedCount}/{view.totalCount}
         </span>
+        {view.generatedCount > 0 && (
+          <span className={styles.generatedCount}>
+            +{view.generatedCount} generated, not counted
+          </span>
+        )}
         <button
           type="button"
           className={styles.hideButton}

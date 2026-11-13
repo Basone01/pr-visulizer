@@ -27,6 +27,7 @@ import type { Engine, PrTarget, RepoRef } from "@/entity/pr"
 
 import {
   type AnalysisResponse,
+  NoPatchAvailableError,
   type PrClient,
   REVISION_PINNED_PR_REVISION_CHANGED_MESSAGE,
   type ReviewSubmission,
@@ -132,7 +133,7 @@ export function createHttpPrClient(): PrClient {
       const url = `${base(target)}/files/${encodeURI(path)}`
       const parsed = await parseBoundedPatchResponse(url)
 
-      if (parsed.patch === null) throw new Error(`no diff available for ${path}`)
+      if (parsed.patch === null) throw new NoPatchAvailableError(path)
 
       return parsed.patch
     },

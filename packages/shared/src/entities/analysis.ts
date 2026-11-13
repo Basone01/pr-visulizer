@@ -65,6 +65,45 @@ export const ghostFileSchema = z.object({
 })
 export type GhostFile = z.infer<typeof ghostFileSchema>
 
+// Two separate facts about a changed file (docs/architecture.md §3, CONTRACT §11.1).
+// GENERATED: build output or vendored code, on strong evidence only. It is not analysed, not
+// ranked, listed after the ranked files and not counted toward completion.
+export const skipReasonSchema = z.enum(["generated"])
+export type SkipReason = z.infer<typeof skipReasonSchema>
+
+export const skippedFileSchema = z.object({
+  path: z.string(),
+  reason: skipReasonSchema,
+})
+export type SkippedFile = z.infer<typeof skippedFileSchema>
+
+// OMITTED: one part of a file could not be read. Only that part is missing: a file whose diff
+// is omitted is still analysed by its content, still ranked and still counts toward completion.
+// "diff" = its patch (over the cap, omitted by GitHub, or unreadable). "content" = its blob is
+// over the engine's read limit, so it has no symbols.
+export const omittedPartSchema = z.enum(["diff", "content"])
+export type OmittedPart = z.infer<typeof omittedPartSchema>
+
+export const omissionReasonSchema = z.enum(["too-large", "unreadable"])
+export type OmissionReason = z.infer<typeof omissionReasonSchema>
+
+export const fileOmissionSchema = z.object({
+  path: z.string(),
+  part: omittedPartSchema,
+  reason: omissionReasonSchema,
+  // The byte limit the part went over, when a known limit refused it.
+  limitBytes: z.number().int().positive().optional(),
+  // What the reader said, for an unreadable part.
+  message: z.string().optional(),
+})
+export type FileOmission = z.infer<typeof fileOmissionSchema>
+
+// One file's patch as the diff pane gets it: the patch, or why there is none to show.
+export type FilePatch =
+  | { kind: "patch"; patch: string }
+  | { kind: "generated"; skip: SkippedFile }
+  | { kind: "omitted"; omission: FileOmission }
+
 // One place a symbol appears in the PR — powers def ↔ usage navigation (§10).
 export const symbolOccurrenceSchema = z.object({
   symbolId: z.string(),
@@ -111,5 +150,10 @@ export const analysisResultSchema = z.object({
   ranking: z.array(rankedFileSchema), // precomputed static order (§8)
   ghosts: z.array(ghostFileSchema), // deep engine only
   occurrences: z.array(symbolOccurrenceSchema),
+  // Generated changed files, left out of the analysis and the ranking. Optional so older
+  // results and fixtures stay valid: absent means none.
+  skipped: z.array(skippedFileSchema).optional(),
+  // Parts of changed files that could not be read. The files themselves stay in the review.
+  omitted: z.array(fileOmissionSchema).optional(),
 })
 export type AnalysisResult = z.infer<typeof analysisResultSchema>

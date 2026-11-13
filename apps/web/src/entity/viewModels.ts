@@ -1,4 +1,9 @@
-import type { ChangedFile } from "@pr-visulizer/shared"
+import type {
+  ChangedFile,
+  ChangedFileFacts,
+  OmissionReason,
+  SkipReason,
+} from "@pr-visulizer/shared"
 
 // Render-shape view-models derived from the AnalysisResult + live review progress.
 // The wire contract stays in @pr-visulizer/shared; these are the SPA's own shapes.
@@ -7,7 +12,12 @@ export type FileStatus = ChangedFile["status"]
 
 export type TrayRow = {
   path: string
-  order: number // 1-based static order (from AnalysisResult.ranking)
+  // 1-based static order (from AnalysisResult.ranking). null for a skipped file: no rank.
+  order: number | null
+  // "generated" when the review leaves this file out of the analysis and the ranking, or null.
+  skipReason: SkipReason | null
+  // Why this file's diff cannot be shown, or null. The file itself stays in the review.
+  diffOmitted: OmissionReason | null
   status: FileStatus
   churn: number // additions + deletions — shown before analysis lands (task 4)
   reviewed: boolean
@@ -57,7 +67,12 @@ export type PrView = {
   fileNodes: FileNodeVM[]
   ghostNodes: GhostNodeVM[]
   suggestedPath: string | null
+  // Completion counts reviewable files only: a generated file needs no review.
   reviewedCount: number
   totalCount: number
   allReviewed: boolean
+  // Generated files listed in the queue but not counted above.
+  generatedCount: number
+  // The analysis's two facts per changed file. Null until the analysis lands.
+  factsByPath: ReadonlyMap<string, ChangedFileFacts> | null
 }

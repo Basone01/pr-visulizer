@@ -20,6 +20,8 @@ import {
   type CommitRange,
   type DraftComment,
   type FileHistory,
+  type FileOmission,
+  type PatchEvidence,
   type PrCommitList,
   type PrMeta,
   type PrOverview,
@@ -28,6 +30,8 @@ import {
   type ReviewComment,
   type ReviewProgress,
   type Viewer,
+  classifyChangedFile,
+  isGeneratedByName,
   reviewProgressSchema,
 } from "@pr-visulizer/shared"
 import { z } from "zod"
@@ -50,8 +54,10 @@ import {
 } from "@/tauri/repoSource"
 import { type AnalysisSources, runAnalysisInWorker } from "@/workers/runAnalysisInWorker"
 
+import { readPatchEvidence } from "../filePatch"
 import {
   type AnalysisResponse,
+  NoPatchAvailableError,
   type PrClient,
   REVISION_PINNED_PR_REVISION_CHANGED_MESSAGE,
   type ReviewSubmission,
@@ -366,7 +372,7 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
         `[tauriPrClient] local base diff unavailable for ${prKey(target)} — using GitHub API patches`
       )
       const { files } = await apiPullRequest(target)
-      return files
+      return files.map(withApiPatchFacts)
     }
 
     const list = await prepared.listChangedFiles()
@@ -374,13 +380,52 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
     // Each readFileDiff spawns its own `git diff` child through a Tauri invoke (~15 ms), so
     // awaiting them one at a time cost ~4.5 s of dead time before parsing could start on a
     // 300-file PR. Fan them out through the same bounded pool the checkout reads use.
-    const patches = await mapWithConcurrency(
-      list,
-      DEFAULT_REPO_SCAN.readConcurrency,
-      async (file) => (patchNeededFor(file.status) ? prepared.readFileDiff(file.path) : null)
+    const patches = await mapWithConcurrency(list, DEFAULT_REPO_SCAN.readConcurrency, (file) =>
+      analysisPatchFor(file, prepared)
     )
 
-    return list.map((file, index) => ({ ...file, patch: patches[index]! }))
+    return list.map((file, index) => ({ ...file, ...patches[index]! }))
+  }
+
+  // One changed file's patch and facts for the analysis. Every status is read once, so the cap
+  // is one fact for added and deleted files too. Any per-file failure becomes an omission:
+  // one file never fails the run. A generated-by-name file is not read at all, and the engine
+  // still gets a patch only for the statuses it maps hunks for.
+  async function analysisPatchFor(
+    file: ChangedFile,
+    prepared: PreparedRepoSource
+  ): Promise<Pick<GatewayChangedFile, "patch" | "skip" | "omissions">> {
+    const evidence: PatchEvidence = isGeneratedByName(file.path)
+      ? { kind: "not-read" }
+      : await readPatchEvidence(() => prepared.readFileDiff(file.path))
+    const facts = classifyChangedFile(file.path, evidence)
+
+    const patch = evidence.kind === "patch" && patchNeededFor(file.status) ? evidence.patch : null
+    return {
+      patch: facts.skip ? null : patch,
+      ...(facts.skip ? { skip: facts.skip } : {}),
+      ...(facts.diffOmission ? { omissions: [facts.diffOmission] } : {}),
+    }
+  }
+
+  // The same facts from GitHub's file list: a null patch on a file with changes is a patch
+  // GitHub omitted (too large).
+  function withApiPatchFacts(file: GatewayChangedFile): GatewayChangedFile {
+    const hasChanges = file.additions + file.deletions > 0
+    const evidence: PatchEvidence =
+      file.patch !== null
+        ? { kind: "patch", patch: file.patch }
+        : hasChanges
+          ? { kind: "omitted-by-github" }
+          : { kind: "not-read" }
+    const facts = classifyChangedFile(file.path, evidence)
+
+    return {
+      ...file,
+      patch: facts.skip ? null : file.patch,
+      ...(facts.skip ? { skip: facts.skip } : {}),
+      ...(facts.diffOmission ? { omissions: [facts.diffOmission] } : {}),
+    }
   }
 
   // The overview's provisional file list: local when available, the API when the base diff
@@ -412,21 +457,33 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
 
     const prepared = await prepareDeep(target)
 
+    // The changed files first: a generated one is then left out of the content read below, so
+    // its bytes never cross into the webview. A file with an omitted diff is still read.
+    const changedFiles = await changedFilesForAnalysis(target, prepared)
+    const generatedPaths = new Set(
+      changedFiles.filter((file) => file.skip).map((file) => file.path)
+    )
+
     const paths = await prepared.listFiles()
-    const candidates = scanCandidatePaths(paths, DEFAULT_REPO_SCAN)
+    const candidates = scanCandidatePaths(paths, DEFAULT_REPO_SCAN).filter(
+      (path) => !generatedPaths.has(path)
+    )
     emitProgress(target, { step: "reading-files", done: 0, total: candidates.length })
     const raw = await prepared.readMany(candidates, (done, total) =>
       emitProgress(target, { step: "reading-files", done, total })
     )
 
-    // The same size gate the engine's own reader applies — a giant generated file is
-    // skipped, never parsed.
+    // The same size gate the engine's own reader applies, so a giant file is never parsed.
+    // A CHANGED file dropped here is recorded: it stays in the review without symbols.
     const contents = new Map<string, string>()
+    const oversizedPaths = new Set<string>()
     for (const [path, content] of raw) {
       if (withinSizeCap(content, DEFAULT_REPO_SCAN)) contents.set(path, content)
+      else oversizedPaths.add(path)
     }
-
-    const files = await changedFilesForAnalysis(target, prepared)
+    const files = changedFiles.map((file) =>
+      oversizedPaths.has(file.path) ? withContentOmission(file) : file
+    )
 
     const result = await runAnalysis({ pr, files, contents, precision }, (progress) =>
       emitProgress(target, progress)
@@ -434,6 +491,16 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
 
     analysisCache.set(pr.headSha, analysisTier, result)
     return result
+  }
+
+  function withContentOmission(file: GatewayChangedFile): GatewayChangedFile {
+    const omission: FileOmission = {
+      path: file.path,
+      part: "content",
+      reason: "too-large",
+      limitBytes: DEFAULT_REPO_SCAN.maxFileBytes,
+    }
+    return { ...file, omissions: [...(file.omissions ?? []), omission] }
   }
 
   // Drop a gateway file's patch — the overview never needs it (PrOverview.files is ChangedFile).
@@ -493,7 +560,7 @@ export function createTauriPrClient(deps: TauriPrClientDeps): PrClient {
 
       const { files } = await apiPullRequest(target)
       const patch = files.find((file) => file.path === path)?.patch ?? null
-      if (patch === null) throw new Error(`no diff available for ${path}`)
+      if (patch === null) throw new NoPatchAvailableError(path)
 
       return patch
     },

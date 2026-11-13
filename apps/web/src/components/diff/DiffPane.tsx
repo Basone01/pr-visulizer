@@ -2,6 +2,7 @@ import {
   type ChangedFile,
   type ChangedSymbol,
   type DraftComment,
+  type FilePatch,
   type ReviewComment,
   shortSha,
 } from "@pr-visulizer/shared"
@@ -44,6 +45,7 @@ import type { DiffLine as DiffLineVM } from "@/entity/diff"
 import type { PrTarget } from "@/entity/pr"
 
 import { getPrClient } from "@/service/clientFactory"
+import { type KnownFileFacts, rangeFilePatch } from "@/service/filePatch"
 import {
   fileAtHeadQueryOptions,
   patchQueryOptions,
@@ -74,6 +76,7 @@ import styles from "./Diff.module.css"
 import { DiffLine } from "./DiffLine"
 import { FileHistoryPopover } from "./FileHistoryPopover"
 import { FindBar } from "./FindBar"
+import { GeneratedNotice, OmittedDiffNotice, PatchLoadError } from "./PatchStates"
 import { PeekPopup } from "./PeekPopup"
 import { UsagesPopover } from "./UsagesPopover"
 
@@ -128,6 +131,14 @@ type DiffPaneProps = {
   // The commit-range lens (§10). With no range selected this changes nothing about the pane —
   // the whole-PR patch renders exactly as it did before the feature existed.
   commitRange: DiffCommitRangeApi
+  // The analysis's facts for this file (generated, diff omitted). Absent until it lands; the
+  // pane then decides with the same shared classifier.
+  fileFacts?: KnownFileFacts | undefined
+}
+
+// A Tauri command rejects with a bare string, not an Error, so read both.
+function failureMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function baseName(path: string): string {
@@ -200,9 +211,15 @@ export function DiffPane({
   onDeleteDraft,
   onSelectionChange,
   commitRange,
+  fileFacts = null,
 }: DiffPaneProps) {
   const path = file?.path ?? ""
-  const patchQuery = useQuery(patchQueryOptions(target, path))
+  // "Show diff anyway" holds for the file it was clicked on, so switching files resets it.
+  const [shownAnywayPath, setShownAnywayPath] = useState<string | null>(null)
+  const generatedPolicy = shownAnywayPath === path ? "show" : "skip"
+  const patchQuery = useQuery(
+    patchQueryOptions(target, path, { generated: generatedPolicy, known: fileFacts })
+  )
   const commentsQuery = useQuery(reviewCommentsQueryOptions(target))
   // Who is reading, so an own comment can offer Edit (§11). Read HERE rather than drilled down
   // from the shell: this pane already owns the comment list, and the viewer query is cached
@@ -229,7 +246,18 @@ export function DiffPane({
   const rangeFile = commitRange.range !== null ? commitRange.fileInRange(path) : null
   const rangeActive = commitRange.range !== null && commitRange.rangeDiff !== null
   const outsideRange = rangeActive && rangeFile === null
-  const activePatch = commitRange.range !== null ? (rangeFile?.patch ?? null) : patchQuery.data
+  // Under a range, the range's own patch is decided by the same rules as the whole-PR one, so
+  // a patch GitHub omits for those commits shows its state instead of loading forever.
+  const shownPatch: FilePatch | undefined =
+    commitRange.range === null
+      ? patchQuery.data
+      : rangeFile
+        ? rangeFilePatch({ path, generated: generatedPolicy, known: fileFacts }, rangeFile)
+        : undefined
+  const activePatch = shownPatch?.kind === "patch" ? shownPatch.patch : null
+  const isGenerated = shownPatch?.kind === "generated"
+  const omission = shownPatch?.kind === "omitted" ? shownPatch.omission : null
+  const patchError = commitRange.range === null && patchQuery.isError ? patchQuery.error : null
 
   // A deleted file has no head revision, and its patch already IS the whole file — the toggle
   // is disabled there rather than fetching content that cannot exist. A range narrows it too:
@@ -1129,9 +1157,43 @@ export function DiffPane({
               </div>
             )}
 
-            {!outsideRange && !commitRange.error && !shownDiff && (
-              <div className={styles.empty}>Loading diff…</div>
+            {isGenerated && file && (
+              <GeneratedNotice
+                additions={file.additions}
+                deletions={file.deletions}
+                onShowAnyway={() => {
+                  setShownAnywayPath(path)
+                  diffScrollRef.current?.focus()
+                }}
+                onOpenOnGitHub={() => void openOnGitHub(path)}
+              />
             )}
+
+            {omission && file && (
+              <OmittedDiffNotice
+                omission={omission}
+                additions={file.additions}
+                deletions={file.deletions}
+                onOpenOnGitHub={() => void openOnGitHub(path)}
+              />
+            )}
+
+            {patchError && (
+              <PatchLoadError
+                message={failureMessage(patchError)}
+                onRetry={() => {
+                  void patchQuery.refetch()
+                  diffScrollRef.current?.focus()
+                }}
+              />
+            )}
+
+            {!outsideRange &&
+              !commitRange.error &&
+              !isGenerated &&
+              !omission &&
+              !patchError &&
+              !shownDiff && <div className={styles.empty}>Loading diff…</div>}
 
             {shownDiff &&
               !splitRows &&

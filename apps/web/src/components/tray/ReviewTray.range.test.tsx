@@ -19,6 +19,8 @@ function trayRow(path: string, order: number): TrayRow {
   return {
     path,
     order,
+    skipReason: null,
+    diffOmitted: null,
     status: "modified",
     churn: 12,
     reviewed: false,
@@ -44,6 +46,8 @@ function threeFileView(): PrView {
     reviewedCount: 1,
     totalCount: 3,
     allReviewed: false,
+    generatedCount: 0,
+    factsByPath: null,
   }
 }
 

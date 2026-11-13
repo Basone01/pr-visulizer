@@ -1,8 +1,10 @@
 // @vitest-environment node
 import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { ZodError } from "zod"
 
 import type { PrTarget } from "@/entity/pr"
+import { NeedsRepoSourceError } from "@/entity/repoSource"
 
 import type { AnalysisResponse } from "./prClient"
 
@@ -186,5 +188,37 @@ describe("prScopeKey", () => {
     // Assert — refreshing a PR must not re-read the repo's open-PR list or the viewer identity.
     const expected = ["openPulls", "viewer"]
     expect(roots).toEqual(expected)
+  })
+})
+
+describe("which analysis failures are retried", () => {
+  // Counts the attempts react-query makes, with the delay zeroed so only the retry rule decides.
+  async function attemptsFor(failure: unknown): Promise<number> {
+    const queryClient = new QueryClient()
+    getAnalysis.mockReset()
+    getAnalysis.mockRejectedValue(failure)
+
+    await queryClient
+      .fetchQuery({ ...analysisQueryOptions(PR42, "deep"), retryDelay: 0 })
+      .catch(() => undefined)
+    return getAnalysis.mock.calls.length
+  }
+
+  it("a deterministic failure is tried once, a transient one is retried", async () => {
+    // Arrange
+    const noRepoSource = new NeedsRepoSourceError(PR42.owner, PR42.repo)
+    const badSchema = new ZodError([])
+    const networkDrop = new TypeError("Failed to fetch")
+
+    // Act
+    const attempts = {
+      noRepoSource: await attemptsFor(noRepoSource),
+      badSchema: await attemptsFor(badSchema),
+      networkDrop: await attemptsFor(networkDrop),
+    }
+
+    // Assert
+    const expected = { noRepoSource: 1, badSchema: 1, networkDrop: 4 }
+    expect(attempts).toEqual(expected)
   })
 })

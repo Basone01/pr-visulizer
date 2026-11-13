@@ -9,6 +9,7 @@ import { DEFAULT_SETTINGS, DESKTOP_PRECISION_PRESET } from "@/config/settings"
 import { buildAnchorIndex } from "@/utils/diff/anchors"
 import { isEditableTarget } from "@/utils/dom/isEditableTarget"
 import { deriveOverview, derivePrView } from "@/utils/graph/deriveView"
+import { nextUnreviewedPath } from "@/utils/graph/nextInQueue"
 
 import {
   ANALYSIS_STEPS,
@@ -276,17 +277,10 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   // file after the current one (wrapping to the first unreviewed), never the current file
   // itself. `view.suggestedPath` (the readiness pick) can't do this: it stays on the best
   // unreviewed file until you check it off, so it kept re-pointing at the file you're viewing.
-  const nextFilePath = useMemo(() => {
-    if (!view) return null
-
-    const rows = view.trayRows
-    const currentIndex = rows.findIndex((row) => row.path === current.path)
-    const after = rows.slice(currentIndex + 1).find((row) => !row.reviewed)
-    if (after) return after.path
-
-    const wrapped = rows.find((row) => !row.reviewed && row.path !== current.path)
-    return wrapped?.path ?? null
-  }, [view, current.path])
+  const nextFilePath = useMemo(
+    () => (view ? nextUnreviewedPath(view.trayRows, current.path) : null),
+    [view, current.path]
+  )
 
   // What the terminal agent can ask about. Null until the full analysis and progress are in,
   // so the agent never answers from the provisional file list.
@@ -307,14 +301,30 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
     })
   }, [current.path, diffSelection, fullView, nextFilePath, progress, queueMode.mode])
 
+  // The changed files as the agent prompt needs them: path and the two facts only. Keyed on
+  // that content, so a checkmark (which rebuilds the tray rows) does not rebuild the prompt.
+  const promptFilesKey = (view?.trayRows ?? [])
+    .map((row) => `${row.path}\u0000${row.skipReason}\u0000${row.diffOmitted}`)
+    .join("\n")
+  const promptFiles = useMemo(
+    () =>
+      (view?.trayRows ?? []).map(({ path, skipReason, diffOmitted }) => ({
+        path,
+        skipReason,
+        diffOmitted,
+      })),
+    [promptFilesKey]
+  )
+
   // The graph's reviewed-progress chip jumps to the FIRST unreviewed file in tray order,
   // regardless of queue mode — the same pick the chain-mode suggestion uses (§8.4). Reuses the
-  // ranking core's `suggestNextInOrder`; null once every file is reviewed.
+  // ranking core's `suggestNextInOrder`; null once every file is reviewed. A generated file
+  // needs no review, so the jump never lands on one.
   const firstUnreviewedPath = useMemo(
     () =>
       view
         ? suggestNextInOrder(
-            view.trayRows.map((row) => row.path),
+            view.trayRows.filter((row) => row.skipReason === null).map((row) => row.path),
             progress?.reviewedFiles ?? []
           )
         : null,
@@ -585,6 +595,7 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
                     onDeleteDraft={removeDraft}
                     onSelectionChange={setDiffSelection}
                     commitRange={commitRange}
+                    fileFacts={view.factsByPath?.get(current.path) ?? null}
                   />
                 )}
               </ErrorBoundary>
@@ -672,6 +683,8 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
             headSha={pr.headSha}
             currentFilePath={current.path || null}
             review={reviewSnapshot}
+            changedFiles={promptFiles}
+            analysisReady={fullView !== null}
             onTerminalSessionStarted={setActiveTerminalSessionId}
             onTerminalSessionEnded={handleTerminalSessionEnded}
           />

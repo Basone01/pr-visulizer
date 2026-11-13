@@ -7,7 +7,8 @@ import {
   type RankingPolicy,
   type SymbolOccurrence,
   analysisResultSchema,
-  rankFiles,
+  changedFileFactsOf,
+  rankReviewFiles,
   resolveRankingPolicy,
 } from "@pr-visulizer/shared"
 
@@ -402,10 +403,13 @@ export async function analyzeFastFromSources(input: FastSourcesInput): Promise<A
 
   // Step 8: ranking from the shared core (§8) — foundations-first by default.
   report?.({ step: "ranking" })
-  const ranking = rankFiles(
+  // A generated file stays in `files` but is never ranked. A file with an omitted part is.
+  const { skipped: generatedFiles, omitted } = changedFileFactsOf(files)
+  const { ranked: ranking, skipped } = rankReviewFiles(
     {
       files: files.map((file) => ({ path: file.path, churn: file.additions + file.deletions })),
       edges: [...depEdges, ...foreign.depEdges],
+      skipped: generatedFiles,
     },
     policy
   )
@@ -426,5 +430,8 @@ export async function analyzeFastFromSources(input: FastSourcesInput): Promise<A
     ranking,
     ghosts: [],
     occurrences: [...occurrences, ...foreign.occurrences],
+    // Only when present, so a result with neither is byte-identical to before.
+    ...(skipped.length > 0 ? { skipped } : {}),
+    ...(omitted.length > 0 ? { omitted } : {}),
   })
 }

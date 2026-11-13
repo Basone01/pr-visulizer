@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Generated and too-large files</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f7f8fa;
+        --surface: #ffffff;
+        --text: #20242c;
+        --muted: #626b79;
+        --line: #d9dee7;
+        --accent: #6456d9;
+        --code: #f0f2f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111318;
+          --surface: #191c23;
+          --text: #edf0f5;
+          --muted: #aab1bd;
+          --line: #353b47;
+          --accent: #a99eff;
+          --code: #232731;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.65 ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        width: min(980px, calc(100% - 32px));
+        margin: 32px auto;
+        padding: clamp(24px, 5vw, 64px);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.08);
+      }
+      h1,
+      h2,
+      h3 {
+        line-height: 1.22;
+        scroll-margin-top: 20px;
+      }
+      h1 {
+        margin-top: 0;
+        font-size: clamp(2rem, 5vw, 3.2rem);
+        letter-spacing: -0.04em;
+      }
+      h2 {
+        margin-top: 3rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--line);
+        font-size: 1.65rem;
+      }
+      h3 {
+        margin-top: 2rem;
+        font-size: 1.2rem;
+      }
+      p,
+      li {
+        max-width: 78ch;
+      }
+      p:first-of-type {
+        color: var(--muted);
+      }
+      li + li {
+        margin-top: 0.35rem;
+      }
+      code {
+        padding: 0.12rem 0.35rem;
+        background: var(--code);
+        border-radius: 5px;
+        font:
+          0.9em ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      pre {
+        overflow: auto;
+        padding: 18px;
+        background: var(--code);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+      pre code {
+        padding: 0;
+        background: transparent;
+      }
+      .table-wrap {
+        overflow-x: auto;
+        margin: 1rem 0 1.5rem;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+      }
+      th,
+      td {
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: var(--code);
+      }
+      hr {
+        margin: 2.5rem 0;
+        border: 0;
+        border-top: 1px solid var(--line);
+      }
+      strong {
+        color: var(--accent);
+      }
+      @media print {
+        body {
+          background: white;
+        }
+        main {
+          width: 100%;
+          margin: 0;
+          padding: 0;
+          border: 0;
+          box-shadow: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Generated and too-large files</h1>
+      <p>A generated file or a file with a huge diff never blocks a review. The app classifies each changed file, shows what it can, and says plainly what it left out. This document describes the model, what each part of the app does with it, and what is and is not verified.</p>
+      <h2>The problem</h2>
+      <p>The trigger was a PR with 13 build CSS and source-map files, with single lines of 80 KB to 1.5 MB. The reviewer asked for the app to skip those files and let the review continue. A PR with such files showed no graph, no ranking and no review order. The first fix was measured on a real PR of this shape (see "Measured before and after").</p>
+      <p>Four causes were measured:</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Cause</th>
+      <th>What happened</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>S1. One refused patch rejected the whole analysis</td>
+      <td>12 files had a diff over the native cap of 128 KiB (<code>MAX_REPO_FILE_DIFF_BYTES</code>). The first refusal rejected the whole run, so the app showed the banner "Analysis failed — git diff exceeded the bounded patch byte limit", with no graph and no ranking. The queue listed the files in path order with no rank score.</td>
+      </tr>
+      <tr>
+      <td>S2. The failure was retried and never cached</td>
+      <td>The analysis query retried 3 more times, so one click on "Retry analysis" ran 4 analyses. Together they moved 116 MB of file content into the webview, with frame gaps up to 1.94 s.</td>
+      </tr>
+      <tr>
+      <td>S3. The diff of such a file never finished</td>
+      <td>The pane showed "Loading diff…" for ever. The patch request failed, but only a commit-range error was ever shown, so a failed patch fell through to the loading text.</td>
+      </tr>
+      <tr>
+      <td>S4. A one-line patch under the cap froze the UI</td>
+      <td>A 116 KB patch with one line on each side froze the main thread twice, 1,581 ms and 1,576 ms, before the diff appeared after about 3.5 s. The cause was inferred (highlighting one 58 KB line) and not profiled.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <h2>The model: two separate facts per file</h2>
+      <p>A changed file has two independent facts. They are never merged into one "skipped" bucket. The first version did merge them, and review round 5 showed why that was wrong (see below).</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th></th>
+      <th><code>generated</code></th>
+      <th><code>diff omitted</code></th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Meaning</td>
+      <td>The file is build output or vendored code.</td>
+      <td>The patch cannot be shown.</td>
+      </tr>
+      <tr>
+      <td>Values</td>
+      <td><code>generated</code></td>
+      <td><code>too-large</code> (over the 128 KiB cap, or omitted by GitHub) or <code>unreadable</code> (any other per-file patch failure, for example not valid UTF-8)</td>
+      </tr>
+      <tr>
+      <td>Analysed</td>
+      <td>No.</td>
+      <td>Yes, by its content, when its blob is within the engine's limit.</td>
+      </tr>
+      <tr>
+      <td>Ranked</td>
+      <td>No. It is listed after the ranked files.</td>
+      <td>Yes.</td>
+      </tr>
+      <tr>
+      <td>Counts toward review completion</td>
+      <td>No.</td>
+      <td>Yes.</td>
+      </tr>
+      <tr>
+      <td>What the agent is told</td>
+      <td>It needs no reading, and it is left out of whole-PR commands.</td>
+      <td>It is part of the review, and it is read in bounded pieces.</td>
+      </tr>
+      <tr>
+      <td>Pane</td>
+      <td>A notice with Show diff anyway and Open on GitHub.</td>
+      <td>A notice that says the file is still in the review, with Open on GitHub.</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>The code is in <code>packages/shared/src/review/changedFileSkip.ts</code>, in <code>classifyChangedFile</code>. The analysis, the queue, the diff pane, the agent prompt and the snapshot all read the result of that one function, so a file never gets two answers.</p>
+      <h3>When a file is <code>generated</code></h3>
+      <p>A file is <code>generated</code> only on strong evidence, by one of two rules.</p>
+      <ol>
+      <li><strong>By name alone.</strong> The file name ends in one of these suffixes: <code>.map</code>, <code>.min.js</code>, <code>.min.css</code>, <code>.pb.go</code>. Or the file is under a <code>node_modules</code> folder.</li>
+      <li><strong>By folder plus shape.</strong> The file is under a build-like folder, and it also has a machine-made shape.</li>
+      </ol>
+      <p>The build-like folders are <code>.generated</code>, <code>__generated__</code>, <code>build</code>, <code>dist</code>, <code>generated</code>, <code>bower_components</code> and <code>vendor</code>. They are matched on folder segments only, never on the file name, and the match is case-sensitive lower case.</p>
+      <p>The three machine-made shape signals are:</p>
+      <ul>
+      <li>The patch is over the cap (the native reader refused it on bytes).</li>
+      <li>GitHub omitted the patch.</li>
+      <li>A line of the patch is longer than 5,000 characters (<code>LONG_GENERATED_LINE_CHARS</code>).</li>
+      </ul>
+      <p>A folder name alone never makes a file generated. The first version matched <code>build</code>, <code>dist</code>, <code>generated</code> and <code>vendor</code> on any segment, the file name included. Review round 5 found that this hides real source such as <code>cmd/build/main.go</code>, <code>src/build/index.ts</code> or a PHP <code>Vendor/</code> domain folder. Those files now stay in the review unless their shape is machine-made too.</p>
+      <h3>When a diff is omitted</h3>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Evidence from the patch reader</th>
+      <th>Fact</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>The native reader refused the patch on bytes</td>
+      <td><code>too-large</code>, with the limit 128 KiB</td>
+      </tr>
+      <tr>
+      <td>GitHub has no patch for the file</td>
+      <td><code>too-large</code>, with no limit</td>
+      </tr>
+      <tr>
+      <td>Any other per-file read failure (a bare string from a Tauri command)</td>
+      <td><code>unreadable</code>, with the message</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>A generated file that is shown anyway still has its diff refused when it is over the cap.</p>
+      <h2>What each part of the app does</h2>
+      <h3>Analysis</h3>
+      <ul>
+      <li>No per-file patch failure of any kind rejects an analysis. A patch read is a result: a patch, or an omission with its reason. Only repo-wide steps may fail a run.</li>
+      <li>A patch is not requested for a file that the name alone classifies as generated.</li>
+      <li>The retry rule is in <code>service/queryRetry.ts</code>. A deterministic failure is not retried, because the same input gives the same answer. That means no repo source yet, a patch refused on bytes, no diff for the file, or data that failed its schema. Anything else, such as a network error, a GitHub 5xx or a git child that died, is retried up to 3 times.</li>
+      </ul>
+      <h3>Review order</h3>
+      <ul>
+      <li>Generated files are listed after the ranked files and have no rank. A skipped file is never the suggested next file.</li>
+      <li>The ranking core is untouched. <code>rankReviewFiles</code> splits the generated files off, and <code>rankFiles</code> gets the same input as before. With no generated file, the result is exactly what it was, and the PR #42 fixture values in <code>docs/architecture.md</code> do not change.</li>
+      <li>Completion counts reviewable files only: "N files left", all reviewed, the submit warning and the graph's first-unreviewed jump. The tray says how many generated files are not counted ("N generated, not counted").</li>
+      </ul>
+      <h3>Graph</h3>
+      <p>The graph was not redesigned. On the real PR it showed one node for each ranked file and no node for a generated file.</p>
+      <h3>Diff pane</h3>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>State</th>
+      <th>When</th>
+      <th>Controls</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Generated file, not shown</td>
+      <td>The file is generated</td>
+      <td>Show diff anyway, Open on GitHub. It says it is not analysed and needs no review, and shows the line counts.</td>
+      </tr>
+      <tr>
+      <td>Diff too large to show</td>
+      <td>The diff is over the limit or GitHub omitted it, or "Show diff anyway" was refused</td>
+      <td>Open on GitHub. It says the file is still part of the review. There is no Retry, because the same read gives the same answer.</td>
+      </tr>
+      <tr>
+      <td>Diff could not be read</td>
+      <td>Any other per-file read failure</td>
+      <td>Open on GitHub, and the real message. There is no Retry.</td>
+      </tr>
+      <tr>
+      <td>Couldn't load this diff</td>
+      <td>A load failed for a reason that may pass (network, GitHub)</td>
+      <td>Retry</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>"Loading diff…" can no longer be a final state. The notice for a generated file comes from local data, with no patch read.</p>
+      <h3>Long lines</h3>
+      <ul>
+      <li>A diff line is cut at 2,000 characters (<code>MAX_SHOWN_LINE_CHARS</code>), with a note such as "… 56,062 more characters not shown".</li>
+      <li>A line over 500 characters is shown as plain text, with no highlighting (<code>MAX_HIGHLIGHTED_LINE_CHARS</code>).</li>
+      <li>The cut line has "Show full line" and "Copy line", so the rest can be seen and copied on demand as plain text, with no highlighting and no word diff.</li>
+      <li>Every patch line goes through one component (<code>CodeContent</code>), so the cut covers the inline view, both split columns, the peek popup and the full-file view.</li>
+      </ul>
+      <h3>Commit-range view</h3>
+      <p>The commit-range view follows the same states. GitHub's compare API gives a null patch both for a diff it omits and for a pure rename, and the app tells them apart by the line counts.</p>
+      <h2>What the agent is told</h2>
+      <p>The first-turn prompt of the chat has a review-files part (<code>utils/aiReview/skippedFilesPrompt.ts</code>).</p>
+      <ul>
+      <li><strong>Generated files.</strong> "This PR changes N generated files (build output or vendored code). They need no reading." A folder is named once instead of its files only when every changed file under it is generated, and at most 30 entries are named, then "and K more, see list_pr_files".</li>
+      <li><strong>Diff-omitted files.</strong> The prompt says they are part of the review, and names each with "diff too large to print whole" or "diff could not be read". It tells the agent to read one in bounded pieces: <code>git diff --stat</code> for its size, then a line window such as <code>git diff &lt;range&gt; -- &lt;path&gt; | sed -n '1,200p'</code>, or <code>git show &lt;headSha&gt;:&lt;path&gt; | sed -n '1,200p'</code>.</li>
+      <li><strong>Leaving files out.</strong> "Leave these files out of every whole-PR git diff, git show and sem diff", with an example <code>git diff &lt;range&gt; -- . ':(exclude)&lt;path&gt;'</code>.</li>
+      <li><strong>The sem command.</strong> <code>sem diff --from/--to</code> cannot leave files out by path. So the prompt recommends piping the filtered git diff into sem: <code>git diff &lt;range&gt; -- . ':(exclude)…' | sem diff --patch -v</code>. If that piped command is refused or fails, the agent runs the filtered git diff alone. On the PR that was measured, the piped form printed 501 B against 261,081 B for the whole-PR form, as reported by the engineer. A whole-PR <code>git diff</code> on such a PR printed about 12 MB.</li>
+      <li><strong>Paths in the example command.</strong> At most 3 paths enter it, and only a path that is exactly what git will match. A path with a glob character (<code>* ? [ ]</code>), a quote or backslash, or a leading <code>:</code> or <code>-</code> stays in the prose. So does a path with hidden characters, which are shown as <code>\u{XXXX}</code> escapes and never dropped. A path is capped at 200 characters.</li>
+      <li><strong>Before the analysis lands.</strong> If the chat starts while the analysis runs, only name-rule generated files are known. The prompt says that files with a too-large diff are not known yet, and that <code>list_pr_files</code> has them once the analysis is done. The snapshot is rebuilt when the analysis lands, so <code>list_pr_files</code> is current.</li>
+      </ul>
+      <p>The tool output of <code>list_pr_files</code> and <code>get_current_file</code> adds a note per file (<code>codex_answer.rs</code>). Only the two reason values parse in Rust, because the value reaches the agent and must never be free text. A generated file gets <code>skipReason</code> and <code>skipNote</code>, and its note wins over an omitted diff. A diff-omitted file gets <code>diffOmitted</code> and <code>diffNote</code>, and is not called skipped. A normal file keeps exactly the shape it had before.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>File</th>
+      <th>Note the agent gets</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Generated</td>
+      <td>"Skipped: a generated or vendored file. It needs no reading, leave it out of git diff and git show."</td>
+      </tr>
+      <tr>
+      <td>Diff <code>too-large</code></td>
+      <td>"Its diff is too large to show whole. It is still part of the review: read it in bounded pieces, for example git diff --stat for this path, then a line window of git show &lt;headSha&gt;:&lt;path&gt;. Do not print the whole diff."</td>
+      </tr>
+      <tr>
+      <td>Diff <code>unreadable</code></td>
+      <td>"The app could not read its diff, for example because it is not valid UTF-8. It is still part of the review: read it carefully with bounded commands."</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <h2>Measured before and after</h2>
+      <p><strong>These numbers are from the first version of the fix.</strong> The reworked model (after review round 5) has not been re-measured in the desktop app. The re-run was on the same kind of PR in the desktop WKWebView, after a webview reload.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>Measure</th>
+      <th>Before the fix</th>
+      <th>After the first version</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Analysis</td>
+      <td>Failed, with the banner about the bounded patch byte limit</td>
+      <td>Succeeded, no banner</td>
+      </tr>
+      <tr>
+      <td>Time to a usable review</td>
+      <td>Never</td>
+      <td>13.3 s from navigation start to graph nodes and a "#1" rank</td>
+      </tr>
+      <tr>
+      <td>Analysis runs per load or retry</td>
+      <td>4 (3 retries)</td>
+      <td>1 completed</td>
+      </tr>
+      <tr>
+      <td>File content moved per retry click</td>
+      <td>116 MB (4 runs of about 29 MB)</td>
+      <td>Not captured</td>
+      </tr>
+      <tr>
+      <td>Frame gaps during load or retry</td>
+      <td>16 over 200 ms, longest 601 ms (an earlier retry 1,940 ms)</td>
+      <td>0 over 200 ms, longest 23 ms (11.3 to 13.3 s). A Refresh PR had 0 over 200 ms, longest 97 ms</td>
+      </tr>
+      <tr>
+      <td>Webview memory</td>
+      <td>571 to 705 MB</td>
+      <td>128 MB before the reload, 166 MB after load, 143 MB at the end</td>
+      </tr>
+      <tr>
+      <td>App (Rust) process memory</td>
+      <td>259 to 353 MB</td>
+      <td>363 MB before the reload, 866 MB after load, 931 MB at the end (cause unknown)</td>
+      </tr>
+      <tr>
+      <td>Graph</td>
+      <td>0 nodes</td>
+      <td>13 nodes, one for each ranked file</td>
+      </tr>
+      <tr>
+      <td>A large generated file's diff</td>
+      <td>"Loading diff…" for ever, 4 retries</td>
+      <td>A generated notice from local data, 0 patch reads. "Show diff anyway" gave "Diff too large to show" after 1 refused read, with no retry</td>
+      </tr>
+      <tr>
+      <td>The 116 KB one-line patch</td>
+      <td>2 stalls of about 1.58 s</td>
+      <td>The lines were cut, with stalls of 332 ms and 322 ms</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>Other results of that re-run:</p>
+      <ul>
+      <li>The queue listed the 13 ranked files first. Then it listed the 15 generated files after them, with no rank. In that first version every one of them had the reason <code>generated</code>, because the path rule won first.</li>
+      <li>The next-file button visited only ranked files, but all 15 generated files were already viewed, so this did not prove that an unviewed generated file is excluded.</li>
+      <li>The console had 0 errors and 0 warnings.</li>
+      </ul>
+      <h2>Review round 5</h2>
+      <p>An adversarial review ran over the first version. It kept 20 findings, with 4 rated high, 9 medium and 7 low. The 4 high findings are two problems, each reported twice. They were weaknesses in the rules, not bugs in the code.</p>
+      <ol>
+      <li>The path rule matched <code>build</code>, <code>dist</code>, <code>generated</code> and <code>vendor</code> on any segment, so it hid real source.</li>
+      <li>"Too large" was treated as "not source". A hand-written file with a big patch lost its symbols and rank, had no way to its diff, and the agent was told it "needs no reading".</li>
+      </ol>
+      <p>The model changed to the two facts above, and the contract was rewritten around them.</p>
+      <div class="table-wrap">
+      <table>
+      <thead>
+      <tr>
+      <th>#</th>
+      <th>Area</th>
+      <th>Severity</th>
+      <th>Finding</th>
+      <th>Status</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>1</td>
+      <td>analysis and ranking</td>
+      <td>high</td>
+      <td>The generated-path rule skipped real source: <code>build</code>, <code>dist</code>, <code>generated</code> and <code>vendor</code> matched at any depth, and on the file name</td>
+      <td>fixed (folder plus shape rule)</td>
+      </tr>
+      <tr>
+      <td>2</td>
+      <td>analysis and ranking</td>
+      <td>high</td>
+      <td>A too-large hand-written file was hidden from the agent, never read, and its diff could not be opened</td>
+      <td>fixed (the two facts)</td>
+      </tr>
+      <tr>
+      <td>3</td>
+      <td>analysis and ranking</td>
+      <td>medium</td>
+      <td>Any patch error other than the cap still failed the whole analysis and was retried 4 times, for example a non-UTF-8 file</td>
+      <td>fixed (no per-file failure rejects a run)</td>
+      </tr>
+      <tr>
+      <td>4</td>
+      <td>analysis and ranking</td>
+      <td>medium</td>
+      <td>"Too-large" was two facts, not one: over-cap files were ranked, yet the pane said they were left out of the review order</td>
+      <td>fixed</td>
+      </tr>
+      <tr>
+      <td>5</td>
+      <td>analysis and ranking</td>
+      <td>medium</td>
+      <td>Completion counted skipped files, but "next" stepped over them, so the queue said done while Submit was still gated</td>
+      <td>fixed (completion counts reviewable files only)</td>
+      </tr>
+      <tr>
+      <td>6</td>
+      <td>diff pane and queue</td>
+      <td>high</td>
+      <td>The path rule hid real source from the reviewer, the queue and the agent</td>
+      <td>fixed (same as 1)</td>
+      </tr>
+      <tr>
+      <td>7</td>
+      <td>diff pane and queue</td>
+      <td>medium</td>
+      <td>In the commit-range view, a file whose patch GitHub omits showed "Loading diff…" for ever, and the view ignored the classification</td>
+      <td>fixed (same states in range view)</td>
+      </tr>
+      <tr>
+      <td>8</td>
+      <td>diff pane and queue</td>
+      <td>medium</td>
+      <td>A cut long line hid its changed region, word-diff emphasis and find matches past character 2,000, with no way to see or copy the rest</td>
+      <td>fixed (Show full line, Copy line)</td>
+      </tr>
+      <tr>
+      <td>9</td>
+      <td>diff pane and queue</td>
+      <td>medium</td>
+      <td>Skipped files counted toward "files left" and blocked "all reviewed", while Next stepped over them</td>
+      <td>fixed (same as 5)</td>
+      </tr>
+      <tr>
+      <td>10</td>
+      <td>diff pane and queue</td>
+      <td>low</td>
+      <td>The error state dropped the message for the app's real Tauri rejections, which are bare strings</td>
+      <td>fixed</td>
+      </tr>
+      <tr>
+      <td>11</td>
+      <td>diff pane and queue</td>
+      <td>low</td>
+      <td>A too-large file in API-patch mode showed a futile error and Retry, not the skipped state</td>
+      <td>fixed</td>
+      </tr>
+      <tr>
+      <td>12</td>
+      <td>diff pane and queue</td>
+      <td>low (plausible)</td>
+      <td>Focus dropped to the page body after "Show diff anyway" and after Retry</td>
+      <td>not confirmed in the sources</td>
+      </tr>
+      <tr>
+      <td>13</td>
+      <td>diff pane and queue</td>
+      <td>low</td>
+      <td>No test guarded the queue's skip-reason label, and the range and API-mode states were untested</td>
+      <td>not confirmed in the sources</td>
+      </tr>
+      <tr>
+      <td>14</td>
+      <td>agent prompt and tools</td>
+      <td>medium</td>
+      <td>The preferred whole-PR command, <code>sem diff -v</code>, cannot leave skipped files out, so the agent still read megabytes of generated CSS</td>
+      <td>fixed (the piped sem command)</td>
+      </tr>
+      <tr>
+      <td>15</td>
+      <td>agent prompt and tools</td>
+      <td>high</td>
+      <td>A hand-written file with a patch over 128 KiB got <code>too-large</code>, and the agent was told it needs no reading</td>
+      <td>fixed (same as 2)</td>
+      </tr>
+      <tr>
+      <td>16</td>
+      <td>agent prompt and tools</td>
+      <td>medium</td>
+      <td>The path rule marked real source as generated: PascalCase folders such as <code>Vendor</code>, <code>Build</code> and <code>Dist</code>, and extensionless files named <code>build</code></td>
+      <td>fixed (case-sensitive, folder segments only)</td>
+      </tr>
+      <tr>
+      <td>17</td>
+      <td>agent prompt and tools</td>
+      <td>medium</td>
+      <td>The example exclude command passed glob characters through, so a folded folder named <code>*</code> would hide every changed file from the agent</td>
+      <td>fixed (unsafe paths stay out of the command)</td>
+      </tr>
+      <tr>
+      <td>18</td>
+      <td>agent prompt and tools</td>
+      <td>low</td>
+      <td>Untrusted paths kept U+2028 and U+2029 and zero-width characters, in the list and in the example command</td>
+      <td>fixed (escaped)</td>
+      </tr>
+      <tr>
+      <td>19</td>
+      <td>agent prompt and tools</td>
+      <td>low</td>
+      <td>If the chat started before the analysis landed, the first prompt never named too-large files, and "list_pr_files has the current list" failed</td>
+      <td>fixed (the prompt says so, and the snapshot is rebuilt)</td>
+      </tr>
+      <tr>
+      <td>20</td>
+      <td>agent prompt and tools</td>
+      <td>low</td>
+      <td>Folder folding cost O(files² × depth) and ran twice on every file open</td>
+      <td>fixed (one pass)</td>
+      </tr>
+      </tbody>
+      </table>
+      </div>
+      <p>The status column comes from the contract rulings and from the code I read. For findings 12 and 13, the sources do not say whether they were fixed.</p>
+      <h2>Numbers</h2>
+      <p>As verified by the lead:</p>
+      <ul>
+      <li>Typecheck is clean, and Prettier and <code>cargo fmt</code> are clean.</li>
+      <li>Web tests: 1,082 passed and 2 failed. Both failures are the known pair in <code>src/hooks/useDiffViewSettings.test.ts</code>.</li>
+      <li>Engine, server and shared tests: 215 passed.</li>
+      <li>Rust tests: 164 passed, 0 failed and 3 ignored.</li>
+      </ul>
+      <h2>Not verified yet and known limits</h2>
+      <ul>
+      <li>The reworked model is not measured in the desktop app. The 116 KB one-line case measured about 330 ms twice on the first version, and the fix after it is unmeasured in WebKit.</li>
+      <li>Whether the piped sem command runs without an approval card in the chat is not verified.</li>
+      <li>A keyboard focus ring on the pane buttons was never seen rendered. The buttons are focusable and above the 24 px floor, and the rule exists, but a real Tab key could not be sent.</li>
+      <li>One frame gap of 712 ms occurred once after a GitHub response landed on a click. Its cause is not proven.</li>
+      <li>Unchanged generated files are still read by the repo scan (115 files and 4.0 MB per run on that PR). A follow-up for this was declined.</li>
+      <li>The chat needs a linked repository. It never uses the managed clone that the analysis uses.</li>
+      <li>The queue's "generated" label is not shown on viewed rows in the first version. The contract now asks for the label on viewed rows too, and it was not seen in the app.</li>
+      <li>The app's Rust process memory grew from 363 MB to 931 MB across one reload and the session, and the cause is unknown.</li>
+      <li>The app force-checks-out the PR head in its managed clone. A clone that the user keeps for review is treated as the app's own cache.</li>
+      </ul>
+    </main>
+  </body>
+</html>

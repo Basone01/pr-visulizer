@@ -21,6 +21,8 @@ function reviewedView(): PrView {
     reviewedCount: 6,
     totalCount: 6,
     allReviewed: true,
+    generatedCount: 0,
+    factsByPath: null,
   }
 }
 

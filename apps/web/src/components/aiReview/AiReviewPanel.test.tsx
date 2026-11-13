@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it } from "vitest"
 
+import { NO_REVIEW_FILES, describeReviewFiles } from "@/utils/aiReview/skippedFilesPrompt"
 import { type KeyValueStore, createMemoryKeyValueStore } from "@/utils/storage/keyValueStore"
 
 import { createAiReviewSettingsStorage } from "@/service/aiReview/settingsStorage"
@@ -43,6 +44,8 @@ function renderPanel(storage: KeyValueStore = createMemoryKeyValueStore()) {
       baseSha="base-sha"
       headSha="head-sha"
       currentFilePath="src/app.ts"
+      changedFiles={[]}
+      analysisReady
       review={null}
       onTerminalSessionStarted={() => {}}
       onTerminalSessionEnded={() => {}}
@@ -168,11 +171,68 @@ describe("AiReviewPanel terminal surface", () => {
       baseSha,
       headSha,
       currentFilePath: null,
+      reviewFiles: NO_REVIEW_FILES,
     })
 
     // Assert
     const expected = `If the sem CLI is installed (check with command -v sem), prefer sem diff -v --from ${baseSha} --to ${headSha}`
     expect(prompt).toContain(expected)
+  })
+
+  it("both first prompts name the generated files, show the exclude form and never the whole-PR sem diff, and add nothing when none is generated", () => {
+    // Arrange
+    const baseSha = "base-sha"
+    const headSha = "head-sha"
+    const promptInput = {
+      target: TARGET,
+      title: "Generated CSS",
+      baseSha,
+      headSha,
+      currentFilePath: null,
+    }
+    const withGenerated = describeReviewFiles({
+      files: [
+        { path: "src/app.ts", skipReason: null, diffOmitted: null },
+        { path: "assets/css/custom.css.map", skipReason: "generated", diffOmitted: null },
+      ],
+      baseSha,
+      headSha,
+      analysisReady: true,
+    })
+    const noneGenerated = describeReviewFiles({
+      files: [{ path: "src/app.ts", skipReason: null, diffOmitted: null }],
+      baseSha,
+      headSha,
+      analysisReady: true,
+    })
+
+    // Act
+    const prompts = {
+      terminal: createInitialPrompt({ ...promptInput, reviewFiles: withGenerated }),
+      chat: createChatInitialPrompt({ ...promptInput, reviewFiles: withGenerated }),
+      chatNoneGenerated: createChatInitialPrompt({ ...promptInput, reviewFiles: noneGenerated }),
+      chatNoFiles: createChatInitialPrompt({ ...promptInput, reviewFiles: NO_REVIEW_FILES }),
+    }
+
+    // Assert
+    const namedFile = "- assets/css/custom.css.map: generated"
+    const excludeForm = `git diff ${baseSha}...${headSha} -- . ':(exclude)assets/css/custom.css.map'`
+    const wholePrSem = `sem diff -v --from ${baseSha} --to ${headSha}`
+    const gitFallback = `Only if that command fails, run ${excludeForm} as a separate second command`
+    const promptPromises = (prompt: string) =>
+      prompt.includes(namedFile) && prompt.includes(excludeForm) && !prompt.includes(wholePrSem)
+    const expected = {
+      terminal: true,
+      chat: true,
+      chatFallsBackToFilteredGit: true,
+      chatNoneGeneratedUnchanged: true,
+    }
+    expect({
+      terminal: promptPromises(prompts.terminal),
+      chat: promptPromises(prompts.chat),
+      chatFallsBackToFilteredGit: prompts.chat.includes(gitFallback),
+      chatNoneGeneratedUnchanged: prompts.chatNoneGenerated === prompts.chatNoFiles,
+    }).toEqual(expected)
   })
 
   it("tells_the_agent_to_call_get_current_file_for_this_file_or_these_lines", () => {
@@ -186,6 +246,7 @@ describe("AiReviewPanel terminal surface", () => {
       baseSha: "base-sha",
       headSha: "head-sha",
       currentFilePath,
+      reviewFiles: NO_REVIEW_FILES,
     })
 
     // Assert
@@ -274,6 +335,7 @@ describe("AiReviewPanel terminal surface", () => {
       baseSha,
       headSha,
       currentFilePath,
+      reviewFiles: NO_REVIEW_FILES,
     })
 
     // Assert
@@ -295,6 +357,7 @@ describe("AiReviewPanel terminal surface", () => {
       baseSha: "base-sha",
       headSha: "head-sha",
       currentFilePath: null,
+      reviewFiles: NO_REVIEW_FILES,
     }
 
     // Act
@@ -315,6 +378,7 @@ describe("AiReviewPanel terminal surface", () => {
       baseSha: "base-sha",
       headSha: "head-sha",
       currentFilePath: null,
+      reviewFiles: NO_REVIEW_FILES,
     }
 
     // Act
@@ -355,6 +419,7 @@ describe("AiReviewPanel terminal surface", () => {
       baseSha: "base-sha",
       headSha: "head-sha",
       currentFilePath: null,
+      reviewFiles: NO_REVIEW_FILES,
     }
 
     // Act

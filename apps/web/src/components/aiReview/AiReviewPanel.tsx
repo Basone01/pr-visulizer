@@ -1,6 +1,11 @@
 import type { AiReviewTarget } from "@pr-visulizer/shared"
 import { useEffect, useMemo, useRef, useState } from "react"
 
+import {
+  type PromptChangedFile,
+  type ReviewFilesPrompt,
+  describeReviewFiles,
+} from "@/utils/aiReview/skippedFilesPrompt"
 import type { KeyValueStore } from "@/utils/storage/keyValueStore"
 
 import {
@@ -52,6 +57,11 @@ type AiReviewPanelProps = {
   currentFilePath: string | null
   // Null while the analysis or the review progress is still loading.
   review: ReviewSnapshot | null
+  // The PR's changed files with what is known of their skip reason at this moment: the path
+  // rule from the start, "too-large" once the analysis has read the patches.
+  changedFiles: ReadonlyArray<PromptChangedFile>
+  // False while the analysis runs: the prompt then says some facts are not known yet.
+  analysisReady: boolean
   onTerminalSessionStarted: (sessionId: string) => void
   onTerminalSessionEnded: (sessionId: string) => void
 }
@@ -62,6 +72,8 @@ type InitialPromptInput = {
   baseSha: string
   headSha: string
   currentFilePath: string | null
+  // The generated and diff-omitted files, worked out once per file list, not per prompt.
+  reviewFiles: ReviewFilesPrompt
 }
 
 // The PR facts and the safety line both surfaces send as their first prompt.
@@ -78,14 +90,27 @@ function describePullRequest(input: InitialPromptInput): string[] {
     `Selected file: ${selectedFile}`,
     "The current checkout may not be the PR head. Do not change branches, checkout commits, edit files, or run destructive commands.",
     `Inspect the PR with git diff ${input.baseSha}...${input.headSha} and git show ${input.headSha}:<path> as needed.`,
+    ...input.reviewFiles.lines,
     'The get_current_file tool shows the file and lines the reviewer is looking at right now. Call it when the reviewer says "this file" or "these lines".',
   ]
+}
+
+// sem diff --from/--to cannot leave files out, so when some must be, the filtered form wins.
+function semDiffCommandFor(input: InitialPromptInput): string {
+  return (
+    input.reviewFiles.semDiffCommand ?? `sem diff -v --from ${input.baseSha} --to ${input.headSha}`
+  )
+}
+
+// The git fallback leaves the same files out as the sem command does.
+function gitDiffCommandFor(input: InitialPromptInput): string {
+  return input.reviewFiles.gitDiffCommand ?? "git diff"
 }
 
 export function createInitialPrompt(input: InitialPromptInput): string {
   return [
     ...describePullRequest(input),
-    `If the sem CLI is installed (check with command -v sem), prefer sem diff -v --from ${input.baseSha} --to ${input.headSha} for a semantic, entity-level view of the change, and fall back to git diff when it is missing.`,
+    `If the sem CLI is installed (check with command -v sem), prefer ${semDiffCommandFor(input)} for a semantic, entity-level view of the change, and fall back to ${gitDiffCommandFor(input)} when it is missing.`,
     "Whenever an answer mentions a file or line the reviewer may need to open, you must call render_answer successfully before finishing, even for a short answer. Include every mentioned file in fileRefs, with its line when known. Use repo-relative Markdown links or inline paths so the references are clickable. If rendering fails, correct the request and retry, then report any unresolved failure instead of claiming the preview is ready.",
     "Use the terminal for progress, questions, and answers without file references. For longer explanations, summaries, or review results, also prefer render_answer with a title and Markdown. After rendering, keep the terminal reply to a brief confirmation that the answer is in the preview window.",
     "Start by briefly confirming the PR context, then wait for the reviewer’s question.",
@@ -97,7 +122,7 @@ export function createInitialPrompt(input: InitialPromptInput): string {
 export function createChatInitialPrompt(input: InitialPromptInput): string {
   return [
     ...describePullRequest(input),
-    `Prefer sem diff -v --from ${input.baseSha} --to ${input.headSha} for a semantic, entity-level view of the change. Only if that command fails, run git diff as a separate second command, never joined to it with ||.`,
+    `Prefer ${semDiffCommandFor(input)} for a semantic, entity-level view of the change. Only if that command fails, run ${gitDiffCommandFor(input)} as a separate second command, never joined to it with ||.`,
     // The chat asks the reviewer before a command that needs approval (CONTRACT.md 6).
     "Some shell commands need the reviewer’s approval: the reviewer is asked and may deny it. A denial applies to that one command only, so carry on with a simpler read-only command such as git diff, git diff --stat, git show or git grep.",
     "Answer in this chat, in Markdown.",
@@ -118,6 +143,8 @@ export function AiReviewPanel({
   headSha,
   currentFilePath,
   review,
+  changedFiles,
+  analysisReady,
   onTerminalSessionStarted,
   onTerminalSessionEnded,
 }: AiReviewPanelProps) {
@@ -170,13 +197,19 @@ export function AiReviewPanel({
     }
   }, [storage, target])
 
+  // Keyed on the file list's content, so opening another file never redoes this work.
+  const reviewFiles = useMemo(
+    () => describeReviewFiles({ files: changedFiles, baseSha, headSha, analysisReady }),
+    [analysisReady, baseSha, changedFiles, headSha]
+  )
   const initialPrompt = useMemo(
-    () => createInitialPrompt({ target, title, baseSha, headSha, currentFilePath }),
-    [baseSha, currentFilePath, headSha, target, title]
+    () => createInitialPrompt({ target, title, baseSha, headSha, currentFilePath, reviewFiles }),
+    [baseSha, currentFilePath, headSha, reviewFiles, target, title]
   )
   const chatInitialPrompt = useMemo(
-    () => createChatInitialPrompt({ target, title, baseSha, headSha, currentFilePath }),
-    [baseSha, currentFilePath, headSha, target, title]
+    () =>
+      createChatInitialPrompt({ target, title, baseSha, headSha, currentFilePath, reviewFiles }),
+    [baseSha, currentFilePath, headSha, reviewFiles, target, title]
   )
   // Memoized so the terminal only pushes a context update when something in it really changed.
   const terminalContext = useMemo<CodexTerminalContext>(

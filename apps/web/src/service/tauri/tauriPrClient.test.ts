@@ -439,6 +439,211 @@ describe("createTauriPrClient — local git diff (deep path)", () => {
   })
 })
 
+// The Rust `repo_file_diff` cap crosses the invoke boundary as this bare string (lib.rs).
+const NATIVE_CAP_REFUSAL = "git diff exceeded the bounded patch byte limit"
+
+// The changed-file set and the content reads the analysis made, for the skipped-file tests.
+type AnalysisReads = {
+  analyzedFiles: GatewayChangedFile[]
+  contentPaths: string[]
+  patchPaths: string[]
+}
+
+// PR #42's repo source, with extra changed files, and paths whose diff read fails the way
+// the native command does (the cap, invalid UTF-8). Records every patch and content read the analysis asks for.
+function skippingRepoSource(input: {
+  extraChanged: GatewayChangedFile[]
+  extraContents: Record<string, string>
+  // path -> the bare string its `repo_file_diff` rejects with
+  failingDiffs: Record<string, string>
+  reads: AnalysisReads
+}): RepoSource {
+  const base = inMemoryRepoSource({ ...PR42_CONTENTS, ...input.extraContents }, [
+    ...PR42_FILES,
+    ...input.extraChanged,
+  ])
+
+  return {
+    kind: "linked",
+    async prepare(target, baseSha, headSha, onProgress) {
+      const prepared = await base.prepare(target, baseSha, headSha, onProgress)
+
+      return {
+        ...prepared,
+        async readMany(paths: string[], onChunk?: (done: number, total: number) => void) {
+          input.reads.contentPaths.push(...paths)
+          return prepared.readMany(paths, onChunk)
+        },
+        async readFileDiff(path: string): Promise<string> {
+          input.reads.patchPaths.push(path)
+          const failure = input.failingDiffs[path]
+          if (failure !== undefined) return Promise.reject(failure)
+
+          return prepared.readFileDiff(path)
+        },
+      }
+    },
+  }
+}
+
+function capturingRunner(reads: AnalysisReads): AnalysisRunner {
+  return (sources) => {
+    reads.analyzedFiles = sources.files
+    return Promise.resolve({
+      engine: "deep",
+      pr: sources.pr,
+      files: [],
+      symbols: [],
+      edges: [],
+      ranking: [],
+      ghosts: [],
+      occurrences: [],
+    })
+  }
+}
+
+describe("createTauriPrClient — generated files and omitted diffs never block the analysis", () => {
+  function clientFor(input: Parameters<typeof skippingRepoSource>[0]) {
+    return createTauriPrClient({
+      gateway: createFakeGithubGateway(),
+      storage: createMemoryKeyValueStore(),
+      repoSource: skippingRepoSource(input),
+      runAnalysis: capturingRunner(input.reads),
+    })
+  }
+
+  it("a hand-written file over the patch cap does not fail the analysis: its content is still read and its diff is recorded as omitted", async () => {
+    // Arrange
+    const overCapFile = required(
+      PR42_FILES.find((file) => file.status === "modified"),
+      "a modified PR #42 file"
+    )
+    const reads: AnalysisReads = { analyzedFiles: [], contentPaths: [], patchPaths: [] }
+    const client = clientFor({
+      extraChanged: [],
+      extraContents: {},
+      failingDiffs: { [overCapFile.path]: NATIVE_CAP_REFUSAL },
+      reads,
+    })
+
+    // Act
+    const response = await client.getAnalysis(PR42, "deep")
+
+    // Assert
+    const analyzed = reads.analyzedFiles.find((file) => file.path === overCapFile.path)
+    const expected = {
+      status: "ready",
+      generated: undefined,
+      omissions: [
+        { path: overCapFile.path, part: "diff", reason: "too-large", limitBytes: 131072 },
+      ],
+      contentRead: true,
+    }
+    expect({
+      status: response.status,
+      generated: analyzed?.skip,
+      omissions: analyzed?.omissions,
+      contentRead: reads.contentPaths.includes(overCapFile.path),
+    }).toEqual(expected)
+  })
+
+  it("any other per-file diff failure is recorded as unreadable instead of failing the analysis", async () => {
+    // Arrange
+    const legacyPath = "legacy/report.php"
+    const legacyFile: GatewayChangedFile = {
+      path: legacyPath,
+      status: "modified",
+      additions: 3,
+      deletions: 3,
+      language: "php",
+      patch: null,
+    }
+    const notUtf8 = "git diff was not valid UTF-8"
+    const reads: AnalysisReads = { analyzedFiles: [], contentPaths: [], patchPaths: [] }
+    const client = clientFor({
+      extraChanged: [legacyFile],
+      extraContents: { [legacyPath]: "<?php echo 1;" },
+      failingDiffs: { [legacyPath]: notUtf8 },
+      reads,
+    })
+
+    // Act
+    const response = await client.getAnalysis(PR42, "deep")
+
+    // Assert
+    const expected = {
+      status: "ready",
+      omissions: [{ path: legacyPath, part: "diff", reason: "unreadable", message: notUtf8 }],
+    }
+    expect({
+      status: response.status,
+      omissions: reads.analyzedFiles.find((file) => file.path === legacyPath)?.omissions,
+    }).toEqual(expected)
+  })
+
+  it("checks the cap for an added file too", async () => {
+    // Arrange
+    const addedPath = "src/server/bigNewModule.ts"
+    const addedFile: GatewayChangedFile = {
+      path: addedPath,
+      status: "added",
+      additions: 9000,
+      deletions: 0,
+      language: "typescript",
+      patch: null,
+    }
+    const reads: AnalysisReads = { analyzedFiles: [], contentPaths: [], patchPaths: [] }
+    const client = clientFor({
+      extraChanged: [addedFile],
+      extraContents: { [addedPath]: "export const big = 1" },
+      failingDiffs: { [addedPath]: NATIVE_CAP_REFUSAL },
+      reads,
+    })
+
+    // Act
+    await client.getAnalysis(PR42, "deep")
+
+    // Assert
+    const expected = [{ path: addedPath, part: "diff", reason: "too-large", limitBytes: 131072 }]
+    expect(reads.analyzedFiles.find((file) => file.path === addedPath)?.omissions).toEqual(expected)
+  })
+
+  it("a file generated by its name is never asked for a patch and its content is never read", async () => {
+    // Arrange
+    const generatedPath = "public/build/app.min.js"
+    const generatedFile: GatewayChangedFile = {
+      path: generatedPath,
+      status: "modified",
+      additions: 1,
+      deletions: 1,
+      language: "javascript",
+      patch: "@@ -1 +1 @@\n-var a=1\n+var a=2\n",
+    }
+    const reads: AnalysisReads = { analyzedFiles: [], contentPaths: [], patchPaths: [] }
+    const client = clientFor({
+      extraChanged: [generatedFile],
+      extraContents: { [generatedPath]: "var a=2" },
+      failingDiffs: {},
+      reads,
+    })
+
+    // Act
+    await client.getAnalysis(PR42, "deep")
+
+    // Assert
+    const expected = {
+      patchRead: false,
+      contentRead: false,
+      skip: { path: generatedPath, reason: "generated" },
+    }
+    expect({
+      patchRead: reads.patchPaths.includes(generatedPath),
+      contentRead: reads.contentPaths.includes(generatedPath),
+      skip: reads.analyzedFiles.find((file) => file.path === generatedPath)?.skip,
+    }).toEqual(expected)
+  })
+})
+
 // The desktop half of the refresh button. PR meta and the prepared repo are memoized per PR
 // with NO head SHA in the key, so without an explicit drop a desktop refresh would keep
 // re-serving the head the app opened on, however many times the SPA refetched.

@@ -21,6 +21,8 @@ function emptyView(): PrView {
     reviewedCount: 1,
     totalCount: 1,
     allReviewed: true,
+    generatedCount: 0,
+    factsByPath: null,
   }
 }
 
