@@ -1,6 +1,7 @@
 import type {
   ChangedFile,
   ChangedFileFacts,
+  GeneratedEvidence,
   OmissionReason,
   SkipReason,
 } from "@pr-visulizer/shared"
@@ -16,6 +17,8 @@ export type TrayRow = {
   order: number | null
   // "generated" when the review leaves this file out of the analysis and the ranking, or null.
   skipReason: SkipReason | null
+  // Why the app treats the file as generated, or null when it does not.
+  generatedEvidence: GeneratedEvidence | null
   // Why this file's diff cannot be shown, or null. The file itself stays in the review.
   diffOmitted: OmissionReason | null
   status: FileStatus
@@ -67,7 +70,8 @@ export type PrView = {
   fileNodes: FileNodeVM[]
   ghostNodes: GhostNodeVM[]
   suggestedPath: string | null
-  // Completion counts reviewable files only: a generated file needs no review.
+  // Completion counts reviewable files only. Files treated as generated are not counted,
+  // which is an ordering decision, not a statement that they need no review.
   reviewedCount: number
   totalCount: number
   allReviewed: boolean

@@ -30,6 +30,9 @@ export type DiffCommitRangeApi = {
   closePicker: () => void
 
   commits: PrCommit[]
+  // True while the opened picker's commit list is still on its way, so an empty list then
+  // means "loading", not "this PR has no commits".
+  commitsLoading: boolean
   commitsTruncated: boolean
   // False while the PR genuinely has no commits to offer (or they haven't been asked for yet) —
   // the toolbar button hides rather than opening onto an empty list.
@@ -112,6 +115,7 @@ export function useDiffCommitRange(target: PrTarget, fallbackBaseSha: string): D
     closePicker,
 
     commits,
+    commitsLoading: keepOpened && commitsQuery.isPending,
     commitsTruncated: commitsQuery.data?.truncated ?? false,
     // Before the first open there is nothing to report on; treat "not asked yet" as available so
     // the button is discoverable, and let the popover say "no commits" if the PR truly has none.

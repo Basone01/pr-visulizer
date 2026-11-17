@@ -1,3 +1,7 @@
+import { useState } from "react"
+
+import { escapeHiddenCharacters } from "@/utils/text/bidiControls"
+
 import type { Verdict } from "@/hooks/useSubmitReview"
 
 import styles from "./SubmitReviewDialog.module.css"
@@ -30,6 +34,10 @@ type SubmitReviewDialogProps = {
   // Files still unchecked when the reviewer chose to submit early — worth restating, since
   // this is the last moment to go back and read them.
   unreviewedCount: number
+  // Files treated as generated that are NOT marked viewed. They do not count toward completion,
+  // but the label comes from names and shapes the PR author controls, so the reviewer is told
+  // which ones they are about to approve unread (CONTRACT §11.2, G2). No gate.
+  unviewedGeneratedPaths: string[]
   submitting: boolean
   error: string | null
   onConfirm: () => void
@@ -40,6 +48,7 @@ export function SubmitReviewDialog({
   verdict,
   commentCount,
   unreviewedCount,
+  unviewedGeneratedPaths,
   submitting,
   error,
   onConfirm,
@@ -75,6 +84,10 @@ export function SubmitReviewDialog({
           <p className={styles.warning}>{unreviewedCount} file(s) are still unchecked.</p>
         )}
 
+        {unviewedGeneratedPaths.length > 0 && (
+          <UnviewedGeneratedFiles paths={unviewedGeneratedPaths} />
+        )}
+
         {error && (
           <p className={styles.error} role="alert">
             {error}
@@ -101,5 +114,34 @@ export function SubmitReviewDialog({
         </div>
       </div>
     </div>
+  )
+}
+
+const COLLAPSED_GENERATED_PATHS = 10
+
+function UnviewedGeneratedFiles({ paths }: { paths: string[] }) {
+  const [showAll, setShowAll] = useState(false)
+  const shownPaths = showAll ? paths : paths.slice(0, COLLAPSED_GENERATED_PATHS)
+  const hiddenCount = paths.length - shownPaths.length
+
+  return (
+    <section className={styles.generated} aria-label="Files treated as generated, not viewed">
+      <p className={styles.warning}>
+        {paths.length} file(s) treated as generated were not marked viewed. The label comes from
+        file names and shapes, not from a check that they are safe:
+      </p>
+      <ul className={styles.generatedList}>
+        {shownPaths.map((path) => (
+          <li key={path} className="mono">
+            {escapeHiddenCharacters(path).text}
+          </li>
+        ))}
+      </ul>
+      {hiddenCount > 0 && (
+        <button type="button" className={styles.showAll} onClick={() => setShowAll(true)}>
+          Show all {paths.length}
+        </button>
+      )}
+    </section>
   )
 }

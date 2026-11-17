@@ -71,9 +71,22 @@ export type GhostFile = z.infer<typeof ghostFileSchema>
 export const skipReasonSchema = z.enum(["generated"])
 export type SkipReason = z.infer<typeof skipReasonSchema>
 
+// Why the app treats a file as generated. A label and an ordering decision, never a statement
+// that the file is safe: the PR author controls every one of these (CONTRACT §11.2, G1).
+// "file-name" = an unambiguous generated suffix, "dependency-folder" = under node_modules/,
+// "build-folder-and-shape" = a build-like folder AND machine-made shape (over the cap, omitted
+// by GitHub, or a line over 5,000 characters).
+export const generatedEvidenceSchema = z.enum([
+  "file-name",
+  "dependency-folder",
+  "build-folder-and-shape",
+])
+export type GeneratedEvidence = z.infer<typeof generatedEvidenceSchema>
+
 export const skippedFileSchema = z.object({
   path: z.string(),
   reason: skipReasonSchema,
+  evidence: generatedEvidenceSchema,
 })
 export type SkippedFile = z.infer<typeof skippedFileSchema>
 

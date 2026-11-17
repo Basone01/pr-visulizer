@@ -11,6 +11,7 @@ import {
   type ReviewOrderInput,
   type SkippedFile,
   isGeneratedByName,
+  pathEvidenceFor,
   rankReviewFiles,
   rankingPolicyForQueueMode,
   readiness,
@@ -86,6 +87,7 @@ function skippedRow(
     path: skip.path,
     order: null,
     skipReason: skip.reason,
+    generatedEvidence: skip.evidence,
     diffOmitted: null,
     status: file.status,
     churn: file.additions + file.deletions,
@@ -157,6 +159,7 @@ export function derivePrView(
       path: ranked.path,
       order: ranked.order,
       skipReason: null,
+      generatedEvidence: null,
       diffOmitted: diffOmissionByPath.get(ranked.path)?.reason ?? null,
       status: file.status,
       churn: file.additions + file.deletions,
@@ -233,6 +236,7 @@ export function deriveOverview(
     // The path rule is known before the analysis; "too-large" only once a patch was read.
     // Only the name rule is known before the analysis; shape and omissions come with it.
     skipReason: isGeneratedByName(file.path) ? "generated" : null,
+    generatedEvidence: pathEvidenceFor(file.path),
     diffOmitted: null,
     status: file.status,
     churn: file.additions + file.deletions,

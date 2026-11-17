@@ -304,13 +304,14 @@ export function AppShell({ target, onBack }: { target: PrTarget; onBack: () => v
   // The changed files as the agent prompt needs them: path and the two facts only. Keyed on
   // that content, so a checkmark (which rebuilds the tray rows) does not rebuild the prompt.
   const promptFilesKey = (view?.trayRows ?? [])
-    .map((row) => `${row.path}\u0000${row.skipReason}\u0000${row.diffOmitted}`)
+    .map((row) => `${row.path}\u0000${row.generatedEvidence}\u0000${row.diffOmitted}`)
     .join("\n")
   const promptFiles = useMemo(
     () =>
-      (view?.trayRows ?? []).map(({ path, skipReason, diffOmitted }) => ({
+      (view?.trayRows ?? []).map(({ path, skipReason, generatedEvidence, diffOmitted }) => ({
         path,
         skipReason,
+        generatedEvidence,
         diffOmitted,
       })),
     [promptFilesKey]

@@ -190,7 +190,7 @@ describe("buildReviewSnapshot", () => {
           order: pr42Analysis.ranking.length + 1,
         },
       ],
-      skipped: [{ path: generatedPath, reason: "generated" }],
+      skipped: [{ path: generatedPath, reason: "generated", evidence: "file-name" }],
       omitted: [{ path: routerPath, part: "diff", reason: "too-large", limitBytes: 131072 }],
     }
     const view = derivePrView(analysis, [])

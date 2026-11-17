@@ -43,7 +43,7 @@ describe("CodeContent on a very long line", () => {
     }).toEqual(expected)
   })
 
-  it("Show full line shows all of it as plain text", async () => {
+  it("Show full line shows all of it as plain text, and the line keeps Copy line", async () => {
     // Arrange
     const lineLength = 58_088
     const sourceMapLine = "A".repeat(lineLength)
@@ -53,7 +53,26 @@ describe("CodeContent on a very long line", () => {
     await userEvent.click(screen.getByRole("button", { name: "Show full line" }))
 
     // Assert
-    expect(container.textContent).toBe(sourceMapLine)
+    const expected = { wholeLineShown: true, copyLine: true }
+    expect({
+      wholeLineShown: container.textContent?.startsWith(sourceMapLine),
+      copyLine: screen.queryByRole("button", { name: "Copy line" }) !== null,
+    }).toEqual(expected)
+  })
+
+  it("Show less cuts a line shown in full again", async () => {
+    // Arrange
+    const lineLength = 58_088
+    const sourceMapLine = "A".repeat(lineLength)
+    const { container } = renderLine(sourceMapLine)
+    await userEvent.click(screen.getByRole("button", { name: "Show full line" }))
+
+    // Act
+    await userEvent.click(screen.getByRole("button", { name: "Show less" }))
+
+    // Assert
+    const text = container.textContent ?? ""
+    expect(text.indexOf("…")).toBe(MAX_SHOWN_LINE_CHARS)
   })
 
   it("Copy line copies the whole line, not only the part shown", async () => {

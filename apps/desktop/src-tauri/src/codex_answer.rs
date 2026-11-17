@@ -67,8 +67,9 @@ pub struct ReviewFile {
     pub diff_omitted: Option<DiffOmitted>,
 }
 
-// Why a changed file needs no review at all (contract §11.1). Only these values parse, because
-// the value reaches the agent and must never be free text.
+// Why a changed file is not read by default (contract §11.2). The path and patch that decide it
+// come from the PR author, so the agent is never told it needs no reading.
+// Only these values parse, because the value reaches the agent and must never be free text.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum SkipReason {
@@ -86,7 +87,7 @@ pub enum DiffOmitted {
 impl SkipReason {
     fn agent_note(self) -> &'static str {
         match self {
-            Self::Generated => "Skipped: a generated or vendored file. It needs no reading, leave it out of git diff and git show.",
+            Self::Generated => "Treated as a generated or vendored file, so it is not read by default. Leave it out of whole-PR git diff and git show and do not print it whole. Say in your answer that it was not read. Read it in bounded pieces if the reviewer asks, or if something else in the pull request points at it.",
         }
     }
 }
@@ -1347,9 +1348,28 @@ mod tests {
             "reviewed": false,
             "suggestedNext": false,
             "skipReason": "generated",
-            "skipNote": "Skipped: a generated or vendored file. It needs no reading, leave it out of git diff and git show.",
+            "skipNote": "Treated as a generated or vendored file, so it is not read by default. Leave it out of whole-PR git diff and git show and do not print it whole. Say in your answer that it was not read. Read it in bounded pieces if the reviewer asks, or if something else in the pull request points at it.",
         });
         assert_eq!(*generated, expected);
+    }
+
+    #[test]
+    fn the_generated_note_never_says_a_file_needs_no_reading_and_asks_to_say_it_was_not_read() {
+        // Arrange
+        let generated = SkipReason::Generated;
+
+        // Act
+        let note = generated.agent_note();
+
+        // Assert
+        let lowered = note.to_lowercase();
+        assert!(!lowered.contains("no reading"), "{note}");
+        assert!(!lowered.contains("needs no"), "{note}");
+        assert!(
+            note.contains("Say in your answer that it was not read"),
+            "{note}"
+        );
+        assert!(note.contains("bounded pieces"), "{note}");
     }
 
     #[test]

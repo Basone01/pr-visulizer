@@ -26,7 +26,9 @@ const routerFile: ChangedFile = {
   deletions: 3900,
   language: "typescript",
 }
-const skipped: SkippedFile[] = [{ path: SOURCE_MAP_PATH, reason: "generated" }]
+const skipped: SkippedFile[] = [
+  { path: SOURCE_MAP_PATH, reason: "generated", evidence: "file-name" },
+]
 const omitted: FileOmission[] = [
   { path: ROUTER_PATH, part: "diff", reason: "too-large", limitBytes: 131072 },
 ]

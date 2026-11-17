@@ -91,6 +91,9 @@ export function ReviewTray({
   // A submitted review is done: the button becomes a success state rather than an invitation
   // to post a second review over the first.
   const unreviewedCount = view.totalCount - view.reviewedCount
+  const unviewedGeneratedPaths = view.trayRows
+    .filter((row) => row.skipReason === "generated" && !row.reviewed)
+    .map((row) => row.path)
 
   function closeConfirm(): void {
     setConfirming(false)
@@ -229,6 +232,7 @@ export function ReviewTray({
           verdict={chosenVerdict}
           commentCount={commentCount}
           unreviewedCount={unreviewedCount}
+          unviewedGeneratedPaths={unviewedGeneratedPaths}
           submitting={isSubmitting}
           error={submitError}
           onConfirm={onSubmit}

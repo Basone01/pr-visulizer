@@ -233,6 +233,7 @@ function PickerHarness({ onRange }: { onRange: (sha: string | null) => void }) {
   return (
     <CommitRangePicker
       commits={commits}
+      loading={false}
       selection={selection}
       truncated={false}
       onSelect={select}

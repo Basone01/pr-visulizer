@@ -634,7 +634,7 @@ describe("createTauriPrClient — generated files and omitted diffs never block 
     const expected = {
       patchRead: false,
       contentRead: false,
-      skip: { path: generatedPath, reason: "generated" },
+      skip: { path: generatedPath, reason: "generated", evidence: "file-name" },
     }
     expect({
       patchRead: reads.patchPaths.includes(generatedPath),

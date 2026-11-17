@@ -14,6 +14,7 @@ export const NO_COMMIT_RANGE: DiffCommitRangeApi = {
   closePicker: () => {},
 
   commits: [],
+  commitsLoading: false,
   commitsTruncated: false,
   hasCommits: true,
 

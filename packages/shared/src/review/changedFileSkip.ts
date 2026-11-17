@@ -1,4 +1,4 @@
-import type { FileOmission, SkippedFile } from "../entities/analysis.js"
+import type { FileOmission, GeneratedEvidence, SkippedFile } from "../entities/analysis.js"
 
 // Which changed files are generated, and which have a part that cannot be read (CONTRACT
 // §11.1). Analysis, the queue, the diff pane and the agent prompt all decide through
@@ -52,16 +52,22 @@ export type ChangedFileFacts = {
   diffOmission: FileOmission | null
 }
 
-// True when the NAME alone proves the file is generated: an unambiguous generated suffix, or a
-// node_modules folder. Such a file needs no patch read to be classified.
+// True when the path alone is enough to treat the file as generated: an unambiguous generated
+// suffix, or a node_modules folder. Such a file needs no patch read to be classified.
 export function isGeneratedByName(path: string): boolean {
+  return pathEvidenceFor(path) !== null
+}
+
+// The evidence the path alone gives, or null when it takes the patch's shape to decide.
+export function pathEvidenceFor(path: string): GeneratedEvidence | null {
   const segments = path.split("/")
   const fileName = segments.at(-1) ?? ""
   const folders = segments.slice(0, -1)
 
-  const hasGeneratedSuffix = GENERATED_FILE_SUFFIXES.some((suffix) => fileName.endsWith(suffix))
-  const inNodeModules = folders.includes(DEPENDENCY_ONLY_DIRECTORY)
-  return hasGeneratedSuffix || inNodeModules
+  if (GENERATED_FILE_SUFFIXES.some((suffix) => fileName.endsWith(suffix))) return "file-name"
+  if (folders.includes(DEPENDENCY_ONLY_DIRECTORY)) return "dependency-folder"
+
+  return null
 }
 
 // A folder segment (never the file name, case-sensitive) names build output or vendored code.
@@ -74,9 +80,17 @@ export function isInBuildLikeDirectory(path: string): boolean {
 
 // The two facts for one changed file, from its path and what its patch reader learned.
 export function classifyChangedFile(path: string, evidence: PatchEvidence): ChangedFileFacts {
-  const isGenerated =
-    isGeneratedByName(path) || (isInBuildLikeDirectory(path) && hasMachineMadeShape(evidence))
-  if (isGenerated) return { skip: { path, reason: "generated" }, diffOmission: null }
+  const generatedEvidence =
+    pathEvidenceFor(path) ??
+    (isInBuildLikeDirectory(path) && hasMachineMadeShape(evidence)
+      ? "build-folder-and-shape"
+      : null)
+  if (generatedEvidence) {
+    return {
+      skip: { path, reason: "generated", evidence: generatedEvidence },
+      diffOmission: null,
+    }
+  }
 
   return { skip: null, diffOmission: diffOmissionFor(path, evidence) }
 }
@@ -131,4 +145,17 @@ export function changedFileFactsOf(
   const omitted = files.flatMap((file) => file.omissions ?? [])
 
   return { skipped, omitted }
+}
+
+// How the app says WHY it treats a file as generated, to the reviewer and the agent alike.
+// "Treated as generated" is a label and an ordering decision, never a claim that the file is
+// safe: the PR author controls every piece of this evidence (CONTRACT §11.2, G1).
+export const GENERATED_EVIDENCE_TEXT: Record<GeneratedEvidence, string> = {
+  "file-name": "by its file name",
+  "dependency-folder": "because it is under node_modules/",
+  "build-folder-and-shape": "because it is in a build folder and its diff looks machine-made",
+}
+
+export function treatedAsGeneratedText(evidence: GeneratedEvidence): string {
+  return `Treated as generated ${GENERATED_EVIDENCE_TEXT[evidence]}`
 }

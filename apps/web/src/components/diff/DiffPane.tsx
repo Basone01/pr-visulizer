@@ -255,7 +255,7 @@ export function DiffPane({
         ? rangeFilePatch({ path, generated: generatedPolicy, known: fileFacts }, rangeFile)
         : undefined
   const activePatch = shownPatch?.kind === "patch" ? shownPatch.patch : null
-  const isGenerated = shownPatch?.kind === "generated"
+  const generatedSkip = shownPatch?.kind === "generated" ? shownPatch.skip : null
   const omission = shownPatch?.kind === "omitted" ? shownPatch.omission : null
   const patchError = commitRange.range === null && patchQuery.isError ? patchQuery.error : null
 
@@ -960,6 +960,7 @@ export function DiffPane({
               {commitRange.pickerOpen && (
                 <CommitRangePicker
                   commits={commitRange.commits}
+                  loading={commitRange.commitsLoading}
                   selection={commitRange.selection}
                   truncated={commitRange.commitsTruncated}
                   onSelect={commitRange.select}
@@ -1157,8 +1158,9 @@ export function DiffPane({
               </div>
             )}
 
-            {isGenerated && file && (
+            {generatedSkip && file && (
               <GeneratedNotice
+                evidence={generatedSkip.evidence}
                 additions={file.additions}
                 deletions={file.deletions}
                 onShowAnyway={() => {
@@ -1172,6 +1174,7 @@ export function DiffPane({
             {omission && file && (
               <OmittedDiffNotice
                 omission={omission}
+                treatedAsGenerated={fileFacts?.skip != null || shownAnywayPath === path}
                 additions={file.additions}
                 deletions={file.deletions}
                 onOpenOnGitHub={() => void openOnGitHub(path)}
@@ -1190,7 +1193,7 @@ export function DiffPane({
 
             {!outsideRange &&
               !commitRange.error &&
-              !isGenerated &&
+              !generatedSkip &&
               !omission &&
               !patchError &&
               !shownDiff && <div className={styles.empty}>Loading diff…</div>}

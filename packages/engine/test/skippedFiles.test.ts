@@ -77,7 +77,7 @@ describe("skipped changed files in the analysis", () => {
       // Assert
       const expected = {
         ranked: [...rankedPaths(withoutEither), TOO_LARGE_PATH].sort(),
-        skipped: [{ path: GENERATED_PATH, reason: "generated" }],
+        skipped: [{ path: GENERATED_PATH, reason: "generated", evidence: "file-name" }],
         omitted: tooLargeFile.omissions,
       }
       expect({

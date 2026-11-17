@@ -13,6 +13,8 @@ import { CommitRow } from "./CommitRow"
 // range between them — the same gesture the diff gutter already uses for a line range.
 type CommitRangePickerProps = {
   commits: PrCommit[]
+  // The commit list is still loading: say so, rather than "No commits to choose from."
+  loading: boolean
   selection: CommitSelection | null
   // True when GitHub's 250-commit ceiling cut the list short — a reviewer choosing from a
   // silently-short list would believe they were choosing from the whole PR.
@@ -24,6 +26,7 @@ type CommitRangePickerProps = {
 
 export function CommitRangePicker({
   commits,
+  loading,
   selection,
   truncated,
   onSelect,
@@ -65,7 +68,9 @@ export function CommitRangePicker({
 
       <p className={styles.hint}>Click a commit, then another to select a range.</p>
 
-      {commits.length === 0 ? (
+      {loading ? (
+        <div className={styles.empty}>Loading commits…</div>
+      ) : commits.length === 0 ? (
         <div className={styles.empty}>No commits to choose from.</div>
       ) : (
         <ul className={styles.list}>

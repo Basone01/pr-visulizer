@@ -1,4 +1,8 @@
-import type { FileOmission } from "@pr-visulizer/shared"
+import {
+  type FileOmission,
+  type GeneratedEvidence,
+  treatedAsGeneratedText,
+} from "@pr-visulizer/shared"
 
 import styles from "./Diff.module.css"
 
@@ -11,12 +15,15 @@ type LineCounts = {
 }
 
 type GeneratedNoticeProps = LineCounts & {
+  evidence: GeneratedEvidence
   onShowAnyway: () => void
   onOpenOnGitHub: () => void
 }
 
-// A generated file: build output or vendored code, not analysed and not counted toward review.
+// A file treated as generated: not analysed and not counted toward review. That is a label from
+// its name or shape, which the PR author controls, so the notice never calls the file safe.
 export function GeneratedNotice({
+  evidence,
   additions,
   deletions,
   onShowAnyway,
@@ -24,8 +31,11 @@ export function GeneratedNotice({
 }: GeneratedNoticeProps) {
   return (
     <div className={styles.patchState} role="status">
-      <p className={styles.patchStateTitle}>Generated file, not shown</p>
-      <p>Build output or vendored code. It is not analysed and needs no review.</p>
+      <p className={styles.patchStateTitle}>Treated as generated, not shown</p>
+      <p>
+        {treatedAsGeneratedText(evidence)}, so it is not analysed or counted. That is not a check
+        that the file is safe.
+      </p>
       <LineCountText additions={additions} deletions={deletions} />
       <div className={styles.patchStateActions}>
         <button type="button" className={styles.patchStateButton} onClick={onShowAnyway}>
@@ -39,6 +49,9 @@ export function GeneratedNotice({
 
 type OmittedDiffNoticeProps = LineCounts & {
   omission: FileOmission
+  // A file treated as generated whose diff was asked for anyway: it is NOT part of the review,
+  // so the notice only says the diff cannot be shown.
+  treatedAsGenerated: boolean
   onOpenOnGitHub: () => void
 }
 
@@ -46,6 +59,7 @@ type OmittedDiffNoticeProps = LineCounts & {
 // No Retry, because the same read gives the same answer.
 export function OmittedDiffNotice({
   omission,
+  treatedAsGenerated,
   additions,
   deletions,
   onOpenOnGitHub,
@@ -63,7 +77,10 @@ export function OmittedDiffNotice({
       <p className={styles.patchStateTitle}>
         {isTooLarge ? "Diff too large to show" : "Diff could not be read"}
       </p>
-      <p>{why} The file is still part of the review.</p>
+      <p>
+        {why}{" "}
+        {treatedAsGenerated ? "It cannot be shown here." : "The file is still part of the review."}
+      </p>
       <LineCountText additions={additions} deletions={deletions} />
       <div className={styles.patchStateActions}>
         <OpenOnGitHubButton onClick={onOpenOnGitHub} />

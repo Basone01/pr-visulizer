@@ -20,6 +20,7 @@ function trayRow(path: string, order: number): TrayRow {
     path,
     order,
     skipReason: null,
+    generatedEvidence: null,
     diffOmitted: null,
     status: "modified",
     churn: 12,

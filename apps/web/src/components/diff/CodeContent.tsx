@@ -79,9 +79,31 @@ export function CodeContent({
     )
   }
 
+  const copyLineButton = (
+    <button type="button" className={styles.hiddenCharsButton} onClick={() => void copyText(text)}>
+      Copy line
+    </button>
+  )
+
   // The whole line on request, as plain text: no highlighting and no emphasis, so even a
-  // 100 KB line costs one text node.
-  if (fullLineShown) return <span className={styles.content}>{text}</span>
+  // 100 KB line costs one text node. It keeps Copy line, and can be cut again in the same place.
+  if (fullLineShown) {
+    return (
+      <span className={styles.content}>
+        {text}
+        <span className={styles.hiddenChars}>
+          <button
+            type="button"
+            className={styles.hiddenCharsButton}
+            onClick={() => setFullLineShown(false)}
+          >
+            Show less
+          </button>
+          {copyLineButton}
+        </span>
+      </span>
+    )
+  }
 
   const hiddenNote =
     shown.hiddenChars > 0 ? (
@@ -94,13 +116,7 @@ export function CodeContent({
         >
           Show full line
         </button>
-        <button
-          type="button"
-          className={styles.hiddenCharsButton}
-          onClick={() => void copyText(text)}
-        >
-          Copy line
-        </button>
+        {copyLineButton}
       </span>
     ) : null
 
