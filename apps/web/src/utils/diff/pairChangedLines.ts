@@ -11,10 +11,10 @@
 // Pure and framework-free, and deliberately shared: the intra-line emphasis and the side-by-side
 // view both have to agree on what "a pair" is, or the split view puts a removed line across from
 // a line its own emphasis says it has nothing to do with.
+import { type CharRange, changedRangesForPair } from "./prefixSuffixRange"
+import { changedWordRanges } from "./wordDiff"
 
-// Half-open [start, end) over a line's content, in UTF-16 code units — the units String.slice
-// takes, so the renderer cuts tokens with it directly.
-export type CharRange = { start: number; end: number }
+export type { CharRange } from "./prefixSuffixRange"
 
 // Past this share of a line, the changed part IS the line: a rewritten line lights up end to end,
 // which is noise rather than emphasis. Measured against the longer side, so a short line replaced
@@ -22,87 +22,49 @@ export type CharRange = { start: number; end: number }
 // reads the same way — past this much difference the two lines are not counterparts at all.
 export const MAX_CHANGED_FRACTION = 0.75
 
-function isHighSurrogate(code: number): boolean {
-  return code >= 0xd800 && code <= 0xdbff
-}
-
-function isLowSurrogate(code: number): boolean {
-  return code >= 0xdc00 && code <= 0xdfff
-}
-
-// A common prefix that ends on a high surrogate would cut an astral character (an emoji in a
-// string literal) in half, and half a pair renders as a replacement glyph — step back one unit.
-function commonPrefixLength(before: string, after: string): number {
-  const limit = Math.min(before.length, after.length)
-
-  let length = 0
-  while (length < limit && before[length] === after[length]) length += 1
-
-  if (length > 0 && isHighSurrogate(before.charCodeAt(length - 1))) return length - 1
-
-  return length
-}
-
-// `limit` keeps the suffix from reaching back into the prefix — without it "aaa" -> "aaaa" would
-// claim the same characters twice and produce a negative-width range.
-function commonSuffixLength(before: string, after: string, limit: number): number {
-  let length = 0
-  while (
-    length < limit &&
-    before[before.length - 1 - length] === after[after.length - 1 - length]
-  ) {
-    length += 1
-  }
-
-  // The suffix starts on a low surrogate whose high half is outside it — same split, same fix.
-  if (length > 0 && isLowSurrogate(before.charCodeAt(before.length - length))) return length - 1
-
-  return length
-}
-
-export type PairRanges = {
-  before: CharRange
-  after: CharRange
-  // How much of the longer line the change covers, 0..1 — the similarity measure the alignment
-  // below ranks candidates by, and the same number the emphasis threshold reads.
-  changedFraction: number
-}
-
-// Everything between the common prefix and the common suffix changed. null means the two lines
-// are IDENTICAL — nothing to emphasize, and a perfect counterpart as far as pairing is concerned.
-export function changedRangesForPair(before: string, after: string): PairRanges | null {
-  if (before === after) return null
-
-  const prefix = commonPrefixLength(before, after)
-  const suffixLimit = Math.min(before.length, after.length) - prefix
-  const suffix = commonSuffixLength(before, after, suffixLimit)
-
-  const beforeChanged: CharRange = { start: prefix, end: before.length - suffix }
-  const afterChanged: CharRange = { start: prefix, end: after.length - suffix }
-
-  const longestLine = Math.max(before.length, after.length)
-  const longestChange = Math.max(
-    beforeChanged.end - beforeChanged.start,
-    afterChanged.end - afterChanged.start
-  )
-
-  return {
-    before: beforeChanged,
-    after: afterChanged,
-    changedFraction: longestChange / longestLine,
-  }
-}
+// Past this many candidate pairs (a 20×20 region), measuring every pair word by word gets slow,
+// so a big rewrite region falls back to the linear prefix/suffix measure.
+const MAX_WORD_MEASURED_PAIRS = 400
 
 // How alike two lines are, 0..1, or NOT_A_PAIR when they are too different to be counterparts.
 const NOT_A_PAIR = -1
 
-function similarityOf(before: string, after: string): number {
-  const changed = changedRangesForPair(before, after)
-  if (!changed) return 1
+type ChangedFractionOf = (before: string, after: string) => number
 
-  if (changed.changedFraction > MAX_CHANGED_FRACTION) return NOT_A_PAIR
+// Measured on WORDS, the same unit the emphasis paints: `class A {` -> `final class A: B {`
+// changes "final " and ": B", about half the line. The prefix/suffix span would count the
+// unchanged "class A" too, call it 90% changed, and refuse to pair two lines that clearly are.
+// Only non-space characters count: spaces match between almost any two lines, so counting them
+// would make a full rewrite look a quarter similar.
+function visibleLength(text: string): number {
+  return text.replace(/\s/g, "").length
+}
 
-  return 1 - changed.changedFraction
+function wordChangedFraction(before: string, after: string): number {
+  const changed = changedWordRanges(before, after)
+  if (!changed) return 0
+
+  const changedLength = (line: string, ranges: CharRange[]): number =>
+    ranges.reduce((sum, range) => sum + visibleLength(line.slice(range.start, range.end)), 0)
+  const longestChange = Math.max(
+    changedLength(before, changed.before),
+    changedLength(after, changed.after)
+  )
+  const longestLine = Math.max(visibleLength(before), visibleLength(after))
+  if (longestLine === 0) return 0
+
+  return longestChange / longestLine
+}
+
+function spanChangedFraction(before: string, after: string): number {
+  return changedRangesForPair(before, after)?.changedFraction ?? 0
+}
+
+function similarityOf(before: string, after: string, changedFractionOf: ChangedFractionOf): number {
+  const changedFraction = changedFractionOf(before, after)
+  if (changedFraction > MAX_CHANGED_FRACTION) return NOT_A_PAIR
+
+  return 1 - changedFraction
 }
 
 export type LinePair = { delIndex: number; addIndex: number }
@@ -118,6 +80,9 @@ export function pairChangedLines(dels: readonly string[], adds: readonly string[
   const delCount = dels.length
   const addCount = adds.length
 
+  const isSmallRegion = delCount * addCount <= MAX_WORD_MEASURED_PAIRS
+  const changedFractionOf = isSmallRegion ? wordChangedFraction : spanChangedFraction
+
   // best[i][j] = the best total similarity obtainable from dels[i..] and adds[j..].
   const best: number[][] = Array.from({ length: delCount + 1 }, () =>
     new Array<number>(addCount + 1).fill(0)
@@ -125,7 +90,7 @@ export function pairChangedLines(dels: readonly string[], adds: readonly string[
 
   for (let delIndex = delCount - 1; delIndex >= 0; delIndex -= 1) {
     for (let addIndex = addCount - 1; addIndex >= 0; addIndex -= 1) {
-      const similarity = similarityOf(dels[delIndex]!, adds[addIndex]!)
+      const similarity = similarityOf(dels[delIndex]!, adds[addIndex]!, changedFractionOf)
       const paired =
         similarity === NOT_A_PAIR ? NOT_A_PAIR : similarity + best[delIndex + 1]![addIndex + 1]!
 
@@ -142,7 +107,7 @@ export function pairChangedLines(dels: readonly string[], adds: readonly string[
   let addIndex = 0
 
   while (delIndex < delCount && addIndex < addCount) {
-    const similarity = similarityOf(dels[delIndex]!, adds[addIndex]!)
+    const similarity = similarityOf(dels[delIndex]!, adds[addIndex]!, changedFractionOf)
     const paired =
       similarity === NOT_A_PAIR ? NOT_A_PAIR : similarity + best[delIndex + 1]![addIndex + 1]!
 

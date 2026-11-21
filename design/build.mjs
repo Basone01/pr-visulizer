@@ -33,6 +33,9 @@ const TOKENS = {
     modifiedSoft: "#fff8c5", // attention.subtle
     deleted: "#cf222e", // danger.emphasis
     deletedSoft: "#ffebe9", // diffBlob deletion line
+    changed: "#8250df", // done.fg — split-diff modified block edge and marker
+    changedSoft: "#f3eafc", // derived: violet line ground for a modified block
+    changedWord: "#e6d3f8", // derived: one step deeper, the changed words inside it
     reviewed: "#8c959f", // scale.gray[5]
     synKeyword: "#cf222e", // prettylights keyword
     synString: "#0a3069", // prettylights string
@@ -56,6 +59,9 @@ const TOKENS = {
     modifiedSoft: "#3a2c1a", // derived: dark orange ground
     deleted: "#ff5555", // Dracula Red
     deletedSoft: "#3b1d22", // derived: dark red diff-del ground
+    changed: "#bd93f9", // Dracula Purple — split-diff modified block edge and marker
+    changedSoft: "#2f2840", // derived: dark violet line ground for a modified block
+    changedWord: "#46365f", // derived: one step lighter, the changed words inside it
     reviewed: "#565f7d", // derived: dimmed slate for checked-off files
     synKeyword: "#ff79c6", // Dracula Pink
     synString: "#f1fa8c", // Dracula Yellow
@@ -81,6 +87,9 @@ const USAGE = {
   modifiedSoft: "modified backgrounds",
   deleted: "deleted diff lines, request-changes",
   deletedSoft: "deleted backgrounds",
+  changed: "modified diff block edge, ribbon outline, ≠ marker",
+  changedSoft: "modified diff block background and ribbon",
+  changedWord: "changed words inside a modified diff block",
   reviewed: "checked-off files (dimmed)",
   synKeyword: "import / export / function / if",
   synString: "string literals",
@@ -168,7 +177,7 @@ cards.push(
 .use { font-size: 12px; color: var(--muted); margin-top: 2px; }
 section { margin-bottom: 20px; }`,
     body: `
-<section><h4>Diff status</h4><div class="grid">${swatchRow(["added", "addedSoft", "modified", "modifiedSoft", "deleted", "deletedSoft"])}</div></section>
+<section><h4>Diff status</h4><div class="grid">${swatchRow(["added", "addedSoft", "modified", "modifiedSoft", "deleted", "deletedSoft", "changed", "changedSoft", "changedWord"])}</div></section>
 <section><h4>Review state</h4><div class="grid">${swatchRow(["accent", "accentSoft", "reviewed"])}</div></section>
 <section><h4>Syntax (diff code)</h4><div class="grid">${swatchRow(["synKeyword", "synString", "synFunc", "synType", "synConst", "synComment"])}</div></section>
 <section><h4>Surfaces</h4><div class="grid">${swatchRow(["bg", "panel", "border", "text", "muted", "codeBg"])}</div></section>

@@ -1,6 +1,7 @@
 import type { DiffLine, ParsedDiff } from "@/entity/diff"
 
-import { type CharRange, changedRangesForPair, pairChangedLines } from "./pairChangedLines"
+import { type CharRange, pairChangedLines } from "./pairChangedLines"
+import { changedWordRanges } from "./wordDiff"
 
 // Intra-line (character-level) diff emphasis (§10). A pure view-layer transform over the parse,
 // like hideWhitespaceOnly and sideBySideRows: within each hunk it works out which removed line
@@ -19,12 +20,13 @@ export type { CharRange } from "./pairChangedLines"
 // is absent rather than mapped to an empty array, so a lookup miss is the common case.
 export type IntraLineRanges = Map<number, CharRange[]>
 
-// A side with an empty span only lost or gained text there (a pure insertion or deletion inside
-// the line) — there is nothing to paint on it, so it stays out of the map.
-function recordRange(ranges: IntraLineRanges, lineIndex: number, range: CharRange): void {
-  if (range.end <= range.start) return
+// A side with no non-empty span only lost or gained text there (a pure insertion or deletion
+// inside the line) — there is nothing to paint on it, so it stays out of the map.
+function recordRanges(ranges: IntraLineRanges, lineIndex: number, lineRanges: CharRange[]): void {
+  const painted = lineRanges.filter((range) => range.end > range.start)
+  if (painted.length === 0) return
 
-  ranges.set(lineIndex, [range])
+  ranges.set(lineIndex, painted)
 }
 
 function recordRegion(
@@ -43,11 +45,11 @@ function recordRegion(
     const addLineIndex = addIndices[addIndex]!
 
     // Null here means the pair is identical — aligned, but with nothing to emphasize.
-    const changed = changedRangesForPair(lines[delLineIndex]!.content, lines[addLineIndex]!.content)
+    const changed = changedWordRanges(lines[delLineIndex]!.content, lines[addLineIndex]!.content)
     if (!changed) continue
 
-    recordRange(ranges, delLineIndex, changed.before)
-    recordRange(ranges, addLineIndex, changed.after)
+    recordRanges(ranges, delLineIndex, changed.before)
+    recordRanges(ranges, addLineIndex, changed.after)
   }
 }
 

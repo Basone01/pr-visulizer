@@ -14,6 +14,9 @@
   --modified-soft: #fff8c5;
   --deleted: #cf222e;
   --deleted-soft: #ffebe9;
+  --changed: #8250df;
+  --changed-soft: #f3eafc;
+  --changed-word: #e6d3f8;
   --reviewed: #8c959f;
   --syn-keyword: #cf222e;
   --syn-string: #0a3069;
@@ -37,6 +40,9 @@
   --modified-soft: #3a2c1a;
   --deleted: #ff5555;
   --deleted-soft: #3b1d22;
+  --changed: #bd93f9;
+  --changed-soft: #2f2840;
+  --changed-word: #46365f;
   --reviewed: #565f7d;
   --syn-keyword: #ff79c6;
   --syn-string: #f1fa8c;
@@ -60,6 +66,9 @@
   --modified-soft: #fff8c5;
   --deleted: #cf222e;
   --deleted-soft: #ffebe9;
+  --changed: #8250df;
+  --changed-soft: #f3eafc;
+  --changed-word: #e6d3f8;
   --reviewed: #8c959f;
   --syn-keyword: #cf222e;
   --syn-string: #0a3069;
@@ -83,6 +92,9 @@
   --modified-soft: #3a2c1a;
   --deleted: #ff5555;
   --deleted-soft: #3b1d22;
+  --changed: #bd93f9;
+  --changed-soft: #2f2840;
+  --changed-word: #46365f;
   --reviewed: #565f7d;
   --syn-keyword: #ff79c6;
   --syn-string: #f1fa8c;

@@ -142,19 +142,19 @@ describe("DiffPane intra-line diff toggle", () => {
     expect(container.textContent).toContain("sum(rows)")
   })
 
-  it("emphasizes only the differing characters on each side of the pair", async () => {
+  it("emphasizes only the changed word on each side of the pair", async () => {
     // Arrange
     const user = userEvent.setup()
     const { container } = renderWithQuery()
     await waitFor(() => expect(container.textContent).toContain("sum(items)"))
-    const expectedRemoved = ["item"]
-    const expectedAdded = ["row"]
+    const expectedRemoved = ["items"]
+    const expectedAdded = ["rows"]
 
     // Act
     await user.click(screen.getByRole("button", { name: "Highlight changed characters" }))
 
-    // Assert — the shared prefix, the shared "s)" suffix and the untouched context line are all
-    // left alone; the lines themselves still read in full.
+    // Assert — the emphasis is word-level: the whole changed word, while "const total = sum(", ")"
+    // and the untouched context line are all left alone; the lines themselves still read in full.
     expect(emphasizedText(container, styles.charDel)).toEqual(expectedRemoved)
     expect(emphasizedText(container, styles.charAdd)).toEqual(expectedAdded)
     expect(container.textContent).toContain("const total = sum(items)")
@@ -177,26 +177,23 @@ describe("DiffPane intra-line diff toggle", () => {
     expect(token?.getAttribute("style")).toContain(expectedColor)
   })
 
-  it("emphasizes each column's own side in the side-by-side view", async () => {
+  it("emphasizes each pane's own side in the side-by-side view", async () => {
     // Arrange
     const user = userEvent.setup()
     const { container } = renderWithQuery()
     await waitFor(() => expect(container.textContent).toContain("sum(items)"))
-    const baseColumn = 0
-    const headColumn = 1
+    const expectedRemoved = "items"
+    const expectedAdded = "rows"
 
-    // Act — both toggles on: the emphasis has to follow each line into its own column.
+    // Act — both toggles on: the emphasis has to follow each line into its own pane.
     await user.click(screen.getByRole("button", { name: "Side-by-side view" }))
     await user.click(screen.getByRole("button", { name: "Highlight changed characters" }))
 
     // Assert
-    const removed = container.querySelector(charSelector(styles.charDel))?.closest("td")
-    const added = container.querySelector(charSelector(styles.charAdd))?.closest("td")
-    const removedRow = removed?.closest("tr") as HTMLTableRowElement
-    expect([...removedRow.cells].indexOf(removed as HTMLTableCellElement)).toBe(baseColumn)
-    expect([...removedRow.cells].indexOf(added as HTMLTableCellElement)).toBe(headColumn)
-    expect(removed?.textContent).toContain("item")
-    expect(added?.textContent).toContain("row")
+    const basePane = screen.getByRole("region", { name: "Base version" })
+    const headPane = screen.getByRole("region", { name: "Head version" })
+    expect(basePane.querySelector(charSelector(styles.charDel))?.textContent).toBe(expectedRemoved)
+    expect(headPane.querySelector(charSelector(styles.charAdd))?.textContent).toBe(expectedAdded)
   })
 })
 

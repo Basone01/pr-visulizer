@@ -29,11 +29,7 @@ import { buildBaseFileText, buildFullFileView } from "@/utils/diff/fullFileView"
 import { hideWhitespaceOnly } from "@/utils/diff/hideWhitespaceOnly"
 import { buildIntraLineRanges } from "@/utils/diff/intraLineDiff"
 import { parseUnifiedDiff } from "@/utils/diff/parseUnifiedDiff"
-import {
-  type SideBySideCell,
-  buildSideBySideRows,
-  findRowForLineIndex,
-} from "@/utils/diff/sideBySideRows"
+import { type SplitCell, buildSplitView } from "@/utils/diff/splitBlocks"
 import { openExternalUrl } from "@/utils/externalLink/openExternal"
 import { diffMarkdownBlocks } from "@/utils/markdown/markdownBlockDiff"
 import { isMarkdownPath } from "@/utils/markdown/markdownPath"
@@ -78,6 +74,7 @@ import { FileHistoryPopover } from "./FileHistoryPopover"
 import { FindBar } from "./FindBar"
 import { GeneratedNotice, OmittedDiffNotice, PatchLoadError } from "./PatchStates"
 import { PeekPopup } from "./PeekPopup"
+import { SplitDiffView } from "./SplitDiffView"
 import { UsagesPopover } from "./UsagesPopover"
 
 // The composer is anchored to one head line (the range's end) and is either a fresh draft on
@@ -459,26 +456,19 @@ export function DiffPane({
   )
 
   // The last transform in the chain, and the only one that changes the render SHAPE rather than
-  // the line list: base-left / head-right pairs over whatever full-file and hide-whitespace
-  // produced. null in inline mode, so the flat line list stays the thing being rendered.
-  const splitRows = useMemo(
-    () =>
-      settings.splitView && shownDiff ? buildSideBySideRows({ lines: shownDiff.lines }) : null,
+  // the line list: a base pane, a head pane and the change blocks joining them, over whatever
+  // full-file and hide-whitespace produced. null in inline mode, so the flat list is rendered.
+  const splitView = useMemo(
+    () => (settings.splitView && shownDiff ? buildSplitView({ lines: shownDiff.lines }) : null),
     [settings.splitView, shownDiff]
   )
 
-  // Everything above addresses rows by FLAT line index; pairing breaks that correspondence (an
-  // added line can share a row with a deletion three lines earlier), so the mount budget — which
-  // counts rendered rows — gets the translated index.
-  const renderRowCount = splitRows ? splitRows.length : (shownDiff?.lines.length ?? 0)
-  const requiredRenderRow = splitRows ? findRowForLineIndex(splitRows, requiredRow) : requiredRow
-
-  // The mode rides in the key: switching it changes what a row IS, so growth restarts rather than
-  // carrying a flat-line budget over to a shorter paired list.
+  // Both modes mount by FLAT line index: the split panes each render the cells below the budget,
+  // and since a side's flat indices only grow, that is always a prefix of each pane.
   const mountedRows = useProgressiveRows(
     `${shownDiff?.path ?? ""}${settings.splitView ? ":split" : ""}`,
-    renderRowCount,
-    requiredRenderRow
+    shownDiff?.lines.length ?? 0,
+    requiredRow
   )
 
   // Scroll the current match into view once its row is mounted (requiredRow forces the mount in
@@ -696,7 +686,7 @@ export function DiffPane({
   // One code line, one rendering: the inline row and BOTH side-by-side columns come through here,
   // so a line never has a second copy of its markup to keep in sync. `gutterSide` is the only
   // difference — the base column shows the base number and drops the head-anchored annotations.
-  function renderLine(cell: SideBySideCell, path: string, gutterSide: "head" | "base"): ReactNode {
+  function renderLine(cell: SplitCell, path: string, gutterSide: "head" | "base"): ReactNode {
     const headLine = cell.line.newLine
     const anchors = headLine !== null ? anchorsForLine(anchorIndex, path, headLine) : NO_ANCHORS
     const isFlash = flash !== null && flash.path === path && flash.line === headLine
@@ -748,8 +738,8 @@ export function DiffPane({
   }
 
   // The three things that open UNDER a row — composer, peek, usages — all anchor to a head line,
-  // so both modes place them by that line and split mode simply spans them across both columns.
-  // Returns null when the row has none, so split mode adds no empty table rows.
+  // so both modes place them by that line, and split mode opens them under the head pane's line.
+  // Returns null when the row has none.
   function renderRowOverlays(headLine: number | null): ReactNode {
     if (headLine === null) return null
 
@@ -1107,7 +1097,9 @@ export function DiffPane({
           <div
             ref={diffScrollRef}
             tabIndex={-1}
-            className={`${styles.diff} ${settings.wrap ? styles.diffWrap : ""}`}
+            className={`${styles.diff} ${settings.wrap ? styles.diffWrap : ""} ${
+              splitView ? styles.diffSplit : ""
+            }`}
             style={
               gutterWidth ? ({ "--gutter-width": gutterWidth } as React.CSSProperties) : undefined
             }
@@ -1199,7 +1191,7 @@ export function DiffPane({
               !shownDiff && <div className={styles.empty}>Loading diff…</div>}
 
             {shownDiff &&
-              !splitRows &&
+              !splitView &&
               shownDiff.lines.slice(0, mountedRows).map((line, index) => (
                 <Fragment key={index}>
                   {renderLine({ line, index }, shownDiff.path, "head")}
@@ -1207,49 +1199,13 @@ export function DiffPane({
                 </Fragment>
               ))}
 
-            {shownDiff && splitRows && (
-              <table className={styles.split}>
-                <tbody>
-                  {splitRows.slice(0, mountedRows).map((row, rowIndex) => {
-                    // A hunk header belongs to neither side — it spans the table like the separator
-                    // it is, and keeps the head gutter so find still resolves it.
-                    if (row.kind === "hunk") {
-                      return (
-                        <tr key={rowIndex}>
-                          <td className={styles.splitCell} colSpan={2}>
-                            {renderLine(row.header, shownDiff.path, "head")}
-                          </td>
-                        </tr>
-                      )
-                    }
-
-                    const overlays = renderRowOverlays(row.right?.line.newLine ?? null)
-
-                    return (
-                      <Fragment key={rowIndex}>
-                        <tr>
-                          <td
-                            className={`${styles.splitCell} ${row.left ? "" : styles.splitFiller}`}
-                          >
-                            {row.left && renderLine(row.left, shownDiff.path, "base")}
-                          </td>
-                          <td
-                            className={`${styles.splitCell} ${row.right ? "" : styles.splitFiller}`}
-                          >
-                            {row.right && renderLine(row.right, shownDiff.path, "head")}
-                          </td>
-                        </tr>
-
-                        {overlays && (
-                          <tr>
-                            <td colSpan={2}>{overlays}</td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
+            {shownDiff && splitView && (
+              <SplitDiffView
+                view={splitView}
+                mountedLineCount={mountedRows}
+                renderLine={(cell, gutterSide) => renderLine(cell, shownDiff.path, gutterSide)}
+                renderOverlays={renderRowOverlays}
+              />
             )}
           </div>
         )}

@@ -399,40 +399,148 @@
   overflow-wrap: anywhere;
 }
 
-/* Side-by-side (split) view (§10): a real table, so the two columns stay aligned across every row
-   AND size to their widest line. The alternative — a flex/grid row per line — would need one
-   horizontal scroll container per row (a scrollbar on every long line) or would clip the overflow;
-   the table keeps the SINGLE horizontal scrollbar `.diff` already provides for the inline view. */
-.split {
-  border-collapse: collapse;
-  min-width: 100%;
-}
-
-/* 50% is a floor, not a cap: with auto table layout a column wider than half the pane pushes the
-   table past 100% and `.diff` scrolls, exactly as the inline view does for one long line. */
-.splitCell {
-  width: 50%;
-  vertical-align: top;
+/* Side-by-side (split) view (§10), JetBrains style: two panes that each scroll on their own, kept
+   in step by SplitDiffView, with a ribbon gutter between them and a change map on the right.
+   `.diff` stops scrolling itself in this mode — the panes do — so it becomes a flex column that
+   hands its whole height to the view. */
+.diffSplit {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 0;
 }
 
-/* `.content` carries `min-width: 0` so wrap mode can shrink it. Inside a table cell that also lets
-   it shrink BELOW a long line's width — the cell then clips instead of widening the table, and the
-   line becomes unreadable with no way to scroll to it. Re-assert max-content in split mode so the
-   line's true width reaches the table; `:not(.diffWrap)` keeps wrap mode free to shrink again. */
-.diff:not(.diffWrap) .splitCell .content {
-  min-width: max-content;
+.splitView {
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 
-/* The gutter between base and head — without it the eye drifts across the two columns. */
-.splitCell + .splitCell {
+.splitPane {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+/* `relative` makes this the offsetParent every row is measured against, so a row's offsetTop is
+   its position in the pane's CONTENT, the unit the ribbons and the scroll map work in.
+   `max-content` lets the widest line set the row width, so a row's tint runs under all of it
+   while the pane scrolls sideways; `min-width: 100%` keeps short files full width. */
+.splitContent {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+}
+
+.diffWrap .splitContent {
+  width: auto;
+}
+
+.splitRow {
+  display: flex;
+}
+
+.splitRow > .line {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The ≠ / + / − column, left of the line number, like the reference. */
+.splitMarker {
+  flex: 0 0 14px;
+  text-align: center;
+  color: var(--muted);
+  user-select: none;
+}
+
+/* One tone per block kind. Each kind sets the same three custom properties, and every rule below
+   reads them, so a row, its marker, its ribbon and its insertion line always agree. Deleted keeps
+   the app's red (owner's call), inserted the app's green, modified is the new violet. */
+[data-block="modified"] {
+  --block-bg: var(--changed-soft);
+  --block-edge: var(--changed);
+  --block-word: var(--changed-word);
+}
+
+[data-block="inserted"] {
+  --block-bg: var(--added-soft);
+  --block-edge: var(--added);
+}
+
+[data-block="deleted"] {
+  --block-bg: var(--deleted-soft);
+  --block-edge: var(--deleted);
+}
+
+/* The row tint overrides the line's own add/del ground: in this view a modified line is violet
+   on BOTH sides, because the ribbon (not the colour) now says which side is before and after. */
+.splitRow[data-block] .line {
+  background: var(--block-bg);
+}
+
+.splitRow[data-block] .splitMarker {
+  color: var(--block-edge);
+  background: var(--block-bg);
+}
+
+/* A modified block paints its changed words as a solid, deeper violet, like the reference. No
+   outline: the fill alone measures 1.20:1 light / 1.30:1 dark against the row, while code text
+   keeps 11.3:1 light / 10.1:1 dark on it (dark keywords 4.51:1). */
+.splitRow[data-block="modified"] .charRun {
+  background: var(--block-word);
+  box-shadow: none;
+  border-radius: 2px;
+}
+
+/* The point on the empty side where lines were inserted or removed: a 2px rule in the block's
+   edge colour, drawn outside the flow so it shifts nothing. The ribbon's wedge lands on it. */
+.splitGap {
+  position: relative;
+  height: 0;
+}
+
+.splitGap::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: 2px;
+  background: var(--block-edge);
+}
+
+.splitRibbons {
+  flex: 0 0 auto;
+  height: 100%;
+  overflow: hidden;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.splitRibbon {
+  fill: var(--block-bg);
+  stroke: var(--block-edge);
+  stroke-width: 1;
+  stroke-opacity: 0.5;
+}
+
+/* Where every change sits in the head file, at a glance, like an IDE scrollbar. */
+.changeMap {
+  flex: 0 0 10px;
+  position: relative;
+  background: var(--code-bg);
   border-left: 1px solid var(--border);
 }
 
-/* The empty half of an unpaired change (3 lines removed, 1 added): tinted as inert so it reads as
-   "nothing here", not as an unchanged blank line of code. */
-.splitFiller {
-  background: var(--code-bg);
+.changeMapMark {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  background: var(--block-edge);
+  border-radius: 1px;
+  cursor: pointer;
 }
 
 .lineAdd {
@@ -573,10 +681,16 @@
 
 /* The line-number gutter doubles as the range-selection handle (task 5): a bare button so
    it stays keyboard-reachable while looking exactly like the number it replaces. */
+/* `padding-block: 0` and `align-self: flex-start` make the button exactly one code line tall, the
+   same as the base side's plain-span gutter. A button's default padding made every head row 2px
+   taller, so the split view's two panes drifted apart line by line, and a wrapped line had its
+   number centred instead of on its first row. */
 .gutterButton {
   flex: 0 0 auto;
+  align-self: flex-start;
   width: var(--gutter-width, 30px);
   text-align: right;
+  padding-block: 0;
   padding-right: 8px;
   color: var(--muted);
   user-select: none;
