@@ -1,4 +1,10 @@
 .root {
+  /* The shell is the window: nothing inside may make the document taller. An absolute element
+     with no positioned ancestor (a screen-reader-only label in a scrolled-away tray row) would
+     otherwise escape its pane's clip, grow the page, and let a scroll shift the whole app up.
+     clip, not hidden: hidden would still be a scroll container that scrollIntoView can move. */
+  position: relative;
+  overflow: clip;
   display: flex;
   flex-direction: column;
   height: 100vh;
