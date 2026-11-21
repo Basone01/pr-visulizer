@@ -456,21 +456,23 @@
 
 /* One tone per block kind. Each kind sets the same three custom properties, and every rule below
    reads them, so a row, its marker, its ribbon and its insertion line always agree. Deleted keeps
-   the app's red (owner's call), inserted the app's green, modified is the new violet. */
+   the app's red (owner's call), inserted the app's green, modified is the new violet.
+   The edge is the strong token mixed half into the panel: the full token (Dracula #50fa7b in dark)
+   glowed as a bright line across the pane and pulled the eye away from the code. */
 [data-block="modified"] {
   --block-bg: var(--changed-soft);
-  --block-edge: var(--changed);
+  --block-edge: color-mix(in srgb, var(--changed) 50%, var(--panel));
   --block-word: var(--changed-word);
 }
 
 [data-block="inserted"] {
   --block-bg: var(--added-soft);
-  --block-edge: var(--added);
+  --block-edge: color-mix(in srgb, var(--added) 50%, var(--panel));
 }
 
 [data-block="deleted"] {
   --block-bg: var(--deleted-soft);
-  --block-edge: var(--deleted);
+  --block-edge: color-mix(in srgb, var(--deleted) 50%, var(--panel));
 }
 
 /* The row tint overrides the line's own add/del ground: in this view a modified line is violet
@@ -493,7 +495,7 @@
   border-radius: 2px;
 }
 
-/* The point on the empty side where lines were inserted or removed: a 2px rule in the block's
+/* The point on the empty side where lines were inserted or removed: a 1px rule in the block's
    edge colour, drawn outside the flow so it shifts nothing. The ribbon's wedge lands on it. */
 .splitGap {
   position: relative;
@@ -505,8 +507,8 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: -1px;
-  height: 2px;
+  top: 0;
+  height: 1px;
   background: var(--block-edge);
 }
 
