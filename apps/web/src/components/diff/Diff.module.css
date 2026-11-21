@@ -14,10 +14,14 @@
   gap: 4px;
 }
 
+/* Wraps whole tool groups onto a second line when the pane is narrower than the toolbar (the
+   diff pane's minimum is 320px, the toolbar about 420px), instead of pushing the last group,
+   "hide diff panel" included, out of the pane where it can't be reached. */
 .headerRow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 4px 10px;
 }
 
 /* Toolbar buttons cluster into three groups (view+github | review | hide). A left border on
