@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest"
 
 import {
   type BlockEdges,
+  type PaneFrame,
+  type ScreenSpan,
+  edgesInViewport,
   followerScrollTop,
   isBlockVisible,
   mapAcross,
   ribbonPath,
   scrollAnchors,
+  toContentSpan,
 } from "./splitGeometry"
 
 // The promise: both panes scroll in sync so a ribbon keeps joining the lines it pairs.
@@ -180,5 +184,142 @@ describe("scrollAnchors — context lines line up even when they wrap differentl
     // Assert
     const expected = 3 * LINE
     expect(rightY).toBe(expected)
+  })
+})
+
+// The promise: each ribbon's end points sit exactly on the top and bottom of its block's rows on
+// that side, in both panes, after either pane scrolls, and with wrapped (taller) rows.
+//
+// A tiny model of what the browser reports. A pane starts at `paneTop` on screen, has `padding`
+// above its first row, and each row sits `contentTop` px into the content. getBoundingClientRect
+// then gives paneTop + padding + contentTop - scrollTop. The ribbon surface shares the pane's top.
+type ModelPane = { paneTop: number; padding: number; scrollTop: number }
+type ModelRow = { contentTop: number; height: number }
+
+const PANE_TOP = 163.5
+const PANE_PADDING = 4
+const ROW = 20.4
+
+function screenSpanOf(row: ModelRow, pane: ModelPane): ScreenSpan {
+  const top = pane.paneTop + pane.padding + row.contentTop - pane.scrollTop
+
+  return { top, bottom: top + row.height }
+}
+
+function frameOf(pane: ModelPane): PaneFrame {
+  return { surfaceTop: pane.paneTop, scrollTop: pane.scrollTop }
+}
+
+// Measure a block once at `measuredAt`, the way SplitDiffView does after a render.
+function measureBlock(
+  left: ModelRow,
+  right: ModelRow,
+  leftPane: ModelPane,
+  rightPane: ModelPane
+): BlockEdges {
+  const leftSpan = toContentSpan(screenSpanOf(left, leftPane), frameOf(leftPane))
+  const rightSpan = toContentSpan(screenSpanOf(right, rightPane), frameOf(rightPane))
+
+  return {
+    leftTop: leftSpan.top,
+    leftBottom: leftSpan.bottom,
+    rightTop: rightSpan.top,
+    rightBottom: rightSpan.bottom,
+  }
+}
+
+// Where the rows really are on the ribbon surface at the current scroll: the expected ribbon ends.
+function rowEdgesOnSurface(
+  left: ModelRow,
+  right: ModelRow,
+  leftPane: ModelPane,
+  rightPane: ModelPane
+): BlockEdges {
+  const leftSpan = screenSpanOf(left, leftPane)
+  const rightSpan = screenSpanOf(right, rightPane)
+
+  return {
+    leftTop: leftSpan.top - leftPane.paneTop,
+    leftBottom: leftSpan.bottom - leftPane.paneTop,
+    rightTop: rightSpan.top - rightPane.paneTop,
+    rightBottom: rightSpan.bottom - rightPane.paneTop,
+  }
+}
+
+// Fractional rows (20.4px) leave float noise in the last digits, so both sides are compared at a
+// thousandth of a pixel, far below anything a screen can show.
+function toThousandths(edges: BlockEdges): BlockEdges {
+  const round = (value: number): number => Math.round(value * 1000) / 1000
+
+  return {
+    leftTop: round(edges.leftTop),
+    leftBottom: round(edges.leftBottom),
+    rightTop: round(edges.rightTop),
+    rightBottom: round(edges.rightBottom),
+  }
+}
+
+describe("toContentSpan — each ribbon ends exactly on its block's rows", () => {
+  // Base line 487 (one row) became head line 487 (one row), one inserted line further down.
+  const leftRow: ModelRow = { contentTop: 486 * ROW, height: ROW }
+  const rightRow: ModelRow = { contentTop: 487 * ROW, height: ROW }
+
+  it("meets both rows at the scroll it was measured at, pane padding included", () => {
+    // Arrange
+    const leftPane: ModelPane = { paneTop: PANE_TOP, padding: PANE_PADDING, scrollTop: 9600 }
+    const rightPane: ModelPane = { paneTop: PANE_TOP, padding: PANE_PADDING, scrollTop: 9620 }
+    const edges = measureBlock(leftRow, rightRow, leftPane, rightPane)
+
+    // Act
+    const drawn = edgesInViewport(edges, leftPane.scrollTop, rightPane.scrollTop)
+
+    // Assert
+    const expected = rowEdgesOnSurface(leftRow, rightRow, leftPane, rightPane)
+    expect(toThousandths(drawn)).toEqual(toThousandths(expected))
+  })
+
+  it("still meets both rows after the LEFT pane scrolls", () => {
+    // Arrange
+    const leftPane: ModelPane = { paneTop: PANE_TOP, padding: PANE_PADDING, scrollTop: 9600 }
+    const rightPane: ModelPane = { paneTop: PANE_TOP, padding: PANE_PADDING, scrollTop: 9620 }
+    const edges = measureBlock(leftRow, rightRow, leftPane, rightPane)
+    const scrolledLeft: ModelPane = { ...leftPane, scrollTop: 9587.5 }
+
+    // Act
+    const drawn = edgesInViewport(edges, scrolledLeft.scrollTop, rightPane.scrollTop)
+
+    // Assert
+    const expected = rowEdgesOnSurface(leftRow, rightRow, scrolledLeft, rightPane)
+    expect(toThousandths(drawn)).toEqual(toThousandths(expected))
+  })
+
+  it("still meets both rows after the RIGHT pane scrolls", () => {
+    // Arrange
+    const leftPane: ModelPane = { paneTop: PANE_TOP, padding: PANE_PADDING, scrollTop: 9600 }
+    const rightPane: ModelPane = { paneTop: PANE_TOP, padding: PANE_PADDING, scrollTop: 9620 }
+    const edges = measureBlock(leftRow, rightRow, leftPane, rightPane)
+    const scrolledRight: ModelPane = { ...rightPane, scrollTop: 9661.25 }
+
+    // Act
+    const drawn = edgesInViewport(edges, leftPane.scrollTop, scrolledRight.scrollTop)
+
+    // Assert
+    const expected = rowEdgesOnSurface(leftRow, rightRow, leftPane, scrolledRight)
+    expect(toThousandths(drawn)).toEqual(toThousandths(expected))
+  })
+
+  it("meets a wrapped row's full height, not one line of it", () => {
+    // Arrange — wrap on: the head line wraps onto three visual lines.
+    const wrappedRightRow: ModelRow = { contentTop: 487 * ROW, height: 3 * ROW }
+    const leftPane: ModelPane = { paneTop: PANE_TOP, padding: PANE_PADDING, scrollTop: 9600 }
+    const rightPane: ModelPane = { paneTop: PANE_TOP, padding: PANE_PADDING, scrollTop: 9620 }
+    const edges = measureBlock(leftRow, wrappedRightRow, leftPane, rightPane)
+
+    // Act
+    const drawn = edgesInViewport(edges, leftPane.scrollTop, rightPane.scrollTop)
+
+    // Assert
+    const expected = rowEdgesOnSurface(leftRow, wrappedRightRow, leftPane, rightPane)
+    expect(toThousandths(drawn)).toEqual(toThousandths(expected))
   })
 })

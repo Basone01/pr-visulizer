@@ -9,13 +9,16 @@ import type {
 } from "@/utils/diff/splitBlocks"
 import {
   type BlockEdges,
+  type PaneFrame,
   type PaneSide,
+  type ScreenSpan,
   type ScrollAnchor,
   edgesInViewport,
   followerScrollTop,
   isBlockVisible,
   ribbonPath,
   scrollAnchors,
+  toContentSpan,
 } from "@/utils/diff/splitGeometry"
 
 import styles from "./Diff.module.css"
@@ -73,33 +76,60 @@ function collectRows(content: HTMLElement): SideRows {
   return { rows, gaps }
 }
 
-function edgesOn(sideRows: SideRows, range: LineRange, blockIndex: number) {
+// One pane's rows converted into content coordinates against the ribbon surface (toContentSpan).
+type ContentSpanOf = (element: HTMLElement) => ScreenSpan
+
+function contentSpanReader(pane: HTMLElement, surface: SVGSVGElement): ContentSpanOf {
+  const frame: PaneFrame = {
+    surfaceTop: surface.getBoundingClientRect().top,
+    scrollTop: pane.scrollTop,
+  }
+
+  return (element) => {
+    const rect = element.getBoundingClientRect()
+
+    return toContentSpan({ top: rect.top, bottom: rect.bottom }, frame)
+  }
+}
+
+function edgesOn(
+  sideRows: SideRows,
+  range: LineRange,
+  blockIndex: number,
+  spanOf: ContentSpanOf
+): ScreenSpan | null {
   if (range.start === range.end) {
     const gap = sideRows.gaps.get(blockIndex)
     if (!gap) return null
 
-    return { top: gap.offsetTop, bottom: gap.offsetTop }
+    const point = spanOf(gap).top
+    return { top: point, bottom: point }
   }
 
   const first = sideRows.rows[range.start]
   const last = sideRows.rows[range.end - 1]
   if (!first || !last) return null
 
-  return { top: first.offsetTop, bottom: last.offsetTop + last.offsetHeight }
+  return { top: spanOf(first).top, bottom: spanOf(last).bottom }
 }
 
 // The two tops of every mounted context line. A context row carries its FLAT index, which is
 // the same on both sides because both render the same cell.
-function measureContextTops(leftContent: HTMLElement, rightContent: HTMLElement): ScrollAnchor[] {
+function measureContextTops(
+  leftContent: HTMLElement,
+  rightContent: HTMLElement,
+  leftSpanOf: ContentSpanOf,
+  rightSpanOf: ContentSpanOf
+): ScrollAnchor[] {
   const rightTops = new Map<string, number>()
   rightContent.querySelectorAll<HTMLElement>("[data-context]").forEach((row) => {
-    rightTops.set(row.dataset.context!, row.offsetTop)
+    rightTops.set(row.dataset.context!, rightSpanOf(row).top)
   })
 
   const tops: ScrollAnchor[] = []
   leftContent.querySelectorAll<HTMLElement>("[data-context]").forEach((row) => {
     const right = rightTops.get(row.dataset.context!)
-    if (right !== undefined) tops.push({ left: row.offsetTop, right })
+    if (right !== undefined) tops.push({ left: leftSpanOf(row).top, right })
   })
 
   return tops
@@ -110,14 +140,16 @@ function measureContextTops(leftContent: HTMLElement, rightContent: HTMLElement)
 function measureBlocks(
   blocks: ChangeBlock[],
   leftContent: HTMLElement,
-  rightContent: HTMLElement
+  rightContent: HTMLElement,
+  leftSpanOf: ContentSpanOf,
+  rightSpanOf: ContentSpanOf
 ): Array<BlockEdges | null> {
   const leftRows = collectRows(leftContent)
   const rightRows = collectRows(rightContent)
 
   return blocks.map((block, blockIndex) => {
-    const left = edgesOn(leftRows, block.left, blockIndex)
-    const right = edgesOn(rightRows, block.right, blockIndex)
+    const left = edgesOn(leftRows, block.left, blockIndex, leftSpanOf)
+    const right = edgesOn(rightRows, block.right, blockIndex, rightSpanOf)
     if (!left || !right) return null
 
     return {
@@ -147,6 +179,7 @@ export function SplitDiffView({
   const leftContentRef = useRef<HTMLDivElement>(null)
   const rightContentRef = useRef<HTMLDivElement>(null)
   const ribbonRefs = useRef<Array<SVGPathElement | null>>([])
+  const surfaceRef = useRef<SVGSVGElement>(null)
 
   // Measured once per layout change, read on every scroll frame.
   const edgesRef = useRef<Array<BlockEdges | null>>([])
@@ -189,13 +222,19 @@ export function SplitDiffView({
   const measure = useCallback(() => {
     const leftContent = leftContentRef.current
     const rightContent = rightContentRef.current
-    if (!leftContent || !rightContent) return
+    const leftPane = leftPaneRef.current
+    const rightPane = rightPaneRef.current
+    const surface = surfaceRef.current
+    if (!leftContent || !rightContent || !leftPane || !rightPane || !surface) return
 
-    const edges = measureBlocks(blocks, leftContent, rightContent)
+    const leftSpanOf = contentSpanReader(leftPane, surface)
+    const rightSpanOf = contentSpanReader(rightPane, surface)
+
+    const edges = measureBlocks(blocks, leftContent, rightContent, leftSpanOf, rightSpanOf)
     edgesRef.current = edges
     anchorsRef.current = scrollAnchors(
       edges.filter((edge): edge is BlockEdges => edge !== null),
-      measureContextTops(leftContent, rightContent)
+      measureContextTops(leftContent, rightContent, leftSpanOf, rightSpanOf)
     )
     drawRibbons()
   }, [blocks, drawRibbons])
@@ -322,7 +361,7 @@ export function SplitDiffView({
         </div>
       </div>
 
-      <svg className={styles.splitRibbons} width={GUTTER_WIDTH} aria-hidden="true">
+      <svg ref={surfaceRef} className={styles.splitRibbons} width={GUTTER_WIDTH} aria-hidden="true">
         {blocks.map((block, blockIndex) => (
           <path
             key={blockIndex}
