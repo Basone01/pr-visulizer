@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 
 import { getAppStorage } from "@/service/clientFactory"
 
@@ -20,9 +20,12 @@ export const MIN_CODEX_PANE = 280
 export const MIN_CODEX_HEIGHT = 220
 
 const STORAGE_KEY = "panelSizes"
+// Matches the `max-width: 1100px` media query in AppShell.module.css, where Codex stacks under
+// the review instead of sitting beside it.
 const WIDE_LAYOUT_BREAKPOINT = 1100
-const WIDE_LAYOUT_DIVIDERS = 18
 const PANE_DIVIDER_WIDTH = 6
+// The graph and tray dividers inside the review shell.
+const SHELL_DIVIDERS_WIDTH = 2 * PANE_DIVIDER_WIDTH
 
 // The single source of truth for a side pane's legal width. Used by BOTH the live drag
 // (PaneDivider) and the committed value here, so the pane never snaps on release: what the
@@ -58,14 +61,19 @@ function clampToWindow(sizes: PanelSizes): PanelSizes {
 
 // Derived on every render and never stored, so a wide Codex pane or a small window only narrows
 // the side panes while it lasts. The saved widths come back when the room does.
-function fitSidePanesToWindow(sizes: PanelSizes): PanelSizes {
-  if (window.innerWidth <= WIDE_LAYOUT_BREAKPOINT) return sizes
+// Side panes never shrink on their own (flex: 0 0 auto), so this fit is what keeps the diff on
+// screen, in both layouts. Below the point where every pane fits at its minimum, the diff still
+// fits and the shell scrolls sideways to reach the tray.
+export function fitSidePanesToWindow(sizes: PanelSizes, windowWidth: number): PanelSizes {
+  const isWideLayout = windowWidth > WIDE_LAYOUT_BREAKPOINT
+  // In the narrow layout Codex stacks under the review, so it takes no width from this row.
+  const codexWidth = isWideLayout ? sizes.codex + PANE_DIVIDER_WIDTH : 0
 
-  // Wide layouts keep all three docked panes visible. Fit their saved widths before CSS
-  // lays them out so flexbox never shrinks a different pane than the one the reviewer resized.
+  // Fit the saved widths before CSS lays them out so flexbox never shrinks a different pane
+  // than the one the reviewer resized.
   const availableSideWidth = Math.max(
     MIN_SIDE_PANE * 2,
-    window.innerWidth - sizes.codex - MIN_CENTER_PANE - WIDE_LAYOUT_DIVIDERS
+    windowWidth - codexWidth - MIN_CENTER_PANE - SHELL_DIVIDERS_WIDTH
   )
   const graph = Math.min(sizes.graph, availableSideWidth - MIN_SIDE_PANE)
   const tray = Math.min(sizes.tray, availableSideWidth - graph)
@@ -73,10 +81,22 @@ function fitSidePanesToWindow(sizes: PanelSizes): PanelSizes {
   return { ...sizes, graph, tray }
 }
 
+function subscribeToWindowResize(onResize: () => void): () => void {
+  window.addEventListener("resize", onResize)
+  return () => window.removeEventListener("resize", onResize)
+}
+
+function readWindowWidth(): number {
+  return window.innerWidth
+}
+
 export function usePanelSizes() {
   // The reviewer's saved widths. What the panes render at is fitted from these on the way out.
   const [sizes, setSizes] = useState<PanelSizes>(DEFAULT_PANEL_SIZES)
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Re-renders on window resize, so the fit below follows the window instead of waiting for
+  // an unrelated render.
+  const windowWidth = useSyncExternalStore(subscribeToWindowResize, readWindowWidth)
 
   useEffect(() => {
     void getAppStorage()
@@ -124,5 +144,5 @@ export function usePanelSizes() {
     commit(DEFAULT_PANEL_SIZES)
   }
 
-  return { sizes: fitSidePanesToWindow(sizes), commit, reset }
+  return { sizes: fitSidePanesToWindow(sizes, windowWidth), commit, reset }
 }

@@ -146,56 +146,65 @@ export const DiffLine = memo(function DiffLine({
       ) : (
         <span className={styles.gutter}>{line.oldLine ?? ""}</span>
       )}
-      <CodeContent
-        text={line.content}
-        tokenizer={tokenizer}
-        anchors={shownAnchors}
-        onAnchorClick={onAnchorClick}
-        charRanges={charRanges}
-        charClass={CHAR_CLASS[line.kind]}
-      />
-      {line.wsOnly && showAnnotations && (
-        <span className={styles.wsOnly} title="whitespace-only change hidden">
-          ●
-        </span>
-      )}
-      {definition && (
-        <button className={styles.pill} onClick={() => onShowUsages(definition)}>
-          {definition.usages.length} usages in this PR
-        </button>
-      )}
-      {showAnnotations && headLine !== null && threadsOnLine.length > 0 && (
-        <button
-          type="button"
-          className={styles.threadMarker}
-          // A count only when there's more than one comment on the line, per the spec — a lone
-          // comment just shows the bubble. Counts COMMENTS across the line's threads (replies
-          // included), so "🗨 3" means three comments to read here.
-          aria-label={`${commentCountOf(threadsOnLine)} existing comment(s) on line ${headLine}`}
-          title="Show existing review comments"
-          onClick={() => onToggleThread?.(headLine)}
-        >
-          🗨{commentCountOf(threadsOnLine) > 1 ? ` ${commentCountOf(threadsOnLine)}` : ""}
-        </button>
-      )}
-      {showAnnotations &&
-        draftsOnLine.map((draft, index) => (
-          <span key={index} className={styles.draftMarker}>
-            <span className={styles.draftPill} title={draft.body}>
-              💬 draft
-            </span>
-            <button type="button" className={styles.draftAction} onClick={() => onEditDraft(draft)}>
-              edit
-            </button>
-            <button
-              type="button"
-              className={styles.draftAction}
-              onClick={() => onDeleteDraft(draft)}
-            >
-              delete
-            </button>
+      {/* The code and its annotations share one box beside the gutter, so in wrap mode an
+          annotation that no longer fits drops to its own line UNDER the code, not under the
+          line number (see .lineBody). */}
+      <span className={styles.lineBody}>
+        <CodeContent
+          text={line.content}
+          tokenizer={tokenizer}
+          anchors={shownAnchors}
+          onAnchorClick={onAnchorClick}
+          charRanges={charRanges}
+          charClass={CHAR_CLASS[line.kind]}
+        />
+        {line.wsOnly && showAnnotations && (
+          <span className={styles.wsOnly} title="whitespace-only change hidden">
+            ●
           </span>
-        ))}
+        )}
+        {definition && (
+          <button className={styles.pill} onClick={() => onShowUsages(definition)}>
+            {definition.usages.length} usages in this PR
+          </button>
+        )}
+        {showAnnotations && headLine !== null && threadsOnLine.length > 0 && (
+          <button
+            type="button"
+            className={styles.threadMarker}
+            // A count only when there's more than one comment on the line, per the spec — a lone
+            // comment just shows the bubble. Counts COMMENTS across the line's threads (replies
+            // included), so "🗨 3" means three comments to read here.
+            aria-label={`${commentCountOf(threadsOnLine)} existing comment(s) on line ${headLine}`}
+            title="Show existing review comments"
+            onClick={() => onToggleThread?.(headLine)}
+          >
+            🗨{commentCountOf(threadsOnLine) > 1 ? ` ${commentCountOf(threadsOnLine)}` : ""}
+          </button>
+        )}
+        {showAnnotations &&
+          draftsOnLine.map((draft, index) => (
+            <span key={index} className={styles.draftMarker}>
+              <span className={styles.draftPill} title={draft.body}>
+                💬 draft
+              </span>
+              <button
+                type="button"
+                className={styles.draftAction}
+                onClick={() => onEditDraft(draft)}
+              >
+                edit
+              </button>
+              <button
+                type="button"
+                className={styles.draftAction}
+                onClick={() => onDeleteDraft(draft)}
+              >
+                delete
+              </button>
+            </span>
+          ))}
+      </span>
     </div>
   )
 })

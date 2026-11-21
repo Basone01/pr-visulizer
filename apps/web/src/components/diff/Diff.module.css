@@ -14,10 +14,14 @@
   gap: 4px;
 }
 
+/* Wraps whole tool groups onto a second line when the pane is narrower than the toolbar (the
+   diff pane's minimum is 320px, the toolbar about 420px), instead of pushing the last group,
+   "hide diff panel" included, out of the pane where it can't be reached. */
 .headerRow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 4px 10px;
 }
 
 /* Toolbar buttons cluster into three groups (view+github | review | hide). A left border on
@@ -399,6 +403,30 @@
   overflow-wrap: anywhere;
 }
 
+/* Wrap mode: the code keeps a readable width next to its annotations. Before this, the code
+   (flex-basis 0) got only what the "N usages" pill left over, and the pill never shrinks (its
+   label is unbreakable), so a narrow pane squeezed the code to a one-character column.
+   Now the code asks for a readable width as its basis, and the body wraps: when code and pill
+   no longer fit on one line, the pill drops below the code. At normal widths both still fit,
+   and the code grows into the same space as before. `min()` keeps a pane narrower than the
+   readable width from overflowing. */
+.diffWrap .lineBody {
+  --code-readable-width: 40ch;
+  flex-wrap: wrap;
+}
+
+.diffWrap .lineBody > .content {
+  flex: 1 1 min(var(--code-readable-width), 100%);
+}
+
+/* On its own line in a pane narrower than its label, the pill shortens with an ellipsis instead
+   of spilling past the pane edge. The count comes first in the label, so it stays visible. */
+.diffWrap .pill {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Side-by-side (split) view (§10), JetBrains style: two panes that each scroll on their own, kept
    in step by SplitDiffView, with a ribbon gutter between them and a change map on the right.
    `.diff` stops scrolling itself in this mode — the panes do — so it becomes a flex column that
@@ -639,6 +667,15 @@
 .content {
   flex: 1;
   min-width: 0;
+}
+
+/* Everything right of the gutter: the code plus the row's annotations (wsOnly dot, usages pill,
+   comment and draft markers). Its own flex row, so wrap mode can move annotations under the code
+   (see .diffWrap .lineBody). Outside wrap mode it lays out exactly like the row did before. */
+.lineBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
 }
 
 /* Muted dot on a line the hide-whitespace transform collapsed — a quiet signal that a
