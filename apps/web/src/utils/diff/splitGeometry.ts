@@ -28,6 +28,25 @@ export function ribbonPath(edges: BlockEdges, width: number): string {
   ].join(" ")
 }
 
+// Where a row was on screen when it was measured (getBoundingClientRect), in CSS pixels.
+export type ScreenSpan = { top: number; bottom: number }
+
+// What one pane looked like at the moment of measuring: where the ribbon surface's top edge was
+// on screen, and how far that pane was scrolled.
+export type PaneFrame = { surfaceTop: number; scrollTop: number }
+
+// A measured row in the pane's scroll-invariant CONTENT coordinate, counted from the ribbon
+// surface's top. Measuring against the surface (not with offsetTop inside the content) is the
+// point: the pane's padding, any border and every fractional row height are then part of the
+// number, so a ribbon drawn at `top - scrollTop` lands exactly on the row's edge. offsetTop
+// left out the pane's 4px top padding and rounded 20.4px rows to whole pixels, which put every
+// ribbon about 4px above its rows on both sides.
+export function toContentSpan(span: ScreenSpan, frame: PaneFrame): ScreenSpan {
+  const offset = frame.scrollTop - frame.surfaceTop
+
+  return { top: span.top + offset, bottom: span.bottom + offset }
+}
+
 // Shift a block from content coordinates into each pane's viewport.
 export function edgesInViewport(
   edges: BlockEdges,
