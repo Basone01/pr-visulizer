@@ -12,7 +12,7 @@
 // view both have to agree on what "a pair" is, or the split view puts a removed line across from
 // a line its own emphasis says it has nothing to do with.
 import { type CharRange, changedRangesForPair } from "./prefixSuffixRange"
-import { changedWordRanges } from "./wordDiff"
+import { changedWordRanges, countTokens } from "./wordDiff"
 
 export type { CharRange } from "./prefixSuffixRange"
 
@@ -22,9 +22,11 @@ export type { CharRange } from "./prefixSuffixRange"
 // reads the same way — past this much difference the two lines are not counterparts at all.
 export const MAX_CHANGED_FRACTION = 0.75
 
-// Past this many candidate pairs (a 20×20 region), measuring every pair word by word gets slow,
-// so a big rewrite region falls back to the linear prefix/suffix measure.
-const MAX_WORD_MEASURED_PAIRS = 400
+// The word-by-word measure costs tokens(del) × tokens(add) per candidate pair. Summed over every
+// pair in a region that is exactly (all del tokens) × (all add tokens), so one product caps the
+// whole region's work. Past it (a big rewrite, or a few very long lines) the region falls back to
+// the linear prefix/suffix measure. 250k table cells stay well under a frame's worth of work.
+const MAX_WORD_MATCH_CELLS = 250_000
 
 // How alike two lines are, 0..1, or NOT_A_PAIR when they are too different to be counterparts.
 const NOT_A_PAIR = -1
@@ -80,8 +82,15 @@ export function pairChangedLines(dels: readonly string[], adds: readonly string[
   const delCount = dels.length
   const addCount = adds.length
 
-  const isSmallRegion = delCount * addCount <= MAX_WORD_MEASURED_PAIRS
-  const changedFractionOf = isSmallRegion ? wordChangedFraction : spanChangedFraction
+  const sumTokens = (lines: readonly string[]): number =>
+    lines.reduce((sum, line) => sum + countTokens(line), 0)
+  const isAffordable = sumTokens(dels) * sumTokens(adds) <= MAX_WORD_MATCH_CELLS
+  const changedFractionOf = isAffordable ? wordChangedFraction : spanChangedFraction
+
+  // Each pair is measured once here and read again by the walk below, so the walk adds no work.
+  const similarity: number[][] = dels.map((del) =>
+    adds.map((add) => similarityOf(del, add, changedFractionOf))
+  )
 
   // best[i][j] = the best total similarity obtainable from dels[i..] and adds[j..].
   const best: number[][] = Array.from({ length: delCount + 1 }, () =>
@@ -90,9 +99,11 @@ export function pairChangedLines(dels: readonly string[], adds: readonly string[
 
   for (let delIndex = delCount - 1; delIndex >= 0; delIndex -= 1) {
     for (let addIndex = addCount - 1; addIndex >= 0; addIndex -= 1) {
-      const similarity = similarityOf(dels[delIndex]!, adds[addIndex]!, changedFractionOf)
+      const pairSimilarity = similarity[delIndex]![addIndex]!
       const paired =
-        similarity === NOT_A_PAIR ? NOT_A_PAIR : similarity + best[delIndex + 1]![addIndex + 1]!
+        pairSimilarity === NOT_A_PAIR
+          ? NOT_A_PAIR
+          : pairSimilarity + best[delIndex + 1]![addIndex + 1]!
 
       best[delIndex]![addIndex] = Math.max(
         paired,
@@ -107,9 +118,11 @@ export function pairChangedLines(dels: readonly string[], adds: readonly string[
   let addIndex = 0
 
   while (delIndex < delCount && addIndex < addCount) {
-    const similarity = similarityOf(dels[delIndex]!, adds[addIndex]!, changedFractionOf)
+    const pairSimilarity = similarity[delIndex]![addIndex]!
     const paired =
-      similarity === NOT_A_PAIR ? NOT_A_PAIR : similarity + best[delIndex + 1]![addIndex + 1]!
+      pairSimilarity === NOT_A_PAIR
+        ? NOT_A_PAIR
+        : pairSimilarity + best[delIndex + 1]![addIndex + 1]!
 
     // Pairing wins ties on purpose: with two equally good candidates the nearer one keeps the
     // two runs reading in step, which is what a positional pairing got right in the easy case.

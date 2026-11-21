@@ -115,3 +115,23 @@ describe("pairChangedLines", () => {
     expect(onlyDels).toEqual(expected)
   })
 })
+
+describe("pairChangedLines — bounded work on a huge region", () => {
+  it("pairs a 60×60 region of long lines quickly by falling back to the span measure", () => {
+    // Arrange — 60 removed and 60 added lines of ~400 tokens each: word-matching every pair
+    // would be 60·60·400·400 ≈ 576M table cells.
+    const longLine = (seed: number): string =>
+      Array.from({ length: 200 }, (_, index) => `w${seed}_${index}`).join(" ")
+    const dels = Array.from({ length: 60 }, (_, index) => longLine(index))
+    const adds = dels.map((line) => `${line} extra`)
+    const startedAt = performance.now()
+
+    // Act
+    const pairs = pairChangedLines(dels, adds)
+
+    // Assert — every line still finds its counterpart, and the region finishes in well under 1s.
+    const expectedPairCount = 60
+    expect(pairs).toHaveLength(expectedPairCount)
+    expect(performance.now() - startedAt).toBeLessThan(1000)
+  })
+})

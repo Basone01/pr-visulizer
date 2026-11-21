@@ -113,6 +113,11 @@ function unmatchedRanges(tokens: Token[], matched: boolean[]): CharRange[] {
   return ranges
 }
 
+// How many tokens a line splits into. Matching two lines costs the product of their counts.
+export function countTokens(line: string): number {
+  return line.match(TOKEN_PATTERN)?.length ?? 0
+}
+
 // The changed ranges on each side of a pair. null when the lines are identical.
 export function changedWordRanges(before: string, after: string): WordRanges | null {
   if (before === after) return null
